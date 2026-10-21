@@ -9,3 +9,4 @@
 # estar también en los demás idiomas.
 
 titulo_ventana = Ventrik
+aviso_windows_viejo = Ventrik necesita Windows XP con Service Pack 3 o una versión más nueva de Windows.

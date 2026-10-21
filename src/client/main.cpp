@@ -28,11 +28,19 @@ LRESULT CALLBACK procesar_mensaje(HWND ventana, UINT mensaje, WPARAM wparam,
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE instancia, HINSTANCE, PWSTR, int como_mostrar) {
+  ventrik::endurecer_carga_de_dll();
   ventrik::activar_dep();
 
   const ventrik::Idioma idioma = ventrik::idioma_de_windows();
   const std::wstring titulo =
       ventrik::a_utf16(ventrik::texto(idioma, ventrik::Clave::titulo_ventana));
+
+  if (!ventrik::windows_es_compatible()) {
+    const std::wstring aviso =
+        ventrik::a_utf16(ventrik::texto(idioma, ventrik::Clave::aviso_windows_viejo));
+    MessageBoxW(nullptr, aviso.c_str(), titulo.c_str(), MB_OK | MB_ICONERROR);
+    return 1;
+  }
 
   WNDCLASSEXW clase = {};
   clase.cbSize = sizeof(clase);

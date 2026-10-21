@@ -9,3 +9,4 @@
 # English is also used when Windows is in a language Ventrik doesn't have.
 
 titulo_ventana = Ventrik
+aviso_windows_viejo = Ventrik needs Windows XP with Service Pack 3 or a newer version of Windows.

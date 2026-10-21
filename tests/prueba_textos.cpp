@@ -4,7 +4,7 @@
 
 #include "common/textos.h"
 #include "common/utf.h"
-#include "doctest/doctest.h"
+#include <doctest/doctest.h>
 
 namespace {
 

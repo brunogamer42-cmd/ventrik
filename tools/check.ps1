@@ -3,6 +3,7 @@
 # Compila las dos versiones (moderna y clásica), corre las pruebas en las
 # dos y revisa que cada .exe tenga lo que pide el diseño. Muestra OK o
 # FALLÓ en cada punto y, si algo falla, termina con código de error 1.
+# Al final deja en build\para_xp lo que hay que copiar a una PC con XP.
 #
 # Uso:  powershell -NoProfile -ExecutionPolicy Bypass -File tools\check.ps1
 
@@ -46,7 +47,19 @@ function Texto-Dumpbin([string[]]$argumentos) {
     return (& $script:dumpbin /nologo @argumentos) -join "`n"
 }
 
-# Funciones de Windows que no existen en XP y que suelen colarse sin querer.
+# DLL de Windows que existen en XP SP3. La versión clásica no puede pedir
+# ninguna otra: si lo hace, no abre en XP.
+$dllDeXP = @(
+    'kernel32.dll', 'user32.dll', 'gdi32.dll', 'advapi32.dll', 'shell32.dll',
+    'ole32.dll', 'oleaut32.dll', 'comctl32.dll', 'comdlg32.dll', 'shlwapi.dll',
+    'ws2_32.dll', 'wsock32.dll', 'mswsock.dll', 'iphlpapi.dll', 'winmm.dll',
+    'dsound.dll', 'd3d9.dll', 'imm32.dll', 'version.dll', 'crypt32.dll',
+    'secur32.dll', 'rpcrt4.dll', 'setupapi.dll', 'winspool.drv', 'msimg32.dll',
+    'uxtheme.dll', 'userenv.dll', 'psapi.dll', 'netapi32.dll', 'winhttp.dll',
+    'wininet.dll', 'usp10.dll'
+)
+
+# Funciones de Windows que no existen en XP de 32 bits y que suelen colarse.
 $soloDesdeVista = @(
     'GetTickCount64', 'InitializeSRWLock', 'AcquireSRWLockExclusive',
     'AcquireSRWLockShared', 'ReleaseSRWLockExclusive', 'ReleaseSRWLockShared',
@@ -65,8 +78,85 @@ $soloDesdeVista = @(
     'InitializeProcThreadAttributeList', 'UpdateProcThreadAttribute',
     'CreateThreadpoolWork', 'SubmitThreadpoolWork', 'CreateThreadpoolTimer',
     'SetThreadpoolTimer', 'RaiseFailFastException', 'GetEnabledXStateFeatures',
-    'SetDefaultDllDirectories', 'AddDllDirectory', 'BCryptGenRandom', 'WSAPoll', 'inet_pton', 'inet_ntop', 'if_nametoindex'
+    'SetDefaultDllDirectories', 'AddDllDirectory', 'SetThreadStackGuarantee',
+    'GetLogicalProcessorInformationEx', 'GetActiveProcessorCount',
+    'QueryUnbiasedInterruptTime', 'K32GetProcessMemoryInfo', 'K32EnumProcessModules',
+    'SetThreadDescription', 'GetThreadDescription', 'WaitOnAddress',
+    'WakeByAddressSingle', 'CreateFile2', 'GetOverlappedResultEx',
+    'BCryptGenRandom', 'WSAPoll', 'inet_pton', 'inet_ntop', 'if_nametoindex',
+    'InetPtonA', 'InetPtonW', 'InetNtopA', 'InetNtopW'
 )
+
+# Revisa las protecciones de un .exe y, en la clásica, que abra en XP.
+function Revisar-Exe([string]$exe, [string]$version) {
+    $nombre = Split-Path $exe -Leaf
+    if (-not (Test-Path $exe)) {
+        Informar "Existe $nombre" $false $exe
+        return
+    }
+    $cabeceras = Texto-Dumpbin @('/headers', $exe)
+    $dependencias = Texto-Dumpbin @('/dependents', $exe)
+
+    Informar "${nombre}: un solo .exe, sin DLL de Visual C++ (/MT)" `
+        ($dependencias -notmatch '(?i)vcruntime|msvcp|ucrtbase|api-ms-win-crt')
+    Informar "${nombre}: protección DEP (NX compatible)" ($cabeceras -match 'NX compatible')
+    Informar "${nombre}: direcciones al azar (Dynamic base)" ($cabeceras -match 'Dynamic base')
+    Informar "${nombre}: Control Flow Guard" ($cabeceras -match 'Control Flow Guard')
+
+    if ($version -eq 'moderna') {
+        Informar "${nombre}: es de 64 bits" ($cabeceras -match 'machine \(x64\)')
+        Informar "${nombre}: direcciones al azar ampliadas (High Entropy)" `
+            ($cabeceras -match 'High Entropy Virtual Addresses')
+        Informar "${nombre}: DLL solo desde la carpeta de sistema" `
+            ((Texto-Dumpbin @('/loadconfig', $exe)) -match '0800 Dependent Load Flag')
+        return
+    }
+
+    Informar "${nombre}: es de 32 bits" ($cabeceras -match 'machine \(x86\)')
+    Informar "${nombre}: marcado para Windows XP (5.01)" ($cabeceras -match '5\.01 subsystem version')
+    # dumpbin muestra la cantidad en hexadecimal.
+    $seh = [regex]::Match((Texto-Dumpbin @('/loadconfig', $exe)), '([0-9A-Fa-f]+) Safe Exception Handler Count')
+    Informar "${nombre}: SafeSEH" ($seh.Success -and [Convert]::ToInt32($seh.Groups[1].Value, 16) -gt 0)
+
+    $dlls = [regex]::Matches($dependencias, '(?im)^\s+(\S+\.(dll|drv))\s*$') |
+        ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() }
+    $dllRaras = @($dlls | Where-Object { $dllDeXP -notcontains $_ })
+    Informar "${nombre}: solo usa DLL que XP tiene" ($dllRaras.Count -eq 0) ('Usa: ' + ($dllRaras -join ', '))
+
+    $importadas = (Texto-Dumpbin @('/imports', $exe)) -split "`n" |
+        ForEach-Object { if ($_ -match '^\s+[0-9A-F]+\s+(\w+)\s*$') { $Matches[1] } }
+    $faltan = @($importadas | Where-Object { $soloDesdeVista -contains $_ } | Sort-Object -Unique)
+    Informar "${nombre}: sin funciones de Windows que XP no tiene" ($faltan.Count -eq 0) `
+        ('Usa: ' + ($faltan -join ', '))
+}
+
+# Abre el programa, espera su ventana y la cierra como lo haría la X.
+function Probar-Ventana([string]$exe) {
+    if (-not (Test-Path $exe)) { return }
+    $proceso = Start-Process -FilePath $exe -PassThru
+    $null = $proceso.Handle   # para poder leer el código de salida después
+    try {
+        $titulo = ''
+        $limite = (Get-Date).AddSeconds(15)
+        while ((Get-Date) -lt $limite -and -not $proceso.HasExited) {
+            $proceso.Refresh()
+            if ($proceso.MainWindowHandle -ne [IntPtr]::Zero) {
+                $titulo = $proceso.MainWindowTitle
+                break
+            }
+            Start-Sleep -Milliseconds 200
+        }
+        Informar 'Abre la ventana "Ventrik"' ($titulo -eq 'Ventrik') ('Título: "' + $titulo + '"')
+        $cerro = $false
+        if (-not $proceso.HasExited) {
+            $null = $proceso.CloseMainWindow()
+            $cerro = $proceso.WaitForExit(10000)
+        }
+        Informar 'Se cierra bien' ($cerro -and $proceso.ExitCode -eq 0)
+    } finally {
+        if (-not $proceso.HasExited) { $proceso.Kill() }
+    }
+}
 
 Push-Location $raiz
 try {
@@ -97,6 +187,9 @@ try {
     Informar 'dumpbin (para revisar los .exe)' (Test-Path $script:dumpbin) $script:dumpbin
     if (-not (Test-Path $script:dumpbin)) { exit 1 }
 
+    & (Join-Path $PSScriptRoot 'huellas_terceros.ps1')
+    Informar 'Bibliotecas de terceros sin cambios (third_party\HUELLAS.txt)' ($LASTEXITCODE -eq 0)
+
     foreach ($version in 'moderna', 'clasica') {
         Write-Host ''
         Write-Host ('Versión ' + $version)
@@ -113,63 +206,34 @@ try {
         $r = Ejecutar $ctest @('--preset', $version) (Join-Path $registros "$version-pruebas.txt")
         Informar 'Pruebas automáticas' ($r -eq 0)
 
-        $exe = Join-Path $raiz "build\$version\Release\ventrik.exe"
-        if (-not (Test-Path $exe)) {
-            Informar 'Existe ventrik.exe' $false $exe
-            continue
-        }
-
-        $cabeceras = Texto-Dumpbin @('/headers', $exe)
-        $dependencias = Texto-Dumpbin @('/dependents', $exe)
-        $config = Texto-Dumpbin @('/loadconfig', $exe)
-
-        Informar 'Un solo .exe, sin DLL de Visual C++ (/MT)' `
-            ($dependencias -notmatch '(?i)vcruntime|msvcp|ucrtbase|api-ms-win-crt')
-        Informar 'Protección DEP (NX compatible)' ($cabeceras -match 'NX compatible')
-        Informar 'Direcciones al azar (Dynamic base)' ($cabeceras -match 'Dynamic base')
-        Informar 'Control Flow Guard' ($cabeceras -match 'Control Flow Guard')
-
-        if ($version -eq 'moderna') {
-            Informar 'Es de 64 bits' ($cabeceras -match 'machine \(x64\)')
-            Informar 'Direcciones al azar ampliadas (High Entropy)' ($cabeceras -match 'High Entropy Virtual Addresses')
-        } else {
-            Informar 'Es de 32 bits' ($cabeceras -match 'machine \(x86\)')
-            Informar 'Marcado para Windows XP (5.01)' ($cabeceras -match '5\.01 subsystem version')
-            $seh = [regex]::Match($config, '(\d+) Safe Exception Handler Count')
-            Informar 'SafeSEH' ($seh.Success -and [int]$seh.Groups[1].Value -gt 0)
-            Informar 'Sin DLL que XP no tiene' ($dependencias -notmatch '(?i)bcrypt\.dll|api-ms-win-')
-            $importadas = (Texto-Dumpbin @('/imports', $exe)) -split "`n" |
-                ForEach-Object { if ($_ -match '^\s+[0-9A-F]+\s+(\w+)\s*$') { $Matches[1] } }
-            $faltan = @($importadas | Where-Object { $soloDesdeVista -contains $_ } | Sort-Object -Unique)
-            Informar 'Sin funciones de Windows que XP no tiene' ($faltan.Count -eq 0) `
-                ('Usa: ' + ($faltan -join ', '))
-        }
-
-        # Abre el programa, espera su ventana y la cierra como lo haría la X.
-        $proceso = Start-Process -FilePath $exe -PassThru
-        $null = $proceso.Handle   # para poder leer el código de salida después
-        try {
-            $titulo = ''
-            $limite = (Get-Date).AddSeconds(15)
-            while ((Get-Date) -lt $limite -and -not $proceso.HasExited) {
-                $proceso.Refresh()
-                if ($proceso.MainWindowHandle -ne [IntPtr]::Zero) {
-                    $titulo = $proceso.MainWindowTitle
-                    break
-                }
-                Start-Sleep -Milliseconds 200
-            }
-            Informar 'Abre la ventana "Ventrik"' ($titulo -eq 'Ventrik') ('Título: "' + $titulo + '"')
-            $cerro = $false
-            if (-not $proceso.HasExited) {
-                $null = $proceso.CloseMainWindow()
-                $cerro = $proceso.WaitForExit(10000)
-            }
-            Informar 'Se cierra bien' ($cerro -and $proceso.ExitCode -eq 0)
-        } finally {
-            if (-not $proceso.HasExited) { $proceso.Kill() }
-        }
+        $carpeta = Join-Path $raiz "build\$version\Release"
+        Revisar-Exe (Join-Path $carpeta 'ventrik.exe') $version
+        Revisar-Exe (Join-Path $carpeta 'ventrik_pruebas.exe') $version
+        Probar-Ventana (Join-Path $carpeta 'ventrik.exe')
     }
+
+    # Lo que hay que copiar a una PC con XP para probar ahí.
+    $paraXP = Join-Path $raiz 'build\para_xp'
+    $clasica = Join-Path $raiz 'build\clasica\Release'
+    New-Item -ItemType Directory -Force -Path $paraXP | Out-Null
+    $copiado = $true
+    foreach ($archivo in (Join-Path $clasica 'ventrik.exe'), (Join-Path $clasica 'ventrik_pruebas.exe'),
+                         (Join-Path $raiz 'tools\probar_en_xp.bat')) {
+        if (-not (Test-Path $archivo)) { $copiado = $false; continue }
+        # El antivirus de Windows a veces bloquea unos segundos un .exe recién hecho.
+        $listo = $false
+        for ($intento = 1; $intento -le 5 -and -not $listo; $intento++) {
+            try {
+                Copy-Item $archivo $paraXP -Force
+                $listo = $true
+            } catch {
+                Start-Sleep -Seconds 2
+            }
+        }
+        if (-not $listo) { $copiado = $false }
+    }
+    Write-Host ''
+    Informar 'Carpeta para probar en XP (build\para_xp)' $copiado
 } finally {
     Pop-Location
 }
@@ -177,6 +241,7 @@ try {
 Write-Host ''
 if ($script:fallas -eq 0) {
     Write-Host 'TODO OK' -ForegroundColor Green
+    Write-Host ('Para probar en XP, copiá la carpeta ' + (Join-Path $raiz 'build\para_xp'))
     exit 0
 }
 $plural = if ($script:fallas -eq 1) { 'FALLA' } else { 'FALLAS' }

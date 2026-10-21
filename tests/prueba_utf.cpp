@@ -1,7 +1,7 @@
 #include <string>
 
 #include "common/utf.h"
-#include "doctest/doctest.h"
+#include <doctest/doctest.h>
 
 TEST_CASE("a_utf16 convierte texto común") {
   CHECK(ventrik::a_utf16("Ventrik") == std::wstring(L"Ventrik"));

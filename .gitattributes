@@ -1,0 +1,17 @@
+# Por defecto, Git ajusta los finales de línea de los archivos de texto.
+* text=auto
+
+# Las bibliotecas de terceros y la licencia se guardan y se bajan byte por
+# byte, sin cambiar nada, para que sigan coincidiendo con las huellas de
+# third_party/VERSIONS.md.
+third_party/** -text
+LICENSE -text
+
+# Lo nuestro dentro de third_party/ es texto normal.
+third_party/CMakeLists.txt text=auto
+third_party/VERSIONS.md text=auto
+third_party/integracion/** text=auto
+
+# Los comandos de Windows van siempre con fin de línea de Windows.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
