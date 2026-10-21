@@ -1,0 +1,44 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "moderna",
+      "displayName": "Moderna (Windows 10 y 11, 64 bits)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": { "value": "x64", "strategy": "set" },
+      "toolset": { "value": "v143", "strategy": "set" },
+      "binaryDir": "${sourceDir}/build/moderna",
+      "cacheVariables": { "VENTRIK_VERSION": "moderna" }
+    },
+    {
+      "name": "clasica",
+      "displayName": "Clasica (Windows XP SP3 a 8.1, 32 bits)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": { "value": "Win32", "strategy": "set" },
+      "toolset": { "value": "v141_xp", "strategy": "set" },
+      "binaryDir": "${sourceDir}/build/clasica",
+      "cacheVariables": { "VENTRIK_VERSION": "clasica" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "moderna", "configurePreset": "moderna", "configuration": "Release" },
+    { "name": "clasica", "configurePreset": "clasica", "configuration": "Release" }
+  ],
+  "testPresets": [
+    {
+      "name": "moderna",
+      "configurePreset": "moderna",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "clasica",
+      "configurePreset": "clasica",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+# Textos de Ventrik en español.
+#
+# Cada línea es: clave = texto
+# - La clave va en minúsculas, con números o guion bajo.
+# - El texto va en UTF-8 y puede tener cualquier carácter.
+# - Las líneas que empiezan con # son comentarios.
+#
+# Este archivo es la referencia: cada clave que está acá tiene que
+# estar también en los demás idiomas.
+
+titulo_ventana = Ventrik

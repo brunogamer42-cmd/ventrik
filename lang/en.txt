@@ -1,0 +1,11 @@
+# Ventrik texts in English.
+#
+# Each line is: key = text
+# - Keys are lowercase letters, digits or underscores.
+# - Text is UTF-8 and may contain any character.
+# - Lines starting with # are comments.
+#
+# es.txt is the reference: every key in es.txt must also be here.
+# English is also used when Windows is in a language Ventrik doesn't have.
+
+titulo_ventana = Ventrik
