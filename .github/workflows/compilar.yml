@@ -1,0 +1,30 @@
+name: Compilar y probar
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  moderna:
+    name: Versión moderna
+    # Fijo con Visual Studio 2022 (hay otra imagen con VS 2026).
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: tools\check.ps1 -SoloModerna
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools\check.ps1 -SoloModerna
+
+      - name: Guardar los registros si algo falló
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: registros
+          path: build/registros/

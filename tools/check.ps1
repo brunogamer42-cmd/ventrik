@@ -6,6 +6,9 @@
 # Al final deja en build\para_xp lo que hay que copiar a una PC con XP.
 #
 # Uso:  powershell -NoProfile -ExecutionPolicy Bypass -File tools\check.ps1
+#       -SoloModerna: lo que corre GitHub, cuyas máquinas no traen el soporte para XP.
+
+param([switch]$SoloModerna)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3.0
@@ -162,14 +165,16 @@ Push-Location $raiz
 try {
     Write-Host 'Herramientas'
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    $componentes = @('Microsoft.VisualStudio.Component.VC.Tools.x86.x64')
+    if (-not $SoloModerna) { $componentes += 'Microsoft.VisualStudio.Component.WinXP' }
     $vs = $null
     if (Test-Path $vswhere) {
-        $vs = & $vswhere -latest -products * -version '[17.0,18.0)' `
-            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.WinXP `
+        $vs = & $vswhere -latest -products * -version '[17.0,18.0)' -requires @componentes `
             -property installationPath | Select-Object -First 1
     }
-    Informar 'Visual Studio 2022 con C++ y soporte para XP' ([bool]$vs) `
-        'Falta Visual Studio 2022 con "Desarrollo para el escritorio con C++" y la compatibilidad con Windows XP (v141)'
+    $queFalta = if ($SoloModerna) { '' } else { ' y la compatibilidad con Windows XP (v141)' }
+    Informar ('Visual Studio 2022 con C++' + $(if ($SoloModerna) { '' } else { ' y soporte para XP' })) ([bool]$vs) `
+        ('Falta Visual Studio 2022 con "Desarrollo para el escritorio con C++"' + $queFalta)
     if (-not $vs) { exit 1 }
 
     $cmake = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
@@ -190,7 +195,8 @@ try {
     & (Join-Path $PSScriptRoot 'huellas_terceros.ps1')
     Informar 'Bibliotecas de terceros sin cambios (third_party\HUELLAS.txt)' ($LASTEXITCODE -eq 0)
 
-    foreach ($version in 'moderna', 'clasica') {
+    $versiones = if ($SoloModerna) { @('moderna') } else { @('moderna', 'clasica') }
+    foreach ($version in $versiones) {
         Write-Host ''
         Write-Host ('Versión ' + $version)
 
@@ -213,6 +219,7 @@ try {
     }
 
     # Lo que hay que copiar a una PC con XP para probar ahí.
+    if (-not $SoloModerna) {
     $paraXP = Join-Path $raiz 'build\para_xp'
     $clasica = Join-Path $raiz 'build\clasica\Release'
     New-Item -ItemType Directory -Force -Path $paraXP | Out-Null
@@ -234,6 +241,7 @@ try {
     }
     Write-Host ''
     Informar 'Carpeta para probar en XP (build\para_xp)' $copiado
+    }
 } finally {
     Pop-Location
 }
@@ -241,7 +249,9 @@ try {
 Write-Host ''
 if ($script:fallas -eq 0) {
     Write-Host 'TODO OK' -ForegroundColor Green
-    Write-Host ('Para probar en XP, copiá la carpeta ' + (Join-Path $raiz 'build\para_xp'))
+    if (-not $SoloModerna) {
+        Write-Host ('Para probar en XP, copiá la carpeta ' + (Join-Path $raiz 'build\para_xp'))
+    }
     exit 0
 }
 $plural = if ($script:fallas -eq 1) { 'FALLA' } else { 'FALLAS' }
