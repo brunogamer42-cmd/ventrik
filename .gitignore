@@ -1,0 +1,67 @@
+# Carpetas de compilación (solo en la raíz: algunas bibliotecas
+# tienen código fuente en carpetas como x86/)
+/build/
+/out/
+/[Bb]in/
+/[Oo]bj/
+/[Dd]ebug/
+/[Rr]elease/
+/x64/
+/x86/
+/Win32/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sln.docstates
+*.vcxproj.user
+*.aps
+*.ncb
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+ipch/
+enc_temp_folder/
+
+# Resultados del compilador
+*.obj
+*.o
+*.pch
+*.pdb
+*.idb
+*.ilk
+*.exp
+*.lib
+*.exe
+*.dll
+*.tlog
+*.lastbuildstate
+*.log
+*.iobj
+*.ipdb
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+CTestTestfile.cmake
+/Testing/
+_deps/
+compile_commands.json
+
+# Fuzzing: casos y fallas generados
+fuzz/corpus/
+fuzz/crashes/
+crash-*
+leak-*
+timeout-*
+
+# Configuración personal
+.claude/settings.local.json
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini
