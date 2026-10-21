@@ -175,7 +175,17 @@ try {
     $queFalta = if ($SoloModerna) { '' } else { ' y la compatibilidad con Windows XP (v141)' }
     Informar ('Visual Studio 2022 con C++' + $(if ($SoloModerna) { '' } else { ' y soporte para XP' })) ([bool]$vs) `
         ('Falta Visual Studio 2022 con "Desarrollo para el escritorio con C++"' + $queFalta)
-    if (-not $vs) { exit 1 }
+    if (-not $vs) {
+        if (Test-Path $vswhere) {
+            Write-Host '         Instalaciones que ve vswhere:'
+            & $vswhere -all -products * -prerelease -format json | ConvertFrom-Json | ForEach-Object {
+                Write-Host ('         - {0} {1} completa={2} en {3}' -f $_.displayName, $_.installationVersion, $_.isComplete, $_.installationPath)
+            }
+        } else {
+            Write-Host "         No existe $vswhere"
+        }
+        exit 1
+    }
 
     $cmake = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
     if (-not (Test-Path $cmake)) {
