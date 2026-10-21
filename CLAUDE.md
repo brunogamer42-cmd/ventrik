@@ -25,6 +25,7 @@ Diseño: @docs/diseno.md. Plan de etapas: @docs/plan.md.
 - Textos visibles: siempre en lang/, nunca escritos en el código.
 - Código que lea datos de red o archivos lleva prueba de fuzzing.
 - Cambios en cifrado, protocolo o archivos: revisión con un subagente antes de darlos por terminados.
+- Comentarios en el código: pocos y de una línea, solo para explicar por qué (una decisión de seguridad o un arreglo para XP). Nunca para contar lo que el código hace.
 
 ## Git
 - Un commit por paso aprobado, con un mensaje en español que diga qué hace.
