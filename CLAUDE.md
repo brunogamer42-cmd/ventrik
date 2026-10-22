@@ -1,7 +1,7 @@
 # Ventrik
 
 Programa de voz para grupos, liviano, con servidor propio gratuito.
-Diseño: @docs/diseno.md. Plan de etapas: @docs/plan.md.
+Diseño: @docs/diseno.md. Plan de etapas: @docs/plan.md. Estado del trabajo (leer primero, actualizar al cerrar cada paso): @docs/estado.md.
 
 ## Con quién trabajás
 - El dueño del proyecto no programa. Hablale en español, simple y sin jerga.
