@@ -65,11 +65,11 @@ Cada biblioteca se guarda con versión fija y sin modificar su código. De cada 
 
 Nada de esto cambia el código de las bibliotecas.
 
-- **`mbedtls/ventrik_mbedtls_config.h`:** ajustes sobre la configuración por defecto de Mbed TLS. En la versión clásica:
-  - apaga BCryptGenRandom, que no existe en XP, y Mbed TLS pide los números aleatorios a `src/common/entropia_xp.cpp`, que usa RtlGenRandom;
-  - hace que los certificados usen la versión propia de `inet_pton` de Mbed TLS, porque la de Windows tampoco existe en XP.
-
-  Hasta la etapa 2, Mbed TLS no tiene control de hilos: se usa desde un solo hilo.
+- **`mbedtls/ventrik_mbedtls_config.h`:** ajustes sobre la configuración por defecto de Mbed TLS.
+  - En todas las versiones enciende el control de hilos (`MBEDTLS_THREADING_C` con `MBEDTLS_THREADING_ALT`).
+  - En la versión clásica y en el fuzzing apaga BCryptGenRandom, que no existe en XP, y Mbed TLS pide los números aleatorios a `src/common/entropia_xp.cpp`, que usa RtlGenRandom.
+  - En la clásica, además, los certificados usan la versión propia de `inet_pton` de Mbed TLS, porque la de Windows tampoco existe en XP.
+- **`mbedtls/threading_alt.h`:** los candados de Mbed TLS son `CRITICAL_SECTION`, que existe en XP. Las funciones están en `src/common/cifrado/inicio.cpp`, y `ventrik::cifrado::Inicio` las registra al arrancar.
 - **`speexdsp/speexdsp_config_types.h`:** lo que genera el `configure` de SpeexDSP.
 - **`miniupnpc/miniupnpcstrings.h`:** lo que genera el CMake de miniupnpc.
 - **`stb/stb_image.c`:** compila stb_image solo para GIF y solo desde memoria.

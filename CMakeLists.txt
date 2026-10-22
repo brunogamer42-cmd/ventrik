@@ -67,8 +67,9 @@ if(NOT VENTRIK_VERSION STREQUAL "fuzzing")
 endif()
 if(VENTRIK_VERSION STREQUAL "clasica")
   target_compile_definitions(ventrik_opciones_base INTERFACE VENTRIK_CLASICA=1)
-  # SafeSEH existe solo en 32 bits.
-  target_link_options(ventrik_opciones_base INTERFACE /SAFESEH)
+  # SafeSEH existe solo en 32 bits. /DEPENDENTLOADFLAG:0x800: XP lo ignora,
+  # y en Windows 10 de 32 bits las DLL se buscan solo en la carpeta de sistema.
+  target_link_options(ventrik_opciones_base INTERFACE /SAFESEH /DEPENDENTLOADFLAG:0x800)
 elseif(VENTRIK_VERSION STREQUAL "fuzzing")
   target_compile_definitions(ventrik_opciones_base INTERFACE VENTRIK_FUZZING=1)
   target_compile_options(ventrik_opciones_base INTERFACE /fsanitize=address /fsanitize=fuzzer /Zi)
@@ -98,15 +99,16 @@ endif()
 target_compile_definitions(ventrik_opciones INTERFACE
   UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-# Bibliotecas de third_party/. Los fuzzers solo usan GSL.
+# Bibliotecas de third_party/. Los fuzzers solo usan GSL y Mbed TLS.
 if(VENTRIK_VERSION STREQUAL "fuzzing")
   add_subdirectory(third_party EXCLUDE_FROM_ALL)
 else()
   add_subdirectory(third_party)
 endif()
 
-# Números aleatorios para Mbed TLS en la versión clásica (RtlGenRandom).
-if(VENTRIK_VERSION STREQUAL "clasica")
+# Números aleatorios para Mbed TLS en la versión clásica (RtlGenRandom). El
+# fuzzing también, porque compila con las funciones de Windows de XP.
+if(VENTRIK_VERSION STREQUAL "clasica" OR VENTRIK_VERSION STREQUAL "fuzzing")
   add_library(ventrik_entropia_xp STATIC src/common/entropia_xp.cpp)
   target_include_directories(ventrik_entropia_xp PRIVATE src)
   target_link_libraries(ventrik_entropia_xp PRIVATE ventrik_opciones mbedtls gsl)
@@ -127,19 +129,25 @@ add_custom_command(
 
 # Código común al programa, al servidor y a las pruebas.
 add_library(ventrik_comun STATIC
+  src/common/archivos.cpp
+  src/common/cifrado/huella.cpp
+  src/common/cifrado/identidad.cpp
+  src/common/cifrado/inicio.cpp
+  src/common/cifrado/tls.cpp
   src/common/proceso.cpp
   src/common/protocol/bytes.cpp
   src/common/protocol/marcos.cpp
   src/common/protocol/mensajes.cpp
   src/common/protocol/negociacion.cpp
+  src/common/red/red.cpp
   src/common/textos.cpp
   src/common/utf.cpp
   "${VENTRIK_GENERADO}/textos_generados.h")
 target_include_directories(ventrik_comun PUBLIC src "${VENTRIK_GENERADO}")
-target_link_libraries(ventrik_comun PUBLIC ventrik_opciones gsl)
+target_link_libraries(ventrik_comun PUBLIC ventrik_opciones gsl mbedtls ws2_32 shell32)
 
 if(VENTRIK_VERSION STREQUAL "fuzzing")
-  foreach(fuzzer fuzz_protocolo fuzz_utf)
+  foreach(fuzzer fuzz_identidad fuzz_protocolo fuzz_textos fuzz_utf)
     add_executable(${fuzzer} fuzz/${fuzzer}.cpp)
     target_link_libraries(${fuzzer} PRIVATE ventrik_comun)
     add_custom_command(TARGET ${fuzzer} POST_BUILD
@@ -149,16 +157,30 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
   return()
 endif()
 
-# El programa.
+# El servidor y el programa, en bibliotecas para que las pruebas los usen.
+add_library(ventrik_servidor_base STATIC
+  src/server/proteccion.cpp src/server/registro.cpp src/server/servidor.cpp)
+target_link_libraries(ventrik_servidor_base PUBLIC ventrik_comun)
+# select() de Winsock atiende 64 sockets si no se dice otra cosa.
+target_compile_definitions(ventrik_servidor_base PRIVATE FD_SETSIZE=1024)
+add_library(ventrik_cliente_base STATIC src/client/conexion.cpp)
+target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun)
+
 add_executable(ventrik WIN32 src/client/main.cpp)
-target_link_libraries(ventrik PRIVATE ventrik_comun user32)
+target_link_libraries(ventrik PRIVATE ventrik_cliente_base user32)
+
+add_executable(ventrik_servidor src/server/main.cpp)
+target_link_libraries(ventrik_servidor PRIVATE ventrik_servidor_base)
 
 # Pruebas automáticas.
 enable_testing()
 add_executable(ventrik_pruebas
   tests/main.cpp
   tests/prueba_argon2.cpp
+  tests/prueba_conexion.cpp
   tests/prueba_gsl.cpp
+  tests/prueba_huella.cpp
+  tests/prueba_identidad.cpp
   tests/prueba_imgui.cpp
   tests/prueba_libwebp.cpp
   tests/prueba_mbedtls.cpp
@@ -166,7 +188,10 @@ add_executable(ventrik_pruebas
   tests/prueba_miniupnpc.cpp
   tests/prueba_opus.cpp
   tests/prueba_proceso.cpp
+  tests/prueba_proteccion.cpp
   tests/prueba_protocolo.cpp
+  tests/prueba_red.cpp
+  tests/prueba_registro.cpp
   tests/prueba_rnnoise.cpp
   tests/prueba_speexdsp.cpp
   tests/prueba_sqlite.cpp
@@ -174,7 +199,7 @@ add_executable(ventrik_pruebas
   tests/prueba_textos.cpp
   tests/prueba_utf.cpp)
 target_link_libraries(ventrik_pruebas PRIVATE
-  ventrik_comun doctest
+  ventrik_servidor_base ventrik_cliente_base doctest
   argon2 gsl imgui imgui_null libwebp mbedtls miniaudio miniupnpc opus
   rnnoise speexdsp sqlite stb_image)
 add_test(NAME pruebas COMMAND ventrik_pruebas)

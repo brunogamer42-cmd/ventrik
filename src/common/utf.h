@@ -17,4 +17,7 @@ bool es_utf8_valido(std::string_view texto);
 // Pasa texto UTF-8 a UTF-16. Si no es UTF-8 válido, devuelve vacío.
 std::wstring a_utf16(std::string_view utf8);
 
+// Para mostrar rutas y argumentos. Las mitades de par sueltas pasan a U+FFFD acá: XP no lo hace.
+std::string a_utf8(std::wstring_view utf16);
+
 }  // namespace ventrik

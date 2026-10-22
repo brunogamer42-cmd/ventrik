@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <iterator>
+#include <string>
 
 namespace ventrik {
 
@@ -30,6 +31,11 @@ constexpr bool operator<(const VersionPrograma& a, const VersionPrograma& b) {
 }
 
 constexpr VersionPrograma kVersionPrograma{0, 1, 0};
+
+inline std::string a_texto(const VersionPrograma& version) {
+  return std::to_string(version.mayor) + "." + std::to_string(version.menor) + "." +
+         std::to_string(version.parche);
+}
 
 constexpr std::uint16_t kProtocoloMinimo = 1;
 constexpr std::uint16_t kProtocoloMaximo = 1;

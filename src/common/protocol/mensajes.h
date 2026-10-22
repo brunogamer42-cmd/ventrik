@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 
@@ -17,6 +18,9 @@ enum class TipoMensaje : std::uint16_t {
 };
 
 using Funciones = std::uint64_t;
+
+// Mientras se saluda alcanza con mensajes chicos (el Hola mide 18 bytes): menos memoria para un extraño.
+constexpr std::size_t kMaximoCuerpoSaludo = 64;
 
 // Formato fijo para siempre: así cualquier versión puede pedirle a otra que actualice.
 struct Hola {

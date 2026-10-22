@@ -10,7 +10,8 @@ namespace {
 
 VersionPrograma primera_version_del_protocolo(std::uint16_t protocolo) {
   const std::size_t conocidos = std::size(kPrimeraVersionDelProtocolo);
-  return kPrimeraVersionDelProtocolo[std::min<std::size_t>(protocolo, conocidos) - 1];
+  return gsl::at(kPrimeraVersionDelProtocolo,
+                 static_cast<gsl::index>(std::min<std::size_t>(protocolo, conocidos)) - 1);
 }
 
 }  // namespace

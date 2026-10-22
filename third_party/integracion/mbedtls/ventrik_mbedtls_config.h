@@ -3,15 +3,13 @@
  * (third_party/mbedtls/include/mbedtls/mbedtls_config.h). Mbed TLS lo
  * carga con MBEDTLS_USER_CONFIG_FILE (ver third_party/CMakeLists.txt).
  *
- * Por ahora solo adapta la versión clásica a Windows XP. Las versiones
- * mínimas de TLS y los algoritmos permitidos se ajustan en la etapa 2.
- *
- * IMPORTANTE para la etapa 2: con esta configuración Mbed TLS no tiene
- * control de hilos (MBEDTLS_THREADING_C apagado). Hasta encenderlo (con
- * MBEDTLS_THREADING_ALT sobre CRITICAL_SECTION, que existe en XP), Mbed TLS
- * y PSA se usan desde un solo hilo: si dos hilos piden números aleatorios a
- * la vez, el generador puede repetirlos, y eso rompe el cifrado.
+ * Las versiones de TLS y los algoritmos permitidos no se tocan acá: los
+ * elige src/common/cifrado/tls.cpp en cada conexión.
  */
+
+/* Sin control de hilos, el generador aleatorio podría repetir números (candados: threading_alt.h). */
+#define MBEDTLS_THREADING_C
+#define MBEDTLS_THREADING_ALT
 
 #if defined(VENTRIK_MBEDTLS_RTLGENRANDOM)
 /*

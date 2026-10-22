@@ -34,11 +34,18 @@ struct Separado {
   bool error = false;
 };
 
+// Como el servidor: un tope chico hasta el primer mensaje (el saludo) y otro después.
+struct Topes {
+  std::size_t primero = kMaximoCuerpo;
+  std::size_t despues = kMaximoCuerpo;
+};
+
 // Sin el Ensamblador y sin el Lector, para comparar contra algo escrito aparte.
-Separado separar_a_mano(gsl::span<const std::uint8_t> flujo, std::size_t maximo) {
+Separado separar_a_mano(gsl::span<const std::uint8_t> flujo, const Topes& topes) {
   Separado separado;
   std::size_t i = 0;
   while (flujo.size() - i >= kCabeceraMarco) {
+    const std::size_t maximo = separado.marcos.empty() ? topes.primero : topes.despues;
     const auto cabecera = flujo.subspan(i, kCabeceraMarco);
     const std::uint32_t largo = std::uint32_t{cabecera[0]} | (std::uint32_t{cabecera[1]} << 8) |
                                 (std::uint32_t{cabecera[2]} << 16) | (std::uint32_t{cabecera[3]} << 24);
@@ -57,17 +64,18 @@ Separado separar_a_mano(gsl::span<const std::uint8_t> flujo, std::size_t maximo)
   return separado;
 }
 
-Separado ensamblar(gsl::span<const std::uint8_t> flujo, std::size_t maximo, std::uint32_t semilla) {
+Separado ensamblar(gsl::span<const std::uint8_t> flujo, const Topes& topes, std::uint32_t semilla) {
   Separado separado;
-  Ensamblador ensamblador(maximo);
+  Ensamblador ensamblador(topes.primero);
   while (!flujo.empty()) {
     semilla = semilla * 1103515245u + 12345u;
     const std::size_t paso = 1 + (semilla >> 16) % 300;
     auto pedazo = flujo.first(std::min(paso, flujo.size()));
     flujo = flujo.subspan(pedazo.size());
     while (auto marco = ensamblador.siguiente(pedazo)) {
-      exigir(marco->cuerpo.size() <= maximo);
+      exigir(marco->cuerpo.size() <= (separado.marcos.empty() ? topes.primero : topes.despues));
       separado.marcos.push_back(std::move(*marco));
+      ensamblador.cambiar_maximo(topes.despues);
     }
     exigir(pedazo.empty());
   }
@@ -75,11 +83,12 @@ Separado ensamblar(gsl::span<const std::uint8_t> flujo, std::size_t maximo, std:
   return separado;
 }
 
-Separado ensamblar_entero(gsl::span<const std::uint8_t> flujo, std::size_t maximo) {
+Separado ensamblar_entero(gsl::span<const std::uint8_t> flujo, const Topes& topes) {
   Separado separado;
-  Ensamblador ensamblador(maximo);
+  Ensamblador ensamblador(topes.primero);
   while (auto marco = ensamblador.siguiente(flujo)) {
     separado.marcos.push_back(std::move(*marco));
+    ensamblador.cambiar_maximo(topes.despues);
   }
   exigir(flujo.empty());
   separado.error = ensamblador.error();
@@ -197,12 +206,16 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
 }
 
 void probar_marcos(gsl::span<const std::uint8_t> entrada) {
-  const std::size_t maximo = (entrada[0] & 0x80) != 0 ? 64 : kMaximoCuerpo;
+  const bool tope_chico = (entrada[0] & 0x80) != 0;
+  const bool sube_tras_el_saludo = (entrada[0] & 0x40) != 0;
+  Topes topes;
+  topes.primero = tope_chico ? kMaximoCuerpoSaludo : kMaximoCuerpo;
+  topes.despues = tope_chico && !sube_tras_el_saludo ? kMaximoCuerpoSaludo : kMaximoCuerpo;
   const auto flujo = entrada.subspan(1);
-  const Separado esperado = separar_a_mano(flujo, maximo);
-  const Separado de_a_pedazos = ensamblar(flujo, maximo, entrada[0]);
+  const Separado esperado = separar_a_mano(flujo, topes);
+  const Separado de_a_pedazos = ensamblar(flujo, topes, entrada[0]);
   exigir(mismos_marcos(de_a_pedazos, esperado));
-  exigir(mismos_marcos(ensamblar_entero(flujo, maximo), esperado));
+  exigir(mismos_marcos(ensamblar_entero(flujo, topes), esperado));
 
   std::optional<Hola> ultima_hola;
   for (const Marco& marco : de_a_pedazos.marcos) {

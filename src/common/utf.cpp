@@ -84,4 +84,34 @@ std::wstring a_utf16(std::string_view utf8) {
   return resultado;
 }
 
+std::string a_utf8(std::wstring_view utf16) {
+  if (utf16.empty() ||
+      utf16.size() > static_cast<std::size_t>(std::numeric_limits<int>::max() / 4)) {
+    return {};
+  }
+  std::wstring limpio(utf16);
+  for (std::size_t i = 0; i < limpio.size(); ++i) {
+    const bool alta = limpio[i] >= 0xD800 && limpio[i] <= 0xDBFF;
+    const bool baja = limpio[i] >= 0xDC00 && limpio[i] <= 0xDFFF;
+    if (alta && i + 1 < limpio.size() && limpio[i + 1] >= 0xDC00 && limpio[i + 1] <= 0xDFFF) {
+      ++i;
+    } else if (alta || baja) {
+      limpio[i] = 0xFFFD;
+    }
+  }
+  const int largo = static_cast<int>(limpio.size());
+  const int necesario =
+      WideCharToMultiByte(CP_UTF8, 0, limpio.data(), largo, nullptr, 0, nullptr, nullptr);
+  if (necesario <= 0) {
+    return {};
+  }
+  std::string resultado(static_cast<std::size_t>(necesario), '\0');
+  const int escrito = WideCharToMultiByte(CP_UTF8, 0, limpio.data(), largo, resultado.data(),
+                                          necesario, nullptr, nullptr);
+  if (escrito != necesario) {
+    return {};
+  }
+  return resultado;
+}
+
 }  // namespace ventrik

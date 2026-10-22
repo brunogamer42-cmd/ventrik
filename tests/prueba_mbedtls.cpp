@@ -26,6 +26,9 @@
 #if !defined(MBEDTLS_SSL_PROTO_TLS1_3) || !defined(MBEDTLS_SSL_PROTO_DTLS)
 #error "Mbed TLS tiene que traer TLS 1.3 y DTLS"
 #endif
+#if !defined(MBEDTLS_THREADING_C)
+#error "Mbed TLS tiene que tener control de hilos: el servidor lo usa desde varios"
+#endif
 
 // De dónde salen los números aleatorios: en la clásica, solo de
 // RtlGenRandom; en la moderna, solo de BCryptGenRandom. Nada más.
@@ -100,7 +103,6 @@ TEST_CASE("Mbed TLS obtiene números aleatorios del sistema") {
   CHECK(psa_generate_random(primero.data(), primero.size()) == PSA_SUCCESS);
   CHECK(psa_generate_random(segundo.data(), segundo.size()) == PSA_SUCCESS);
   CHECK(primero != segundo);
-  mbedtls_psa_crypto_free();
 }
 
 #if defined(VENTRIK_CLASICA)

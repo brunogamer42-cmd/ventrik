@@ -10,3 +10,51 @@
 
 titulo_ventana = Ventrik
 aviso_windows_viejo = Ventrik needs Windows XP with Service Pack 3 or a newer version of Windows.
+
+# Server (console window, for now)
+servidor_titulo = Ventrik server, version
+servidor_carpeta = Data folder:
+servidor_clave_creada = A new key was created for this server. It is its identity: keep a copy of the data folder.
+servidor_huella = Server fingerprint:
+servidor_huella_explicacion = Give this fingerprint to whoever connects through a trusted channel, such as in person or by WhatsApp.
+servidor_puerto = Waiting for connections on port
+servidor_salir = To close the server, press Ctrl+C.
+servidor_cerrando = Closing the server...
+servidor_uso = Usage: ventrik_servidor [--carpeta <folder>] [--puerto <number>] [--huella]
+servidor_uso_huella = With --huella it shows the fingerprint and exits, without opening the port.
+servidor_error_cifrado = Encryption could not be started.
+servidor_error_red = Windows networking could not be started.
+servidor_error_carpeta = The data folder could not be created:
+servidor_error_clave_ilegible = The server key is damaged or is not a Ventrik key. So that its fingerprint does not change without warning, the server will not start. File:
+servidor_error_clave_lectura = The server key could not be read. File:
+servidor_error_clave_escritura = The new server key could not be saved. File:
+servidor_error_puerto = The port could not be opened. Another program may be using it:
+servidor_conectada = Connected:
+servidor_desconectada = Disconnected:
+servidor_rechazo_cifrado = Rejected (did not speak TLS 1.3 with the allowed ciphers):
+servidor_rechazo_saludo = Rejected during the greeting (old version or invalid greeting):
+servidor_tiempo_vencido = Cut off (did not finish the greeting in time):
+servidor_demasiadas_pendientes = Rejected (too many half-greeted connections):
+servidor_lleno = Rejected (the server is full):
+servidor_demasiadas_por_ip = Rejected (too many connections from the same IP):
+servidor_avisos_perdidos = Notices not shown because too many arrived at once:
+servidor_demasiado_rapido = Rejected (too many connections in a row from this IP):
+servidor_bloqueada = IP blocked for a while, after failing several times in a row:
+servidor_rechazo_bloqueada = Rejected (IP blocked after repeated failures):
+servidor_ocupado = Rejected (too many new connections at once; those already connected are fine):
+
+# Connection test in the program (temporary, until the connection screen)
+conectar_uso = Usage: ventrik --conectar <ip[:port]> <fingerprint>
+conectar_direccion_invalida = The address is not valid. It must be an IP, for example 192.168.0.10 or 192.168.0.10:7700.
+conectar_huella_invalida = The fingerprint is not valid: it must have 52 letters and digits (A to Z and 2 to 7).
+conectar_ok = Connected to the server, with the right fingerprint.
+conectar_cifrado = Cipher:
+conectar_protocolo = Protocol:
+conectar_sin_respuesta = The server does not answer. Check the IP, the port and that the server is running.
+conectar_cifrado_rechazado = The server did not offer a secure Ventrik connection (TLS 1.3 with the allowed ciphers).
+conectar_huella_distinta = The server fingerprint does not match the one you were given: it may be a fake server. Nothing was sent to it.
+conectar_programa_viejo = The server needs a newer version of Ventrik. Update to version
+conectar_servidor_viejo = The server uses a version of Ventrik too old for this program.
+conectar_rechazo_ilegible = The server did not accept the connection.
+conectar_cortada = The server cut the connection before the greeting finished. It may be full: try again in a while.
+conectar_error_interno = Encryption or networking could not be started.

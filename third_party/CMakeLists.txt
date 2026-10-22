@@ -53,9 +53,10 @@ target_include_directories(mbedtls
 target_compile_definitions(mbedtls PUBLIC
   "MBEDTLS_USER_CONFIG_FILE=<ventrik_mbedtls_config.h>")
 target_link_libraries(mbedtls PRIVATE ventrik_opciones_terceros)
-if(VENTRIK_VERSION STREQUAL "clasica")
+if(VENTRIK_VERSION STREQUAL "clasica" OR VENTRIK_VERSION STREQUAL "fuzzing")
   # BCryptGenRandom no existe en XP: los números aleatorios los da
   # mbedtls_hardware_poll (src/common/entropia_xp.cpp), con RtlGenRandom.
+  # El fuzzing compila con las funciones de XP, así que también.
   target_compile_definitions(mbedtls PUBLIC VENTRIK_MBEDTLS_RTLGENRANDOM=1)
   target_link_libraries(mbedtls PUBLIC ventrik_entropia_xp)
 else()

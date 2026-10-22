@@ -107,13 +107,14 @@ function Revisar-Exe([string]$exe, [string]$version) {
     Informar "${nombre}: protección DEP (NX compatible)" ($cabeceras -match 'NX compatible')
     Informar "${nombre}: direcciones al azar (Dynamic base)" ($cabeceras -match 'Dynamic base')
     Informar "${nombre}: Control Flow Guard" ($cabeceras -match 'Control Flow Guard')
+    # XP lo ignora; en Windows 10 (también de 32 bits) evita DLL falsas al lado del .exe.
+    Informar "${nombre}: DLL solo desde la carpeta de sistema" `
+        ((Texto-Dumpbin @('/loadconfig', $exe)) -match '0800 Dependent Load Flag')
 
     if ($version -eq 'moderna') {
         Informar "${nombre}: es de 64 bits" ($cabeceras -match 'machine \(x64\)')
         Informar "${nombre}: direcciones al azar ampliadas (High Entropy)" `
             ($cabeceras -match 'High Entropy Virtual Addresses')
-        Informar "${nombre}: DLL solo desde la carpeta de sistema" `
-            ((Texto-Dumpbin @('/loadconfig', $exe)) -match '0800 Dependent Load Flag')
         return
     }
 
@@ -226,6 +227,7 @@ try {
 
         $carpeta = Join-Path $raiz "build\$version\Release"
         Revisar-Exe (Join-Path $carpeta 'ventrik.exe') $version
+        Revisar-Exe (Join-Path $carpeta 'ventrik_servidor.exe') $version
         Revisar-Exe (Join-Path $carpeta 'ventrik_pruebas.exe') $version
         if (Test-Path (Join-Path $raiz 'src\prueba_voz')) {
             Revisar-Exe (Join-Path $carpeta 'ventrik_eco.exe') $version
@@ -257,8 +259,8 @@ try {
     $clasica = Join-Path $raiz 'build\clasica\Release'
     New-Item -ItemType Directory -Force -Path $paraXP | Out-Null
     $copiado = $true
-    $archivos = @((Join-Path $clasica 'ventrik.exe'), (Join-Path $clasica 'ventrik_pruebas.exe'),
-                  (Join-Path $raiz 'tools\probar_en_xp.bat'))
+    $archivos = @((Join-Path $clasica 'ventrik.exe'), (Join-Path $clasica 'ventrik_servidor.exe'),
+                  (Join-Path $clasica 'ventrik_pruebas.exe'), (Join-Path $raiz 'tools\probar_en_xp.bat'))
     if (Test-Path (Join-Path $raiz 'src\prueba_voz')) {
         $archivos += (Join-Path $clasica 'ventrik_eco.exe'), (Join-Path $clasica 'ventrik_red.exe'), (Join-Path $raiz 'tools\red_xp.bat'), (Join-Path $raiz 'tools\eco_complejidad5.bat'), (Join-Path $raiz 'tools\eco_complejidad5_cola4.bat'), (Join-Path $raiz 'tools\opus_complejidad.bat')
     }

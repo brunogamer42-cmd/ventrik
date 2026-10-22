@@ -115,3 +115,17 @@ TEST_CASE("es_utf8_valido dice lo mismo que Windows 10 en todos los casos cortos
   CHECK(distintos == 0u);
 }
 #endif
+
+TEST_CASE("a_utf8 pasa texto de Windows a UTF-8, con acentos y emojis") {
+  const std::wstring texto = L"canción ñandú \U0001F3A4";
+  CHECK(ventrik::a_utf16(ventrik::a_utf8(texto)) == texto);
+  CHECK(ventrik::a_utf8(L"").empty());
+}
+
+TEST_CASE("a_utf8 cambia las mitades de par sueltas por U+FFFD, también en XP") {
+  const wchar_t alta_suelta[] = {L'a', 0xD800, L'b', 0};
+  const wchar_t baja_suelta[] = {0xDC00, L'c', 0};
+  CHECK(ventrik::a_utf8(alta_suelta) == "a\xEF\xBF\xBD" "b");
+  CHECK(ventrik::a_utf8(baja_suelta) == "\xEF\xBF\xBD" "c");
+  CHECK(ventrik::es_utf8_valido(ventrik::a_utf8(alta_suelta)));
+}

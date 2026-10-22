@@ -252,7 +252,7 @@ No es cifrado de punta a punta: el servidor descifra para reenviar. Por eso quie
 
 - **Chat, control y archivos:** TLS 1.3, el mismo estándar que usan los bancos en internet.
 - **Voz:** DTLS 1.2, una versión de TLS pensada para paquetes de voz.
-- **Algoritmo:** AES-GCM si el procesador acelera AES; ChaCha20-Poly1305 si no, como en procesadores viejos. Los dos son igual de seguros; solo cambia la velocidad.
+- **Algoritmo:** AES-GCM si el procesador acelera AES; ChaCha20-Poly1305 si no, como en procesadores viejos. Los dos son igual de seguros; solo cambia la velocidad. El servidor decide cuáles se permiten y, entre esos, el programa pone primero el que su procesador hace más rápido.
 - **Igual en todos los sistemas:** la biblioteca de cifrado va dentro del programa y del servidor. Un servidor en Windows XP cifra igual que uno en Windows 11.
 
 | Lo decide el servidor | Lo hace el programa |
@@ -266,10 +266,24 @@ El mínimo del programa es TLS 1.3 o DTLS 1.2, con AES-GCM o ChaCha20. Sin ese m
 
 La invitación lleva la huella del servidor. Si al conectar no coincide, el programa avisa y no se conecta; conviene pasar la huella por otro medio, como WhatsApp o en persona.
 
+La huella es el SHA-256 de la clave pública del servidor, no de su certificado: el certificado se puede rehacer sin que cambie. Se escribe con 52 letras y números en grupos de 4 (base32, que no usa 0, 1, 8 ni 9 para que no se confundan con O, I, B o g), por ejemplo `CTBC-P44I-2FC4-...`.
+
 ### Medidas de seguridad del servidor
 
 - **Acceso:** contraseña de servidor y de canales, con una espera cada vez más larga después de cada intento fallido. Roles y permisos por canal.
 - **Contra saturación y ataques:** límites de mensajes, conexiones y archivos por usuario. El servidor no responde con datos grandes a quien no demostró su dirección, así nadie lo usa para atacar a otros. Los paquetes de voz inválidos se descartan antes de procesarlos.
+- **Contra inundaciones de conexiones**, siempre activo, en todos los niveles y en todos los Windows:
+  - **Ritmo por IP:** cada IP puede abrir unas pocas conexiones de golpe (16) y después una por segundo. Lo que se pase se corta antes de gastar procesador en el cifrado.
+  - **Bloqueo temporal:** una IP que falla 5 veces en un minuto queda bloqueada 5 minutos. Cuentan como falla no hablar TLS, no saludar a tiempo, mandar un saludo ilegible, mandar demasiados datos antes de saludar o cifrar y cortar sin saludar; una versión vieja del programa no cuenta. Un saludo bueno no borra las fallas, para que no se pueda esquivar el bloqueo intercalándolos.
+  - **Tope global de saludos:** 20 por segundo entre todas las IP, porque cada saludo cuesta una firma y la netbook se satura antes que la red. Se cobra cuando el otro empieza a hablar, no al conectarse. Los que ya están conectados siguen hablando, y las IP que saludaron bien en las últimas 24 horas tienen además una reserva de 10 por segundo, para que un ataque no deje afuera a los de siempre. La reserva también tiene techo, porque cualquiera puede saludar bien una vez, y una IP que falla pierde ese lugar.
+  - **Antes de saludar,** nadie puede mandar más de 16 KiB (un programa de verdad manda menos de 2 KiB), y cada vuelta del servidor lee como mucho 64 veces por conexión, así nadie lo traba mandando datos sin parar.
+  - **Límites conocidos:**
+    - quien intenta 5 veces en un minuto con una huella equivocada queda bloqueado 5 minutos, y con él su IP: por eso el programa nunca reintenta solo después de ese aviso;
+    - detrás de una IP compartida por muchos (CGNAT de los celulares), un atacante puede bloquear también a los demás;
+    - el relay y las pruebas del directorio (etapas 6 y 7) van a necesitar su propia regla, porque muchas personas llegan desde la misma IP.
+  - **Topes de conexiones:** 4 a medio saludar y 16 en total por IP (detrás de un módem puede haber varias personas), 64 a medio saludar en total y 512 conexiones.
+  - Durante un ataque, la consola avisa cada IP una vez cada tanto, y no en cada intento.
+  - **Límite honesto:** si el ataque llena la conexión a internet del host, ningún programa en esa PC lo puede frenar, porque el tráfico no llega a pasar por el servidor. Para eso está el relay (ver "Conectarse desde internet").
 - **Archivos:** se valida el tipo real del archivo, no la extensión. Hay límites de tamaño y cuotas de disco. Las imágenes se recodifican en un proceso aparte, sin permisos: si un archivo malicioso rompe ese proceso, el servidor sigue funcionando.
 - **Sistema:** el servidor corre sin permisos de administrador. Guarda un registro de seguridad (entradas, bloqueos, cambios de permisos) y copias de la configuración y la base de datos.
 
@@ -329,6 +343,8 @@ Ningún cifrado frena a un programa malicioso que ya controla tu sesión mientra
 ### Identidad del servidor: respaldo y mudanza
 
 La clave del servidor es su identidad: de ella sale la huella que llevan las invitaciones completas y la firma con la que se anota en la lista pública. Si se pierde, el servidor arranca con una clave nueva, pero las invitaciones dejan de servir y los usuarios ven el aviso de que la huella cambió, el mismo que verían ante un servidor falso.
+
+La clave está en la carpeta de datos del servidor (`%APPDATA%\Ventrik\Servidor`). Si el archivo existe pero está dañado, el servidor no arranca, en lugar de crear otra clave y cambiar la huella sin avisar.
 
 - **Respaldo:** el panel de hosteo exporta la identidad del servidor (su clave, la clave del historial cifrado, la configuración y la base de datos) a un archivo cifrado con contraseña, y recuerda hacerlo al crear el servidor.
 - **Mudanza:** en la PC nueva se importa ese archivo y el servidor conserva la huella, las invitaciones, los roles y los baneos.
