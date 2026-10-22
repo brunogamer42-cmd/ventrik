@@ -1,13 +1,14 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-22, al cerrar la etapa 1.
+Última actualización: 2026-10-22, al cerrar el paso 2.1.
 
 ## Dónde estamos
 
 - **Etapa 0: cerrada.** Falta solo probar en Windows 11 (no hay PC con Windows 11).
 - **Etapa 1: cerrada.** Resultados en docs/mediciones.md; decisiones en docs/diseno.md.
-- **Lo que sigue: etapa 2, paso 2.1**: lector y escritor único de mensajes en src/common/protocol, negociación de versión y fuzzer de 10 minutos. Proponer el plan primero.
+- **Etapa 2, paso 2.1: cerrado.** Lector y escritor único de mensajes, saludo con negociación de versión y funciones, y fuzzing (src/common/protocol, fuzz/).
+- **Lo que sigue: paso 2.2**: certificado del servidor con su huella y conexión por TLS 1.3 con Mbed TLS, con pruebas de huella correcta, incorrecta e intento de bajar el cifrado. Antes, encender el control de hilos de Mbed TLS (ver Pendientes). Proponer el plan primero.
 
 ## Ramas y repositorio
 
@@ -38,6 +39,10 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - deja `build\para_xp` para la XP;
   - lista los VENTRIK_PENDIENTE.
 - **Bibliotecas:** versiones, origen y huellas en third_party/VERSIONS.md. Para actualizar una: bajarla, anotarla, reemplazarla y correr `huellas_terceros.ps1 -Actualizar`. Lo nuestro para integrarlas está en `third_party/integracion/`.
+- **Fuzzing:** `tools\fuzzing.ps1 [-Segundos N]` (10 minutos si no se dice otra cosa) corre los fuzzers de fuzz/ en 64 y 32 bits, a la vez, con AddressSanitizer. Antes hay que compilarlos con check.ps1, que además los corre 30 segundos cada vez.
+  - Las compilaciones de fuzzing son los presets `fuzzing64` y `fuzzing32` (v143, nunca se publican). Usan el mismo `_WIN32_WINNT` que la clásica.
+  - Lo aprendido queda en `build\fuzzing\corpus`; cada caso que falla, en `build\fuzzing\fallas`. Las semillas de arranque están en `fuzz\semillas`.
+  - Código nuevo que lea datos de red o archivos: sumar su fuzzer en fuzz/ y en CMakeLists.txt y fuzzing.ps1.
 - **Textos:** van en `lang/es.txt` y `lang/en.txt` (`clave = texto`). `tools/generar_textos.cmake` los mete en el `.exe`, y una prueba exige que estén en los dos idiomas.
 - **Pendientes:** lo provisorio se marca con `VENTRIK_PENDIENTE("texto sin acentos")` (src/common/pendiente.h). Avisa al compilar sin frenar /WX, y check.ps1 lo lista.
 - **Tus preferencias** también están en las memorias:
@@ -72,6 +77,15 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - miniaudio tiene mínimos fijos (30 ms con DirectSound, 40 ms con WinMM) y en XP, con DirectSound, consulta cada 1 ms.
 - **Consumo de la voz:** niveles Alto, Normal, Bajo, Mínimo y Automático, todos con Opus (docs/diseno.md). No sumar otros códecs.
 
+- **Protocolo (src/common/protocol):**
+  - todo lo que llega de la red pasa por `Lector`: error pegajoso, cada largo comparado con lo que queda, texto con largo u16, UTF-8 validado y sin bytes 0;
+  - en TLS, cada mensaje va en un marco: largo del cuerpo (u32) + tipo (u16), cuerpo de 64 KiB como máximo; el `Ensamblador` guarda un solo marco por vez;
+  - el saludo (`Hola`, `Bienvenida`, `Rechazo`) no cambia nunca de formato; lo nuevo va en mensajes posteriores, cuando los dos ya saben qué versión hablan;
+  - las funciones son bits de un u64; todavía no hay ninguna asignada;
+  - la versión de Ventrik y el rango del protocolo están en src/common/version.h. Al subir `kProtocoloMaximo` hay que sumar en `kPrimeraVersionDelProtocolo` la primera versión que lo habla (no compila si falta): es la que se le pide al programa que no llega;
+  - el rechazo tiene una sola forma válida: la versión va solo en `programa_viejo`. El programa revisa con `aceptar_bienvenida` y `aceptar_rechazo` lo que contesta el servidor;
+  - `Ensamblador::siguiente` entrega un marco por vez; con error consume todo, y `Lector::restante()` da 0, para que ningún bucle quede trabado.
+
 ## Trampas de las herramientas
 
 - **PowerShell 5.1:**
@@ -83,6 +97,9 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **Encabezados de terceros:** se incluyen con `<...>` (`/external:anglebrackets /external:W0`); en la clásica hace falta además `/experimental:external`.
 - **dumpbin muestra en hexadecimal** la cantidad de manejadores de SafeSEH.
 - **El antivirus de Windows** bloquea unos segundos los `.exe` recién hechos: check.ps1 reintenta la copia.
+- **libFuzzer** escribe lo que aprende en la **primera** carpeta que recibe: nunca pasarle primero `fuzz\semillas`.
+- **AddressSanitizer** guarda la memoria liberada un rato (para detectar usos tardíos), así que el fuzzer llega a unos 600 MB. No es una pérdida: con `ASAN_OPTIONS=quarantine_size_mb=16` se queda en 135 MB.
+- **Start-Process** no pone comillas a los argumentos: con espacios en la ruta del proyecto, ponerlas a mano (fuzzing.ps1 lo hace).
 
 ## Pendientes (además de los VENTRIK_PENDIENTE)
 
@@ -92,5 +109,12 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - Etapa 2:
   - control de hilos de Mbed TLS;
   - envoltorio de un solo hilo para SQLite;
-  - fuzzing de `es_utf8_valido`/`a_utf16` y del lector de protocolo;
   - `/DEPENDENTLOADFLAG` en la clásica, a evaluar.
+- De la revisión del paso 2.1, para el 2.2 (conexión):
+  - tiempo máximo para el saludo y para que avance cada marco (diseno.md, "Conexiones que nunca terminan de saludar");
+  - durante el saludo, `Ensamblador` con tope chico (por ejemplo 64 bytes) y `cambiar_maximo` al terminar; sumar ese cambio de tope al fuzzer;
+  - después de cada `while (auto marco = ensamblador.siguiente(datos))`, si `error()`, cerrar la conexión: "faltan datos" y "error" se ven igual en el bucle;
+  - para aceptar un mensaje, `terminado()`, nunca `restante() == 0` (con error también da 0);
+  - validar la configuración del servidor al cargarla: `negociar` corta el programa si el rango del protocolo está al revés, y el máximo no puede pasar de `kProtocoloMaximo` (hoy un protocolo desconocido se toma como el último conocido; ajustar las pruebas que usan 2 a 5 y, en `primera_version_del_protocolo`, usar `gsl::at`);
+  - un `Rechazo` que no se puede leer se muestra como "el servidor no aceptó la conexión", no como error.
+- De la misma revisión, para el 2.3 (nombres y chat): qué caracteres acepta `leer_texto`. Hoy rechaza solo UTF-8 inválido y el byte 0. Faltan controles, saltos de línea en nombres y caracteres invisibles o de dirección (diseno.md, "Nombres disfrazados con Unicode"); ojo, en el chat el U+200D arma emojis.

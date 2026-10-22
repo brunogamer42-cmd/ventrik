@@ -586,6 +586,8 @@ Reglas para que se entiendan:
 - **Mismo cifrado:** la versión clásica solo cambia de dónde saca los números aleatorios. Mbed TLS usa BCryptGenRandom, que no existe en XP, y ahí se reemplaza por RtlGenRandom ([repositorio oficial de Mbed TLS](https://github.com/Mbed-TLS/mbedtls)). Sin ese cambio, el programa no abre en XP.
 - **Voz en Opus**, un estándar que cualquier decodificador entiende.
 - **Al conectarse**, cada programa informa su versión del protocolo y qué funciones tiene. Si a la clásica le falta algo, el servidor se adapta, por ejemplo mandando la imagen quieta.
+- **El saludo no cambia nunca de formato:** así cualquier versión, por vieja o nueva que sea, entiende a cualquier otra lo suficiente para decirle que tiene que actualizar.
+- **Mensajes con tope:** cada mensaje mide como máximo 64 KiB; lo más grande, como los archivos, viaja en pedazos. Así la memoria que puede ocupar cada conexión también tiene techo.
 - **Versión mínima:** el servidor rechaza programas demasiado viejos con un aviso para actualizar, como [hace Zoom desde 2022](https://www.theregister.com/2022/10/31/zoom_minimum_client_update/).
 - **Pruebas:** cada versión se prueba en las cuatro combinaciones de servidor y programa (clásica y moderna en cada lado). Si alguna falla, no se publica.
 

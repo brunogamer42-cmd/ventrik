@@ -4,7 +4,8 @@ project(Ventrik LANGUAGES C CXX)
 # Qué versión se compila. La eligen los presets de CMakePresets.json:
 #   cmake --preset moderna   (Windows 10 y 11, 64 bits)
 #   cmake --preset clasica   (Windows XP SP3 a 8.1 y Windows 10 de 32 bits)
-set(VENTRIK_VERSION "" CACHE STRING "Version a compilar: moderna o clasica")
+#   cmake --preset fuzzing64 o fuzzing32   (solo los fuzzers, nunca se publica)
+set(VENTRIK_VERSION "" CACHE STRING "Version a compilar: moderna, clasica o fuzzing")
 
 if(NOT MSVC)
   message(FATAL_ERROR "Ventrik se compila con Visual Studio")
@@ -22,8 +23,23 @@ elseif(VENTRIK_VERSION STREQUAL "clasica")
   # Microsoft avisa en cada proyecto que el soporte para XP está en desuso.
   # Ya se sabe (ver docs/diseno.md): se apaga el aviso para no tapar otros.
   set(CMAKE_VS_GLOBALS "XPDeprecationWarning=false")
+elseif(VENTRIK_VERSION STREQUAL "fuzzing")
+  if(NOT CMAKE_GENERATOR_TOOLSET MATCHES "^v143")
+    message(FATAL_ERROR "El fuzzing usa Visual Studio 2022 (v143), que trae AddressSanitizer")
+  endif()
+  # Las mismas funciones de Windows que la clásica: el código común se prueba como compila para XP.
+  set(VENTRIK_WINDOWS_MINIMO 0x0501)
+  get_filename_component(VENTRIK_CARPETA_COMPILADOR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(VENTRIK_DLL_ASAN "${VENTRIK_CARPETA_COMPILADOR}/clang_rt.asan_dynamic-x86_64.dll")
+  else()
+    set(VENTRIK_DLL_ASAN "${VENTRIK_CARPETA_COMPILADOR}/clang_rt.asan_dynamic-i386.dll")
+  endif()
+  if(NOT EXISTS "${VENTRIK_DLL_ASAN}")
+    message(FATAL_ERROR "Falta AddressSanitizer de Visual Studio (${VENTRIK_DLL_ASAN})")
+  endif()
 else()
-  message(FATAL_ERROR "Elegí la versión con: cmake --preset moderna  o  cmake --preset clasica")
+  message(FATAL_ERROR "Elegí la versión con: cmake --preset moderna, clasica, fuzzing64 o fuzzing32")
 endif()
 
 set(CMAKE_C_STANDARD 11)
@@ -41,14 +57,22 @@ add_library(ventrik_opciones_base INTERFACE)
 target_compile_definitions(ventrik_opciones_base INTERFACE
   _WIN32_WINNT=${VENTRIK_WINDOWS_MINIMO} WINVER=${VENTRIK_WINDOWS_MINIMO})
 target_compile_options(ventrik_opciones_base INTERFACE
-  /GS              # protección contra desbordes de pila
-  /guard:cf)       # Control Flow Guard (Windows 8.1 en adelante)
+  /GS)             # protección contra desbordes de pila
 target_link_options(ventrik_opciones_base INTERFACE
-  /WX /DYNAMICBASE /NXCOMPAT /guard:cf)
+  /WX /DYNAMICBASE /NXCOMPAT)
+if(NOT VENTRIK_VERSION STREQUAL "fuzzing")
+  # Control Flow Guard (Windows 8.1 en adelante).
+  target_compile_options(ventrik_opciones_base INTERFACE /guard:cf)
+  target_link_options(ventrik_opciones_base INTERFACE /guard:cf)
+endif()
 if(VENTRIK_VERSION STREQUAL "clasica")
   target_compile_definitions(ventrik_opciones_base INTERFACE VENTRIK_CLASICA=1)
   # SafeSEH existe solo en 32 bits.
   target_link_options(ventrik_opciones_base INTERFACE /SAFESEH)
+elseif(VENTRIK_VERSION STREQUAL "fuzzing")
+  target_compile_definitions(ventrik_opciones_base INTERFACE VENTRIK_FUZZING=1)
+  target_compile_options(ventrik_opciones_base INTERFACE /fsanitize=address /fsanitize=fuzzer /Zi)
+  target_link_options(ventrik_opciones_base INTERFACE /DEBUG /INCREMENTAL:NO)
 else()
   target_compile_definitions(ventrik_opciones_base INTERFACE VENTRIK_MODERNA=1)
   # /DEPENDENTLOADFLAG:0x800: las DLL que el .exe pide al abrir se buscan
@@ -74,8 +98,12 @@ endif()
 target_compile_definitions(ventrik_opciones INTERFACE
   UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-# Bibliotecas de third_party/.
-add_subdirectory(third_party)
+# Bibliotecas de third_party/. Los fuzzers solo usan GSL.
+if(VENTRIK_VERSION STREQUAL "fuzzing")
+  add_subdirectory(third_party EXCLUDE_FROM_ALL)
+else()
+  add_subdirectory(third_party)
+endif()
 
 # Números aleatorios para Mbed TLS en la versión clásica (RtlGenRandom).
 if(VENTRIK_VERSION STREQUAL "clasica")
@@ -100,11 +128,26 @@ add_custom_command(
 # Código común al programa, al servidor y a las pruebas.
 add_library(ventrik_comun STATIC
   src/common/proceso.cpp
+  src/common/protocol/bytes.cpp
+  src/common/protocol/marcos.cpp
+  src/common/protocol/mensajes.cpp
+  src/common/protocol/negociacion.cpp
   src/common/textos.cpp
   src/common/utf.cpp
   "${VENTRIK_GENERADO}/textos_generados.h")
 target_include_directories(ventrik_comun PUBLIC src "${VENTRIK_GENERADO}")
-target_link_libraries(ventrik_comun PUBLIC ventrik_opciones)
+target_link_libraries(ventrik_comun PUBLIC ventrik_opciones gsl)
+
+if(VENTRIK_VERSION STREQUAL "fuzzing")
+  foreach(fuzzer fuzz_protocolo fuzz_utf)
+    add_executable(${fuzzer} fuzz/${fuzzer}.cpp)
+    target_link_libraries(${fuzzer} PRIVATE ventrik_comun)
+    add_custom_command(TARGET ${fuzzer} POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${VENTRIK_DLL_ASAN}" "$<TARGET_FILE_DIR:${fuzzer}>"
+      VERBATIM)
+  endforeach()
+  return()
+endif()
 
 # El programa.
 add_executable(ventrik WIN32 src/client/main.cpp)
@@ -123,6 +166,7 @@ add_executable(ventrik_pruebas
   tests/prueba_miniupnpc.cpp
   tests/prueba_opus.cpp
   tests/prueba_proceso.cpp
+  tests/prueba_protocolo.cpp
   tests/prueba_rnnoise.cpp
   tests/prueba_speexdsp.cpp
   tests/prueba_sqlite.cpp

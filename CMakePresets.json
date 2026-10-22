@@ -19,11 +19,31 @@
       "toolset": { "value": "v141_xp", "strategy": "set" },
       "binaryDir": "${sourceDir}/build/clasica",
       "cacheVariables": { "VENTRIK_VERSION": "clasica" }
+    },
+    {
+      "name": "fuzzing64",
+      "displayName": "Fuzzing de 64 bits (AddressSanitizer, nunca se publica)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": { "value": "x64", "strategy": "set" },
+      "toolset": { "value": "v143", "strategy": "set" },
+      "binaryDir": "${sourceDir}/build/fuzzing64",
+      "cacheVariables": { "VENTRIK_VERSION": "fuzzing" }
+    },
+    {
+      "name": "fuzzing32",
+      "displayName": "Fuzzing de 32 bits (AddressSanitizer, nunca se publica)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": { "value": "Win32", "strategy": "set" },
+      "toolset": { "value": "v143", "strategy": "set" },
+      "binaryDir": "${sourceDir}/build/fuzzing32",
+      "cacheVariables": { "VENTRIK_VERSION": "fuzzing" }
     }
   ],
   "buildPresets": [
     { "name": "moderna", "configurePreset": "moderna", "configuration": "Release" },
-    { "name": "clasica", "configurePreset": "clasica", "configuration": "Release" }
+    { "name": "clasica", "configurePreset": "clasica", "configuration": "Release" },
+    { "name": "fuzzing64", "configurePreset": "fuzzing64", "configuration": "Release" },
+    { "name": "fuzzing32", "configurePreset": "fuzzing32", "configuration": "Release" }
   ],
   "testPresets": [
     {

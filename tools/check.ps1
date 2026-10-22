@@ -1,8 +1,10 @@
 ﻿# Ventrik: comprobación completa.
 #
 # Compila las dos versiones (moderna y clásica), corre las pruebas en las
-# dos y revisa que cada .exe tenga lo que pide el diseño. Muestra OK o
-# FALLÓ en cada punto y, si algo falla, termina con código de error 1.
+# dos y revisa que cada .exe tenga lo que pide el diseño. Compila los
+# fuzzers (64 y 32 bits) y los corre 30 segundos; la corrida larga es
+# tools\fuzzing.ps1. Muestra OK o FALLÓ en cada punto y, si algo falla,
+# termina con código de error 1.
 # Al final deja en build\para_xp lo que hay que copiar a una PC con XP.
 #
 # Uso:  powershell -NoProfile -ExecutionPolicy Bypass -File tools\check.ps1
@@ -165,7 +167,7 @@ Push-Location $raiz
 try {
     Write-Host 'Herramientas'
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-    $componentes = @('Microsoft.VisualStudio.Component.VC.Tools.x86.x64')
+    $componentes = @('Microsoft.VisualStudio.Component.VC.Tools.x86.x64', 'Microsoft.VisualStudio.Component.VC.ASAN')
     if (-not $SoloModerna) { $componentes += 'Microsoft.VisualStudio.Component.WinXP' }
     $vs = $null
     if (Test-Path $vswhere) {
@@ -173,8 +175,8 @@ try {
             -property installationPath | Select-Object -First 1
     }
     $queFalta = if ($SoloModerna) { '' } else { ' y la compatibilidad con Windows XP (v141)' }
-    Informar ('Visual Studio 2022 con C++' + $(if ($SoloModerna) { '' } else { ' y soporte para XP' })) ([bool]$vs) `
-        ('Falta Visual Studio 2022 con "Desarrollo para el escritorio con C++"' + $queFalta)
+    Informar ('Visual Studio 2022 con C++, AddressSanitizer' + $(if ($SoloModerna) { '' } else { ' y soporte para XP' })) ([bool]$vs) `
+        ('Falta Visual Studio 2022 con "Desarrollo para el escritorio con C++", AddressSanitizer de C++' + $queFalta)
     if (-not $vs) {
         if (Test-Path $vswhere) {
             Write-Host '         Instalaciones que ve vswhere:'
@@ -230,6 +232,23 @@ try {
             Revisar-Exe (Join-Path $carpeta 'ventrik_red.exe') $version
         }
         Probar-Ventana (Join-Path $carpeta 'ventrik.exe')
+    }
+
+    Write-Host ''
+    Write-Host 'Fuzzing (AddressSanitizer)'
+    $compilados = $true
+    foreach ($preset in 'fuzzing64', 'fuzzing32') {
+        $r = Ejecutar $cmake @('--preset', $preset, "-DCMAKE_GENERATOR_INSTANCE=$vs") `
+            (Join-Path $registros "$preset-configurar.txt")
+        if ($r -eq 0) {
+            $r = Ejecutar $cmake @('--build', '--preset', $preset) (Join-Path $registros "$preset-compilar.txt")
+        }
+        Informar "Compilar $preset" ($r -eq 0)
+        if ($r -ne 0) { $compilados = $false }
+    }
+    if ($compilados) {
+        & (Join-Path $PSScriptRoot 'fuzzing.ps1') -Segundos 30
+        if ($LASTEXITCODE -ne 0) { $script:fallas++ }
     }
 
     # Lo que hay que copiar a una PC con XP para probar ahí.
