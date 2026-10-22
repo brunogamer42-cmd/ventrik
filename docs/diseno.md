@@ -91,7 +91,7 @@ El programa abre en **Inicio**: no hay lista de amigos, porque Ventrik se organi
 | Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados |
 | Hostear un servidor | Configuración, seguridad, calidad de voz, archivos y antivirus, invitaciones, red y puertos, capacidad y respaldo de la identidad del servidor |
 | Ajustes | General (con el idioma), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas) |
-| Audio y micrófono | Dispositivos, cómo transmitís (tecla o voz) con medidor y prueba, limpieza de la voz, volúmenes y bajar otros programas cuando alguien habla (desde Windows 7) |
+| Audio y micrófono | Dispositivos, cómo transmitís (tecla o voz) con medidor y prueba, limpieza de la voz, consumo de la voz, volúmenes y bajar otros programas cuando alguien habla (desde Windows 7) |
 | Enviar archivo con contraseña | Pide la contraseña, analiza el comprimido con ClamAV en tu PC y lo envía; la contraseña no sale de tu PC |
 | Reportar un error o sugerir | Error o idea, datos técnicos que se pueden ver antes de enviar, captura opcional y contacto opcional |
 | Perfil y Personalizar servidor | Lo del modo Visual, incluida la tarjeta de perfil |
@@ -102,7 +102,7 @@ La voz se comprime con Opus, el estándar actual para voz por internet, y cada p
 
 Recorrido de la voz:
 
-1. El micrófono capta el sonido a 48 kHz, la calidad con la que trabaja Opus, así no hay que convertirlo.
+1. El micrófono capta el sonido a 48 kHz, la calidad con la que trabaja Opus, así no hay que convertirlo. En los niveles de consumo Bajo y Mínimo capta a 16 u 8 kHz (ver "Consumo de la voz").
 2. Se limpia el ruido de fondo y, si no usás auriculares, se cancela el eco (si Windows no informa qué tipo de salida es, queda encendida). Las dos cosas son opcionales porque son lo que más procesador gasta.
 3. Se transmite solo mientras apretás la tecla para hablar, o, en el modo por voz, mientras tu voz supera la sensibilidad que marcás en el medidor. El modo se elige en el panel "Tu audio", en los dos modos de la interfaz. En silencio no se envía casi nada.
 4. Opus comprime la voz en pedazos de 20 milésimas de segundo, a 24 kbps.
@@ -117,6 +117,22 @@ Ahorros automáticos:
 - La corrección de errores de Opus se activa solo cuando se pierden paquetes.
 
 Meta de demora: hasta 80 milésimas de segundo entre que alguien habla y lo escuchás, en red local.
+
+### Consumo de la voz
+
+Comprimir la propia voz es lo que más procesador gasta, y en una PC débil puede ser mucho. Por eso cada programa elige cuánto gasta, en Audio y micrófono. Todos los niveles son Opus, así que todos se entienden entre sí: el que escucha descomprime cualquier nivel, y el servidor no tiene que imponer uno.
+
+| Nivel | Cómo comprime | Netbook de referencia, hablando | PC común, hablando |
+| --- | --- | --- | --- |
+| Alto | Banda completa (48 kHz), complejidad 10 | 31 % de un núcleo | 2 % |
+| Normal | Banda completa (48 kHz), complejidad 5 | 18 % | 1 % |
+| Bajo | Banda ancha (16 kHz), complejidad 0 | 7 % | 0,5 % |
+| Mínimo | Banda angosta (8 kHz), complejidad 0 | 4 % | 0,3 % |
+| Automático (predeterminado) | Alto en PCs comunes; Bajo en las débiles (un núcleo o poca velocidad) | | |
+
+- **Escuchar es barato:** descomprimir una voz en banda completa cuesta 3,7 % de un núcleo en la netbook (2,4 % si sale a 16 kHz, lo que hacen los niveles Bajo y Mínimo) y menos de 0,1 % en una PC común.
+- **Por qué no otros códecs:** códecs más viejos como GSM gastan todavía menos, pero sumarlos obliga a que cada programa traiga todos (para entender a cualquiera), agrega bibliotecas y más puntos de ataque. Con Opus en Mínimo, la netbook queda holgada.
+- Números medidos en la etapa 1 (ver docs/mediciones.md).
 
 ### Calidad dinámica
 
@@ -457,6 +473,8 @@ En modo Rendimiento, el programa apunta a usar como máximo 50 MB de RAM y casi 
 | Conexión por persona hablando | Unos 50 kbps (de 17 a 60 con calidad dinámica) | Igual |
 | Arranque | Menos de 1 segundo | Menos de 2 segundos |
 
+Estas metas son para PCs comunes. En la netbook de referencia (HP 2133, VIA C7-M) se midió en la etapa 1, en el nivel de consumo Bajo: unos 7 % de un núcleo mientras hablás y 2,4 % por cada voz que escuchás. Ahí la meta de 2 % con 3 personas hablando no se puede cumplir; con el nivel Bajo la netbook aguanta igual (ver "Consumo de la voz" y docs/mediciones.md).
+
 **Cómo se logra:**
 
 - La interfaz la dibuja el propio programa con la placa de video, como un juego. Solo se redibuja cuando algo cambia; con la ventana minimizada no se dibuja nada.
@@ -530,7 +548,7 @@ El programa y el servidor se escriben en C++17 nativo para Windows, con bibliote
 | Ventana | Win32 | La base de los programas nativos de Windows |
 | Dibujo y animación | Direct3D 9 + Dear ImGui, con diseño propio | Direct3D 9 existe desde XP y sigue en 11. Todo se dibuja por código, así el aspecto es 100 % propio |
 | Fuentes | Saira para la interfaz; Bungee, Pacifico, Press Start 2P, Permanent Marker y Righteous para los nombres | Van dentro del programa: nadie descarga fuentes ajenas |
-| Audio | miniaudio | Usa WASAPI en Windows modernos y DirectSound o WinMM en XP, donde WASAPI no existe |
+| Audio | miniaudio (Vista en adelante) y un puente propio con WinMM (XP) | miniaudio usa WASAPI desde Vista. En XP, donde WASAPI no existe, miniaudio o consume mucho procesador (DirectSound: consulta cada 1 ms) o suma mucha demora (WinMM: esperas de 40 ms como mínimo), así que Ventrik habla directo con WinMM, con esperas de 10 ms y avisos de Windows (medido en la etapa 1) |
 | Compresión de voz | Opus | El estándar actual para voz por internet |
 | Limpieza de ruido | RNNoise | Quita el ruido de fondo con poco procesador |
 | Cancelación de eco | SpeexDSP | Liviana, en C y funciona en XP |
@@ -550,7 +568,7 @@ El programa y el servidor se escriben en C++17 nativo para Windows, con bibliote
 
 El código lo va a escribir una IA, y vos no lo revisás línea por línea. Por eso las pruebas automáticas son obligatorias: son la forma de saber que algo anda.
 
-Pendiente de comprobar: que miniaudio funcione en XP (su documentación no menciona versiones de Windows) y que las partes de C++17 que se usen funcionen con el compilador para XP.
+Comprobado en la etapa 0 y 1: las partes de C++17 que se usan compilan con el compilador para XP, y miniaudio funciona en XP, pero ahí se reemplaza por el puente propio con WinMM (ver la tabla).
 
 ### Dos versiones que se entienden
 

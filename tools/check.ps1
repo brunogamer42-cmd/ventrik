@@ -225,6 +225,10 @@ try {
         $carpeta = Join-Path $raiz "build\$version\Release"
         Revisar-Exe (Join-Path $carpeta 'ventrik.exe') $version
         Revisar-Exe (Join-Path $carpeta 'ventrik_pruebas.exe') $version
+        if (Test-Path (Join-Path $raiz 'src\prueba_voz')) {
+            Revisar-Exe (Join-Path $carpeta 'ventrik_eco.exe') $version
+            Revisar-Exe (Join-Path $carpeta 'ventrik_red.exe') $version
+        }
         Probar-Ventana (Join-Path $carpeta 'ventrik.exe')
     }
 
@@ -234,8 +238,12 @@ try {
     $clasica = Join-Path $raiz 'build\clasica\Release'
     New-Item -ItemType Directory -Force -Path $paraXP | Out-Null
     $copiado = $true
-    foreach ($archivo in (Join-Path $clasica 'ventrik.exe'), (Join-Path $clasica 'ventrik_pruebas.exe'),
-                         (Join-Path $raiz 'tools\probar_en_xp.bat')) {
+    $archivos = @((Join-Path $clasica 'ventrik.exe'), (Join-Path $clasica 'ventrik_pruebas.exe'),
+                  (Join-Path $raiz 'tools\probar_en_xp.bat'))
+    if (Test-Path (Join-Path $raiz 'src\prueba_voz')) {
+        $archivos += (Join-Path $clasica 'ventrik_eco.exe'), (Join-Path $clasica 'ventrik_red.exe'), (Join-Path $raiz 'tools\red_xp.bat'), (Join-Path $raiz 'tools\eco_complejidad5.bat'), (Join-Path $raiz 'tools\eco_complejidad5_cola4.bat'), (Join-Path $raiz 'tools\opus_complejidad.bat')
+    }
+    foreach ($archivo in $archivos) {
         if (-not (Test-Path $archivo)) { $copiado = $false; continue }
         # El antivirus de Windows a veces bloquea unos segundos un .exe recién hecho.
         $listo = $false
@@ -254,6 +262,18 @@ try {
     }
 } finally {
     Pop-Location
+}
+
+# Lo marcado como provisorio en el código (VENTRIK_PENDIENTE), para revisar al terminar el programa.
+$pendientes = @(Get-ChildItem (Join-Path $raiz 'src'), (Join-Path $raiz 'tests') -Recurse -Include *.cpp, *.h |
+    Select-String -Pattern '^\s*VENTRIK_PENDIENTE\("(.+)"\)')
+if ($pendientes.Count -gt 0) {
+    Write-Host ''
+    Write-Host ('Pendientes para revisar cuando el programa esté terminado: ' + $pendientes.Count) -ForegroundColor Yellow
+    foreach ($p in $pendientes) {
+        $ruta = $p.Path.Substring($raiz.Length + 1)
+        Write-Host ('  - ' + $p.Matches[0].Groups[1].Value + ' (' + $ruta + ':' + $p.LineNumber + ')') -ForegroundColor Yellow
+    }
 }
 
 Write-Host ''
