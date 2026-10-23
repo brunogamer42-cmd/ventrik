@@ -1,6 +1,6 @@
 # Aspecto de Ventrik
 
-La referencia es docs/pantallas/Rendimiento.png. Todas las demás pantallas usan las mismas piezas. Las medidas son en píxeles al 100 % de escala de Windows y se multiplican por la escala del sistema (125 %, 150 %).
+La referencia es docs/pantallas/Rendimiento.png, y para un canal de texto elegido, docs/pantallas/Rendimiento-canal-texto.png (en Visual, Visual.png y Visual-canal-texto.png). Todas las demás pantallas usan las mismas piezas. Las medidas son en píxeles al 100 % de escala de Windows y se multiplican por la escala del sistema (125 %, 150 %).
 
 Un resultado se da por bueno cuando, puesto al lado de la captura, no se distingue la diferencia en colores, esquinas ni tamaños a simple vista.
 
@@ -63,10 +63,27 @@ Un resultado se da por bueno cuando, puesto al lado de la captura, no se disting
   - 7 botones biselados con 4 de separación;
   - el selector de modo, "Hablar con" y la tecla;
   - "Transmitiendo".
-- Lateral: ancho fijo de 290 y filas de 31 de alto. La fila del canal donde estás va en elevado. Abajo va el bloque "Tu audio", con su medidor y el selector Tecla para hablar / Por voz.
+- Lateral: ancho fijo de 290. La lista de canales se desplaza con su propia barra; abajo queda fijo el bloque "Tu audio", con su medidor y el selector Tecla para hablar / Por voz.
+  - Dos grupos: "Canales de texto" arriba y "Canales de voz" abajo. Etiquetas de grupo a 11 px en negrita, con letras espaciadas y color #8B9598, y a la derecha un botón + de 22 px de borde punteado (solo para el dueño).
+  - Filas de voz: 31 de alto, con una flecha para plegar las personas del canal y la cantidad a la derecha. La fila del canal donde estás va en elevado y dice "estás acá".
+  - Filas de texto: 30 de alto, con # en #8B9598 y el nombre en negrita si hay mensajes nuevos. A la derecha, un candado #8B9598 si solo los admins escriben y el contador de nuevos: 18 px, fondo #D3DEDE y texto #14191B.
+  - Canal de texto elegido: fondo blanco al 7 % y franja izquierda de 3 px (#D3DEDE en Rendimiento, color del tema en Visual).
+  - Barra de la lista: 8 px, riel #1A1F22, barra #5A666A con 2 px de margen del color del riel, y #8B9598 al pasar el mouse.
 - Chat: encabezado con marco y cuadrícula. Los mensajes llevan el avatar a la izquierda. Los archivos van en cajas de 376 de ancho con un botón de esquineros. El campo de mensaje va abajo junto al botón principal de enviar.
+  - Con un canal de texto elegido, el encabezado lleva # y el nombre, y al lado, en apagado, "Canal de texto · seguís hablando en <canal de voz>". El campo dice "Escribí en #<canal>"; si solo los admins escriben, queda bloqueado y lo dice.
 - Barra de estado: alto 24. Muestra conectado (punto verde), dirección, ping, cifrado y calidad de voz, y a la derecha la huella verificada. Junto al ping va un gráfico de 64 × 14 con el último minuto (línea verde, marca roja donde se perdieron paquetes) y el porcentaje perdido; hacer clic abre el panel de diagnóstico. Va en los dos modos.
 - La tarjeta de perfil abre al lado de la persona que tocaste, encima del chat, con 258 de ancho en Rendimiento y 330 en Visual (lleva imagen de fondo).
+
+## Ventana de notificaciones (versión clásica)
+
+La versión moderna usa las notificaciones de Windows 10 y 11. La clásica dibuja su propia ventana, parecida a esas, con las piezas de esta guía:
+
+- Abajo a la derecha, 12 por encima de la barra de tareas y 12 del borde; ancho 360 y alto según el texto, con hasta 3 líneas.
+- Fondo panel, borde línea y los triángulos de esquina de los paneles.
+- Emblema de 32 a la izquierda; arriba el servidor y el canal en Barlow 600 a 13 px (texto); abajo, quién y el mensaje, o "3 mensajes de Tano", a 13 px (texto 2), cortado con "…".
+- Una X para cerrar arriba a la derecha (apagado; texto al pasar el mouse).
+- Hasta 3 a la vez, apiladas con 8 de separación. Cada una se cierra sola a los 6 s, salvo mientras el mouse está encima.
+- Aparece y se va sin animación, no le quita el foco a la ventana que estés usando y se dibuja sin Direct3D.
 
 ## Modo Visual
 

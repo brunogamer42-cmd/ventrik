@@ -59,8 +59,8 @@ La ventana tiene una sola organización y dos modos: los modos cambian cuánto h
 Organización de la ventana:
 
 - **Arriba:** el servidor, los botones (micrófono, audio, servidores, perfil, personalizar para los administradores, ajustes, desconectar), el selector de modo y el estado de la tecla para hablar.
-- **Izquierda:** el árbol de canales con las personas adentro y su estado: habla, micrófono apagado, audio apagado, ausente o no molestar (sin sonidos de aviso). Abajo, tu audio: medidor, cómo transmitís (tecla o voz, con su sensibilidad) y volúmenes.
-- **Derecha:** el chat del canal, con los archivos.
+- **Izquierda:** la lista de canales en dos grupos, "Canales de texto" arriba y "Canales de voz" abajo (ver "Canales de voz y de texto"). Los de voz muestran las personas adentro y su estado: habla, micrófono apagado, audio apagado, ausente o no molestar (sin sonidos de aviso), y se pliegan. La lista se desplaza con su propia barra; abajo queda fijo tu audio: medidor, cómo transmitís (tecla o voz, con su sensibilidad) y volúmenes.
+- **Derecha:** el chat del canal de voz donde estás o del canal de texto que elegiste, con los archivos.
 - **Abajo:** la barra de estado con la conexión, el ping, el cifrado y la verificación del servidor.
 
 |  | Modo Rendimiento | Modo Visual |
@@ -91,7 +91,7 @@ El programa abre en **Inicio**: no hay lista de amigos, porque Ventrik se organi
 | Pantalla | Qué tiene |
 | --- | --- |
 | Inicio (en los dos modos) | Tus servidores con su estado (en línea, cuántos hay, ping, tu último canal, solicitudes pendientes, tu servidor apagado), entrar con invitación, tu estado, el aviso de copia de tu identidad y el botón Reportar. En Visual suma el encabezado y el icono animados de cada servidor y tu tarjeta |
-| Servidor (Rendimiento o Visual) | Canales, chat, archivos, tu audio y tarjetas de perfil |
+| Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil |
 | Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados. En Visual, al elegir un servidor se ven su fondo e icono animados |
 | Hostear un servidor | Configuración, seguridad, calidad de voz, archivos y antivirus, invitaciones, red y puertos, capacidad y respaldo de la identidad del servidor |
 | Ajustes | General (con el idioma), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas) |
@@ -100,6 +100,18 @@ El programa abre en **Inicio**: no hay lista de amigos, porque Ventrik se organi
 | Reportar un error o sugerir | Error o idea, datos técnicos que se pueden ver antes de enviar, captura opcional y contacto opcional |
 | Perfil y Personalizar servidor | Lo del modo Visual, incluida la tarjeta de perfil |
 | Editor de efectos | Capas, vista previa ampliada y en tamaño real, límites y código para compartir, para el marco del avatar y el de la tarjeta |
+| Notificaciones | Mensajes nuevos y conexión cortada mientras Ventrik no está al frente: las de Windows 10 y 11 en la versión moderna, una ventana propia en la clásica (ver "Notificaciones") |
+
+### Notificaciones
+
+Avisan de lo que pasa mientras Ventrik no está al frente o está minimizado. Nunca avisan de tus propios mensajes, y tocarlas abre Ventrik en ese canal.
+
+- **De qué avisan:** mensajes nuevos en canales de texto, mensajes del chat de tu canal de voz y conexión cortada (el servidor se cortó o dejó de responder). En Ajustes → Avisos se apagan todas juntas o cada tipo por separado. No molestar las silencia.
+- **Qué dicen:** si hay un solo mensaje, quién lo escribió y el texto ("Tano en #general: ¿Arrancamos la segunda?"). Si hay varios, se amontonan en una sola notificación por canal, que se va actualizando: "3 mensajes en #general de Tano", o "de Tano, Sofi y 2 más".
+- **De dónde sale el texto:** de los canales de texto que no estás mirando, el servidor solo avisa el contador (ver "Canales de voz y de texto"). Cuando va a mostrar una notificación, el programa le pide esos mensajes nuevos al servidor como cualquier historial, con sus permisos y topes.
+- **Windows 10 y 11 (versión moderna):** las notificaciones del sistema, las que salen abajo a la derecha y quedan en el Centro de actividades, con el nombre y el ícono de Ventrik. Se cargan con GetProcAddress; si no están, se usa la ventana propia.
+- **Versión clásica (XP a 8.1 y Windows 10 de 32 bits):** una ventana propia, chica, abajo a la derecha, parecida a la de Windows 10 y con el aspecto de Ventrik (docs/aspecto.md). No le quita el foco a lo que estés haciendo, se cierra sola a los pocos segundos y se dibuja sin Direct3D, para no gastar en la netbook.
+- **Privacidad:** Windows guarda sus notificaciones en un archivo propio, fuera de Ventrik y sin cifrar. Por eso, en Ajustes → Avisos se puede elegir que digan solo el canal y la cantidad, sin quién ni el texto.
 
 ## Voz
 
@@ -180,9 +192,28 @@ Cada canal tiene su chat, y los mensajes y archivos quedan guardados en el servi
 - **La voz va primero:** los archivos viajan con menor prioridad y un límite de velocidad configurable, así una descarga grande no mete retraso en la voz.
 - **Tamaño máximo:** lo decide el servidor. Por ejemplo, 500 MB por archivo en un servidor normal y 25 MB en el modo limitado.
 
+### Canales de voz y de texto
+
+Hay dos tipos de canal, y el tipo no se cambia después de crearlo:
+
+- **De voz:** como siempre. Entrar te mueve, hablás ahí y tiene su chat.
+- **De texto:** solo chat. No se entra: se lee y se escribe sin salir del canal de voz donde estás.
+
+En la lista de la izquierda van en dos grupos, "Canales de texto" arriba y "Canales de voz" abajo. Cada grupo tiene su botón + para crear un canal, solo para el dueño (y los admins desde la etapa 9). Los de texto llevan #, la cantidad de mensajes nuevos y el nombre en negrita si hay nuevos.
+
+- **Elegir un canal de texto:** se marca en la lista, el chat pasa a ese canal y el encabezado dice "Canal de texto · seguís hablando en <canal de voz>". Tu canal de voz sigue con "estás acá", y tocarlo vuelve a su chat.
+- **"Solo los admins escriben":** marca opcional de cada canal de texto, por ejemplo #anuncios, con un candado en la lista. Se elige al crear el canal y el dueño la cambia después con clic derecho, junto con el nombre. El resto lo lee con el campo de mensaje bloqueado, y el servidor lo verifica en cada mensaje. Hasta la etapa 9, "admins" es solo el dueño; los permisos por rol y canal siguen en la etapa 9.
+- **Mismo chat que los de voz:** mismo guardado en SQLite, mismos topes, historial y tiempo de guardado. Para escribir en un canal de texto no hace falta estar adentro, pero el pedido pasa por los permisos del servidor (permisos.cpp) como cualquier otro.
+- **Quién recibe cada mensaje:** el programa le dice al servidor qué canal de texto está mirando, uno por vez. El mensaje completo va a quienes están en ese canal de voz o miran ese canal de texto. A los demás que pueden leerlo, el servidor solo les avisa qué canal tiene mensajes nuevos y su contador, nunca el texto: como mucho un aviso por segundo por persona, con todos los canales que cambiaron juntos.
+- **Mensajes nuevos:** cada canal tiene un contador que solo sube con cada mensaje; borrar mensajes viejos no lo baja. Cada programa guarda en su PC hasta qué número leyó en cada canal, y los nuevos son la diferencia. La primera vez que ves un servidor, todo cuenta como leído.
+- **Protocolo y base:** cada canal lleva su tipo (voz o texto), la marca de "solo admins" y su contador. Se suma antes de publicar la primera versión, así no hay que negociarlo entre versiones. El servidor rechaza usar un canal de texto como canal de voz.
+- **Borrar un canal de texto** borra sus mensajes, y quien lo estaba mirando vuelve al chat de su canal de voz.
+- **Un servidor nuevo** arranca solo con "General", que es de voz. Los canales de texto los crea el dueño; un "general" de texto no puede convivir con "General" de voz, porque los nombres no distinguen mayúsculas.
+- **En los dos modos es igual,** porque es texto.
+
 ### Canales y nombres
 
-- **Canales:** el servidor arranca con "General", que se puede renombrar pero no borrar. Al borrar un canal, quienes estaban ahí pasan a General. Hasta 60 canales.
+- **Canales:** el servidor arranca con "General", que se puede renombrar pero no borrar. Al borrar un canal de voz, quienes estaban ahí pasan a General. Hasta 60 canales, sumando los de voz y los de texto, con nombres únicos entre todos.
 - **Nombres de personas y canales:** de 1 a 32 caracteres, sin espacios al principio, al final ni dobles, y sin controles, caracteres invisibles ni marcas de dirección de texto. Dos nombres que solo cambian en mayúsculas, en letras anchas o en cómo está escrita una tilde cuentan como el mismo. Las letras parecidas de otros alfabetos (como la "а" cirílica) quedan para la etapa 9.
 - **Dueño, provisorio hasta las identidades (etapa 4):** la primera vez que arranca, el servidor crea un código de dueño de 128 bits al azar y lo muestra en su consola esa sola vez; después muestra solo dónde está guardado, para que no salga en una captura junto con la huella. Quien se presenta con ese código administra los canales desde adentro del programa, como en Discord. Un código equivocado cuenta como intento fallido para la protección contra ataques.
 
@@ -341,7 +372,10 @@ El servidor no confía en nada de lo que dice un programa: cualquiera puede modi
 | --- | --- |
 | Un programa modificado se da permisos | El servidor verifica los permisos en cada acción. Ocultar un botón en la interfaz no alcanza |
 | Alguien manda voz haciéndose pasar por otro | El servidor decide quién habla según la conexión e ignora lo que diga el paquete |
-| Descargar archivos de canales ajenos | Cada descarga verifica que estés en ese canal |
+| Descargar archivos de canales ajenos | Cada descarga verifica que puedas leer ese canal: estar en él, si es de voz |
+| Escribir en un canal donde solo escriben los admins | El servidor verifica la marca en cada mensaje |
+| Usar un canal de texto para hablar | El servidor rechaza entrar a un canal de texto como canal de voz |
+| Inundar con avisos de mensajes nuevos | Los avisos no llevan el texto y salen como mucho una vez por segundo por persona, juntando los canales que cambiaron |
 | Inyección SQL | Siempre consultas preparadas en SQLite |
 | Conexiones que nunca terminan de saludar | Tiempo máximo para el saludo inicial y tope de conexiones pendientes por IP |
 | Un programa que no lee lo que recibe | Colas con tope: si no lee, se descarta su voz en vez de acumularla en la memoria. Si lo pendiente de chat y control pasa de 1 MiB, se lo desconecta |
@@ -724,8 +758,8 @@ Cuenta de la subida del host: tope de voces × (personas − 1) × kbps por oyen
 El desarrollo va en once etapas, y la primera es una prueba chica de voz para medir demora y consumo antes de construir el resto. Las dos versiones (moderna y clásica) se compilan y prueban desde el principio.
 
 1. **Prueba de voz:** voz entre dos PCs en red local, con tecla para hablar. Se mide demora y consumo, también en la netbook.
-2. **Base:** servidor, canales, chat, cifrado con TLS 1.3 y DTLS 1.2, permisos básicos verificados en el servidor y panel de diagnóstico.
-3. **Voz completa:** varias personas hablando, mezcla, limpieza de ruido, cancelación de eco, volúmenes, tecla o voz y susurro (con los permisos básicos; los permisos por rol llegan en la etapa 9). Pantallas: Audio y micrófono, y Ajustes → Teclas.
+2. **Base:** servidor, canales de voz y de texto, chat, cifrado con TLS 1.3 y DTLS 1.2, permisos básicos verificados en el servidor y panel de diagnóstico.
+3. **Voz completa:** notificaciones (las de Windows 10 y 11 en la moderna, una ventana propia en la clásica), varias personas hablando, mezcla, limpieza de ruido, cancelación de eco, volúmenes, tecla o voz y susurro (con los permisos básicos; los permisos por rol llegan en la etapa 9). Pantallas: Audio y micrófono, Ajustes → Teclas y Ajustes → Avisos.
 4. **Identidad y seguridad:** claves de identidad, contraseñas con Argon2id, DPAPI y contraseña maestra, niveles de seguridad, historial cifrado, bloqueo automático, aviso de equipo nuevo, avisos de acciones de administradores y respaldo, mudanza y cambio de clave del servidor.
 5. **Archivos y antivirus:** subida, descarga, reanudación, prioridad de la voz, ClamAV en el servidor, base de virus compartida por el servidor y envío de comprimidos con contraseña.
 6. **Red:** panel de red y puertos (placa, puertos, UPnP opcional y prueba desde internet), búsqueda en la red local, relay (el oficial y agregar otros) e invitaciones.
@@ -765,6 +799,7 @@ Ya decidido: código abierto con licencia GPL versión 3 (ver "Viabilidad como p
 | ASLR y CFG | Protecciones de Windows que dificultan aprovechar errores de memoria. XP no las tiene |
 | Ataque de degradación | Cuando un atacante obliga a usar un cifrado más débil para poder romperlo |
 | Biblioteca | Código ya hecho y probado que el programa usa para una tarea, como cifrar o comprimir la voz |
+| Canal de texto | Canal solo de chat: se lee y se escribe sin salir del canal de voz donde estás |
 | CGNAT | Cuando el proveedor de internet comparte una IP pública entre varios clientes. Impide que te entren directo desde afuera |
 | Cifrado | Convertir los datos en algo ilegible para quien no tiene la clave |
 | ClamAV | Antivirus gratuito y de código abierto que trae Ventrik para analizar archivos |

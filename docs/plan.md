@@ -82,10 +82,13 @@ Terminada cuando: la demora en red local está cerca de las 80 ms de la meta y l
 2. (Delicado) El servidor genera su certificado y muestra la huella; el programa se conecta por TLS 1.3 con Mbed TLS y compara la huella. Pruebas de huella correcta, huella incorrecta e intento de bajar a un cifrado más débil.
 3. Canales, entrar y salir, chat por canal guardado en SQLite con consultas preparadas, permisos básicos verificados en el servidor en cada acción y panel de diagnóstico (procesador, RAM, ping y pérdida de paquetes).
 4. (Delicado) Voz por DTLS 1.2 a través del servidor, que la reenvía sin decodificar y decide quién habla según la conexión.
-5. Ventana principal en modo Rendimiento y pantalla Inicio con Direct3D 9 y Dear ImGui, con el aspecto de docs/aspecto.md. Textos en lang/. Captura del resultado comparada con docs/pantallas/Rendimiento.png e Inicio.png.
+5. Ventana principal en modo Rendimiento y pantalla Inicio con Direct3D 9 y Dear ImGui, con el aspecto de docs/aspecto.md. Textos en lang/. En tres partes:
+   - Parte 1 (hecha): la ventana y la pantalla Inicio, comparada con docs/pantallas/Inicio.png.
+   - Parte 2 (delicada): canales de texto en el protocolo, la base y los permisos. Tipo de canal y marca "solo los admins escriben", contador de mensajes, aviso de mensajes nuevos sin el texto y con tope de ritmo, y el servidor rechaza usar un canal de texto como canal de voz. La base de prueba se actualiza sola.
+   - Parte 3: la pantalla del servidor, con los dos grupos de canales, la barra de la lista, los botones +, los contadores de nuevos y hasta dónde leíste guardado en la PC. Captura comparada con docs/pantallas/Rendimiento.png y Rendimiento-canal-texto.png.
 6. Prueba en check.ps1 que levanta servidor y programa en las cuatro combinaciones (clásica y moderna en cada lado) y verifica conexión, chat y voz.
 
-Terminada cuando: un servidor con dos programas conectados (uno desde XP) que chatean y hablan, y la revisión independiente sin fallas de seguridad pendientes.
+Terminada cuando: un servidor con dos programas conectados (uno desde XP) que chatean en un canal de voz y en uno de texto, y hablan, y la revisión independiente sin fallas de seguridad pendientes.
 
 ## Etapas 3 a 11
 
@@ -93,7 +96,7 @@ Cada una empieza en una sesión nueva: se divide en pasos chicos, cada uno con s
 
 | Etapa | Pasos principales | Pantallas | Prueba a mano al final |
 | --- | --- | --- | --- |
-| 3. Voz completa | Varias voces y mezcla; RNNoise; cancelación de eco con SpeexDSP; tecla o voz con sensibilidad; volumen por persona; susurro con los permisos básicos (los permisos por rol llegan en la etapa 9) | Audio y micrófono; Ajustes → Teclas | Tres personas hablando, ruido de fondo de prueba y un susurro |
+| 3. Voz completa | Notificaciones como primer paso: las de Windows 10 y 11 en la moderna y una ventana propia en la clásica, configurables; varias voces y mezcla; RNNoise; cancelación de eco con SpeexDSP; tecla o voz con sensibilidad; volumen por persona; susurro con los permisos básicos (los permisos por rol llegan en la etapa 9) | Audio y micrófono; Ajustes → Teclas; Ajustes → Avisos | Tres personas hablando, ruido de fondo de prueba y un susurro; una notificación con Ventrik minimizado, en la PC y en XP |
 | 4. Identidad y seguridad (delicada) | Clave de identidad; contraseñas con Argon2id; DPAPI y contraseña maestra; niveles de seguridad; historial cifrado; bloqueo automático; aviso de equipo nuevo; avisos de acciones de admins; TOTP para admins; llaves en la moderna; respaldo, mudanza y cambio de clave del servidor | Ajustes → Seguridad; Hostear → Seguridad | Exportar la identidad, borrarla, importarla y volver a entrar; mudar un servidor de prueba a otra PC |
 | 5. Archivos y antivirus (delicada) | Subida, descarga y reanudación con prioridad de la voz; cuarentena y ClamAV en el servidor; base de virus compartida por el servidor; comprimidos con contraseña en el cliente | Enviar archivo con contraseña | Subir el archivo de prueba EICAR y ver que se bloquea |
 | 6. Red | Panel de red y puertos (placa, puertos, UPnP, firewall, prueba desde internet); búsqueda en la red local; relay (el oficial y agregar otros); invitaciones | Hostear → Red; Explorar → Red local | Alguien de afuera entra con una invitación |
@@ -101,4 +104,4 @@ Cada una empieza en una sesión nueva: se divide en pasos chicos, cada uno con s
 | 8. Servidores grandes | Simulador de 512 usuarios; tope de voces; calidad dinámica; capacidad estimada; canal escenario; modo canal grande; chat lento; reconexiones escalonadas | Hostear → Calidad y Capacidad | El informe del simulador muestra cómo baja la calidad con poca subida |
 | 9. Moderación | Roles y permisos por rol y canal (también para susurrar); baneos con huella del equipo; barreras de entrada | Panel de administración | Banear una prueba y ver que vuelve silenciada |
 | 10. Modo Visual (delicada) | Perfiles y tarjeta con fondo animado, efecto por fuera y animación al abrirse; marcos de avatar y editor de efectos con su código para compartir (validado y con fuzzing); Inicio en Visual; personalización (icono animado, fondo del chat, color del tema), GIFs y stickers; imágenes en un proceso aparte con fuzzing; captura en los reportes | Visual, Inicio en Visual, Perfil, Editor de efectos, Personalizar servidor | Cambiar de modo y ver que en Rendimiento no se descarga nada |
-| 11. Cierre | Modo servidor limitado; idiomas; el resto de Ajustes; instaladores con ClamAV; firma con SignPath; actualizaciones firmadas; pruebas de 8 horas | Ajustes (general, apariencia, avisos, descargas, red, acerca de) | Instalar desde cero en XP, en la netbook y en Windows 11 |
+| 11. Cierre | Modo servidor limitado; idiomas; el resto de Ajustes; instaladores con ClamAV; firma con SignPath; actualizaciones firmadas; pruebas de 8 horas | Ajustes (general, apariencia, descargas, red, acerca de) | Instalar desde cero en XP, en la netbook y en Windows 11 |
