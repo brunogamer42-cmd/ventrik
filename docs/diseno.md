@@ -72,11 +72,15 @@ Organización de la ventana:
 | GIFs y stickers | Sin selector para elegirlos; los que llegan no se descargan hasta que tocás Ver | Se ven en el chat |
 | Fuentes y efectos de nombres | Apagados: letra normal | Encendidos |
 | Fondos de perfil y del servidor | No se descargan | Se ven, animados |
+| Color del tema del servidor | No se usa | Tiñe el canal donde estás, las barras de volumen y los bordes al pasar el mouse. El celeste de quien habla y el naranja de transmitir no cambian |
+| Fondo del chat del servidor | No se descarga | Se ve detrás de los mensajes, oscurecido para que el texto se lea siempre. Cada persona lo puede apagar en Ajustes |
+| Marcos de avatar | No hay | Se ven alrededor de la imagen, en la lista de canales y en el chat. Pueden ser del catálogo, hechos en el editor o una imagen animada propia |
+| Transmitiendo | Etiqueta fija | La etiqueta late mientras transmitís |
 | Animaciones | Ninguna | Solo mientras se ven; en pausa con la ventana minimizada o sin foco |
 
 En Rendimiento todo eso se apaga, no se oculta: el programa no lo descarga ni lo procesa. Los dos modos tienen los mismos botones, canales, chat, tarjeta de perfil y controles de audio; solo cambia lo que se descarga y se anima. La única excepción es "Ocultar sus efectos" en la tarjeta de otro, que solo aparece en Visual porque en Rendimiento no hay efectos. En Ajustes hay un tercer modo, Automático: usa Visual, salvo en PCs débiles o con un juego en pantalla completa abierto, donde pasa solo a Rendimiento. Las PCs débiles arrancan en Rendimiento.
 
-Aspecto, llamado "Equipo de campo": fondo oliva oscuro con letras caqui, esquinas cortadas en avatares, botones y etiquetas, medidores segmentados y la tipografía Saira, con su versión tipo plantilla para los nombres de servidor. El celeste marca a quien habla y el naranja, cuando transmitís vos. Está pensado para diferenciarse a simple vista de otros programas de voz, como Discord.
+Aspecto, tomado de la imagen de referencia del autor: grafito azulado con acento naranja; botones con esquinas biseladas y borde oscuro; botones secundarios marcados solo por esquineros; triángulos claros en las esquinas de los paneles; rayado diagonal y cuadrícula tenue en los encabezados; avatares con una esquina cortada; medidores segmentados; selector de modo enmarcado en naranja, y las tipografías Barlow y Barlow Semi Condensed. El celeste marca a quien habla y el naranja, cuando transmitís vos. La ventana principal mide 1376 × 768 en el boceto y es la base de todas las demás pantallas. Medidas y colores exactos: docs/aspecto.md.
 
 **Idiomas:** el programa sale en español e inglés. Todos los textos están en archivos aparte desde el principio, así sumar otro idioma no exige tocar el código y la comunidad puede traducirlo.
 
@@ -88,13 +92,14 @@ El programa abre en **Inicio**: no hay lista de amigos, porque Ventrik se organi
 | --- | --- |
 | Inicio (en los dos modos) | Tus servidores con su estado (en línea, cuántos hay, ping, tu último canal, solicitudes pendientes, tu servidor apagado), entrar con invitación, tu estado, el aviso de copia de tu identidad y el botón Reportar. En Visual suma el encabezado y el icono animados de cada servidor y tu tarjeta |
 | Servidor (Rendimiento o Visual) | Canales, chat, archivos, tu audio y tarjetas de perfil |
-| Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados |
+| Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados. En Visual, al elegir un servidor se ven su fondo e icono animados |
 | Hostear un servidor | Configuración, seguridad, calidad de voz, archivos y antivirus, invitaciones, red y puertos, capacidad y respaldo de la identidad del servidor |
 | Ajustes | General (con el idioma), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas) |
 | Audio y micrófono | Dispositivos, cómo transmitís (tecla o voz) con medidor y prueba, limpieza de la voz, consumo de la voz, volúmenes y bajar otros programas cuando alguien habla (desde Windows 7) |
 | Enviar archivo con contraseña | Pide la contraseña, analiza el comprimido con ClamAV en tu PC y lo envía; la contraseña no sale de tu PC |
 | Reportar un error o sugerir | Error o idea, datos técnicos que se pueden ver antes de enviar, captura opcional y contacto opcional |
 | Perfil y Personalizar servidor | Lo del modo Visual, incluida la tarjeta de perfil |
+| Editor de efectos | Capas, vista previa ampliada y en tamaño real, límites y código para compartir, para el marco del avatar y el de la tarjeta |
 
 ## Voz
 
@@ -227,24 +232,47 @@ Al tocar el nombre de alguien se abre su tarjeta. En modo Visual, cada persona e
 | Parte | Opciones | Cómo se dibuja |
 | --- | --- | --- |
 | Fondo animado de la tarjeta | Liso, Topográfico, Radar, Lluvia, Estática o una animación propia | Los del catálogo los dibuja el programa con dos colores a elección. La propia es un GIF o WebP de hasta 4 MB y 680 × 400, que el servidor recodifica |
-| Efecto por fuera | Ninguno, Aura, Chispas, Marco giratorio o Rayos | Siempre del catálogo, dibujado por el programa |
+| Efecto por fuera | Ninguno, Aura, Chispas, Marco giratorio, Rayos o uno propio hecho en el editor | Lo dibuja el programa, sea del catálogo o del editor |
 | Al abrirse | Aparecer, Deslizar, Destello o Glitch | Dura menos de medio segundo |
+| Marco del avatar | Ninguno, Circuito, Esquinas, Órbita, Brasas, uno propio hecho en el editor o una imagen animada propia | Los del catálogo y los del editor los dibuja el programa; la imagen propia es un WebP o GIF con transparencia de hasta 512 KB. Va por fuera de la imagen, así el aro celeste de "está hablando" se sigue viendo |
 
 - **Por qué un catálogo:** lo que dibuja el programa no se descarga, pesa casi nada y no puede traer un archivo armado para atacar. Solo la animación propia es un archivo, y pasa por la misma recodificación en un proceso aparte que las demás imágenes.
 - **Siempre se lee:** el programa oscurece el fondo detrás del texto, así el nombre y la descripción se leen con cualquier fondo.
-- **Control:** el servidor decide si permite fondos animados, efectos por fuera y animaciones propias, y de qué tamaño. Cada persona puede tocar "Ocultar sus efectos" en la tarjeta de otro.
+- **Control:** el servidor decide si permite fondos animados, efectos por fuera, marcos de avatar y animaciones propias, y de qué tamaño. Cada persona puede tocar "Ocultar sus efectos" en la tarjeta de otro.
 - **Consumo:** las animaciones corren solo mientras la tarjeta está abierta y a la vista, a 30 cuadros por segundo como máximo, y se pausan con la ventana minimizada o sin foco. Si en Windows están desactivadas las animaciones, se muestran quietas. En Rendimiento no existen: la tarjeta es plana.
+
+### Editor de efectos
+
+Cada persona puede armar sus propios marcos del avatar y de la tarjeta en un editor por capas. El resultado no es un GIF sino una receta que dibuja el programa: pesa menos de 1 KB, se ve nítida en cualquier tamaño y se comparte con un código.
+
+| Capa | Qué hace | Dónde se puede usar |
+| --- | --- | --- |
+| Trazo del borde | Trazos que recorren el borde, con grosor, largo, velocidad y sentido | Avatar y tarjeta |
+| Brillo que recorre | Una luz que da vueltas alrededor | Avatar y tarjeta |
+| Esquinas | Escuadras que laten | Avatar y tarjeta |
+| Partículas | Chispas, brasas o estrellas que suben, caen o rodean | Avatar y tarjeta |
+| Órbita | De 1 a 4 puntos que giran | Avatar y tarjeta |
+| Halo | Resplandor que late | Solo tarjeta: en el avatar se confundiría con el aro de "está hablando" |
+| Imagen animada | WebP o GIF propio con transparencia, hasta 512 KB y 128 × 128 | Solo avatar: una del tamaño de la tarjeta pesaría varios MB |
+
+- **Límites:** hasta 4 capas y 24 partículas por efecto, a 30 cuadros por segundo como máximo. Nada puede destellar más de 3 veces por segundo, el límite de las pautas de accesibilidad para no provocar convulsiones ([WCAG 2.3.1](https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html)).
+- **El catálogo es lo mismo:** los marcos (Circuito, Esquinas, Órbita y Brasas) y los efectos por fuera (Aura, Chispas, Marco giratorio y Rayos) están hechos con el editor, así que se puede partir de uno y cambiarlo.
+- **Código para compartir:** cada efecto se copia como un código de texto (por ejemplo VKFX1-A1C1-G1EQ-9XD4-K2PA) y se pega en otro programa. El programa y el servidor lo validan como cualquier mensaje de red: tamaño máximo fijo, cada valor dentro de su rango y prueba de fuzzing. La imagen animada no va en el código: viaja como archivo y pasa por la recodificación en un proceso aparte.
+- **Control:** el servidor decide si permite los efectos hechos en el editor y las imágenes propias en los marcos, y de qué tamaño. Cada persona puede ocultar los efectos de otro, y si Windows tiene las animaciones desactivadas se ven quietos. En Rendimiento no hay marcos ni efectos.
 
 ### Personalización del servidor
 
-**Qué personaliza un servidor** (solo los administradores): icono, nombre, descripción, color del tema, fondo del encabezado, hasta 50 stickers propios, qué efectos se permiten y los límites de tamaño.
+**Qué personaliza un servidor** (solo los administradores): icono (también animado), nombre, descripción, color del tema, fondo del encabezado, fondo del chat, hasta 50 stickers propios, qué efectos se permiten y los límites de tamaño.
 
 | Archivo | Límite inicial |
 | --- | --- |
 | Imagen de perfil | 2 MB, se recorta a 256 × 256 |
 | Fondo de perfil | 5 MB, vertical, 400 × 600 |
 | Animación propia de la tarjeta | 4 MB, 680 × 400 |
-| Fondo del encabezado del servidor | 8 MB |
+| Fondo del encabezado del servidor | 8 MB, imagen o animación (GIF o WebP) |
+| Fondo del chat del servidor | 4 MB, imagen o animación lenta (GIF o WebP) |
+| Icono del servidor | 1 MB, 256 × 256, imagen o animación (GIF o WebP) |
+| Imagen del marco del avatar | 512 KB, 128 × 128, WebP o GIF con transparencia |
 | Sticker | 512 KB |
 | GIF en el chat | 8 MB |
 
@@ -449,7 +477,7 @@ El panel de hosting muestra todo lo necesario para abrir el servidor a mano, y d
 
 Además de la búsqueda en la red local, el programa muestra una lista de servidores públicos, como la de Mumble, y se busca sobre todo por nombre.
 
-- **Cómo funciona:** el dueño marca "Aparecer en la lista pública" y el servidor se anota en un directorio: un servicio que solo guarda la lista (nombre, descripción, etiquetas, región, personas, acceso, huella y cómo conectarse). No pasa voz ni chat.
+- **Cómo funciona:** el dueño marca "Aparecer en la lista pública" y el servidor se anota en un directorio: un servicio que solo guarda la lista (nombre, descripción, etiquetas, región, personas, acceso, huella y cómo conectarse). No pasa voz, chat ni imágenes: en modo Visual, el fondo y el icono animados de un servidor los pide el programa a ese mismo servidor cuando lo elegís en la lista, y quedan guardados en la PC. Así la PC del directorio no carga con ese tráfico.
 - **Búsqueda:** por nombre primero, y también por IP o por región (país o ciudad). No distingue mayúsculas ni tildes. Lo que coincide por nombre aparece arriba, y cada resultado dice con qué coincidió.
 - **Filtros y orden:** categoría, región, con lugar libre y sin contraseña; orden por ping, personas o nombre; favoritos.
 - **Ping:** lo mide el programa contra cada servidor, directo o a través del relay.
@@ -582,7 +610,7 @@ El programa y el servidor se escriben en C++17 nativo para Windows, con bibliote
 | Lenguaje | C++ | Se puede compilar para XP y sigue andando en Windows 11 |
 | Ventana | Win32 | La base de los programas nativos de Windows |
 | Dibujo y animación | Direct3D 9 + Dear ImGui, con diseño propio | Direct3D 9 existe desde XP y sigue en 11. Todo se dibuja por código, así el aspecto es 100 % propio |
-| Fuentes | Saira para la interfaz; Bungee, Pacifico, Press Start 2P, Permanent Marker y Righteous para los nombres | Van dentro del programa: nadie descarga fuentes ajenas |
+| Fuentes | Barlow y Barlow Semi Condensed para la interfaz; Bungee, Pacifico, Press Start 2P, Permanent Marker y Righteous para los nombres | Van dentro del programa: nadie descarga fuentes ajenas |
 | Audio | miniaudio (Vista en adelante) y un puente propio con WinMM (XP) | miniaudio usa WASAPI desde Vista. En XP, donde WASAPI no existe, miniaudio o consume mucho procesador (DirectSound: consulta cada 1 ms) o suma mucha demora (WinMM: esperas de 40 ms como mínimo), así que Ventrik habla directo con WinMM, con esperas de 10 ms y avisos de Windows (medido en la etapa 1) |
 | Compresión de voz | Opus | El estándar actual para voz por internet |
 | Limpieza de ruido | RNNoise | Quita el ruido de fondo con poco procesador |
@@ -645,7 +673,7 @@ Para que Ventrik sea gratis y siga funcionando sin una empresa detrás, no puede
 
 - El programa, el servidor, el relay y el directorio se publican como código abierto con licencia GPL versión 3. Cualquiera puede ver el código, compilarlo y mejorarlo, y quien publique una versión modificada tiene que publicar también su código. Así nadie puede cerrar una copia y cobrarla con las mejoras de otros.
 - **Por qué conviene:** quien hostea puede comprobar que el servidor hace lo que dice (importa, porque el servidor ve todo); la firma de código sale gratis; y si el proyecto original se frena, otros lo pueden seguir.
-- **Bibliotecas:** Opus, RNNoise y libwebp (BSD), Dear ImGui (MIT), miniaudio, stb\_image y SQLite (dominio público o equivalentes) Mbed TLS (Apache 2.0), SpeexDSP y miniupnpc (BSD), Microsoft GSL y doctest (MIT), Argon2 (CC0 o Apache 2.0) y las fuentes Saira, Bungee, Pacifico, Press Start 2P y Righteous (OFL) y Permanent Marker (Apache 2.0) se pueden usar dentro de un programa GPLv3 ([lista de licencias de la FSF](https://www.gnu.org/licenses/license-list.html)). Cada una exige incluir su aviso de autoría, que va en "Acerca de" y en el instalador.
+- **Bibliotecas:** Opus, RNNoise y libwebp (BSD), Dear ImGui (MIT), miniaudio, stb\_image y SQLite (dominio público o equivalentes) Mbed TLS (Apache 2.0), SpeexDSP y miniupnpc (BSD), Microsoft GSL y doctest (MIT), Argon2 (CC0 o Apache 2.0) y las fuentes Barlow, Barlow Semi Condensed, Bungee, Pacifico, Press Start 2P y Righteous (OFL) y Permanent Marker (Apache 2.0) se pueden usar dentro de un programa GPLv3 ([lista de licencias de la FSF](https://www.gnu.org/licenses/license-list.html)). Cada una exige incluir su aviso de autoría, que va en "Acerca de" y en el instalador.
 - **ClamAV** (GPL versión 2) va como programa aparte: Ventrik lo abre, le pasa el archivo y lee el resultado, sin mezclar su código con el nuestro. El instalador incluye su licencia y el código fuente exacto de la versión que compilamos, incluida la adaptación de Netfarm para XP.
 - **El nombre no es libre:** el código sí, pero una copia modificada tiene que usar otro nombre, como pasa con Firefox. Así nadie distribuye una versión alterada como si fuera la oficial.
 
@@ -704,7 +732,7 @@ El desarrollo va en once etapas, y la primera es una prueba chica de voz para me
 7. **Lista pública:** directorio (y agregar otros directorios), búsqueda por nombre, IP o región, su seguridad, el buzón de reportes y el botón Reportar, sin captura todavía.
 8. **Servidores grandes:** tope de voces, calidad dinámica, capacidad estimada, canal escenario, modo canal grande, chat lento y reconexiones escalonadas.
 9. **Moderación:** roles, permisos por rol y canal (también para susurrar), baneos y barreras de entrada.
-10. **Modo Visual:** perfiles, tarjeta con fondo animado, efecto por fuera y animación al abrirse, Inicio en modo Visual, personalización del servidor, GIFs, stickers y la captura en los reportes, que usa el mismo proceso aparte para imágenes.
+10. **Modo Visual:** perfiles, tarjeta con fondo animado, efecto por fuera y animación al abrirse, Inicio en modo Visual, personalización del servidor (icono animado, fondo del chat y color del tema en los detalles), marcos de avatar, editor de efectos con su código para compartir, GIFs, stickers y la captura en los reportes, que usa el mismo proceso aparte para imágenes.
 11. **Cierre:** modo servidor limitado, idiomas, el resto de Ajustes, instaladores firmados y pruebas largas.
 
 **Cómo se prueba cada versión:**
@@ -713,7 +741,7 @@ El desarrollo va en once etapas, y la primera es una prueba chica de voz para me
 - Pruebas con archivos rotos o malformados contra el procesador de imágenes.
 - Pruebas en Windows XP (en una máquina virtual y, para ClamAV, en una PC real), en Windows 7 (la netbook) y en Windows 10 y 11.
 - Pruebas de 8 horas conectado, para detectar si la memoria crece sin parar.
-- Un panel de diagnóstico dentro del programa, con procesador, RAM, ping y pérdida de paquetes. Es local: no manda datos afuera.
+- Un panel de diagnóstico dentro del programa, con procesador, RAM, ping y pérdida de paquetes. Es local: no manda datos afuera. En los dos modos, la barra de estado muestra un gráfico chico del ping y la pérdida del último minuto, que abre el panel.
 
 ## Decisiones pendientes
 

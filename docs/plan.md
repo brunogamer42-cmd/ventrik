@@ -22,6 +22,8 @@ ventrik/
   docs/diseno.md       el documento de diseño
   docs/plan.md         este plan
   docs/mediciones.md   resultados de la etapa 1
+  docs/aspecto.md      colores, medidas y piezas de la interfaz
+  docs/pantallas/      capturas de cada pantalla del boceto
   third_party/         bibliotecas con versión fija (VERSIONS.md dice cuál y de dónde)
   src/common/          protocolo, cifrado y utilidades compartidas
   src/client/          el programa
@@ -80,7 +82,7 @@ Terminada cuando: la demora en red local está cerca de las 80 ms de la meta y l
 2. (Delicado) El servidor genera su certificado y muestra la huella; el programa se conecta por TLS 1.3 con Mbed TLS y compara la huella. Pruebas de huella correcta, huella incorrecta e intento de bajar a un cifrado más débil.
 3. Canales, entrar y salir, chat por canal guardado en SQLite con consultas preparadas, permisos básicos verificados en el servidor en cada acción y panel de diagnóstico (procesador, RAM, ping y pérdida de paquetes).
 4. (Delicado) Voz por DTLS 1.2 a través del servidor, que la reenvía sin decodificar y decide quién habla según la conexión.
-5. Ventana principal en modo Rendimiento y pantalla Inicio con Direct3D 9 y Dear ImGui, con el aspecto "Equipo de campo" de las imágenes del lienzo de diseño. Textos en lang/. Captura del resultado comparada con las imágenes.
+5. Ventana principal en modo Rendimiento y pantalla Inicio con Direct3D 9 y Dear ImGui, con el aspecto de docs/aspecto.md. Textos en lang/. Captura del resultado comparada con docs/pantallas/Rendimiento.png e Inicio.png.
 6. Prueba en check.ps1 que levanta servidor y programa en las cuatro combinaciones (clásica y moderna en cada lado) y verifica conexión, chat y voz.
 
 Terminada cuando: un servidor con dos programas conectados (uno desde XP) que chatean y hablan, y la revisión independiente sin fallas de seguridad pendientes.
@@ -98,5 +100,5 @@ Cada una empieza en una sesión nueva: se divide en pasos chicos, cada uno con s
 | 7. Lista pública | Directorio (puerto 7702 y DNS dinámico) y agregar otros directorios; búsqueda por nombre, IP y región; copia guardada cuando está apagado; buzón de reportes y botón Reportar, sin captura todavía | Explorar servidores; Reportar | Apagar el directorio y entrar igual a un servidor guardado |
 | 8. Servidores grandes | Simulador de 512 usuarios; tope de voces; calidad dinámica; capacidad estimada; canal escenario; modo canal grande; chat lento; reconexiones escalonadas | Hostear → Calidad y Capacidad | El informe del simulador muestra cómo baja la calidad con poca subida |
 | 9. Moderación | Roles y permisos por rol y canal (también para susurrar); baneos con huella del equipo; barreras de entrada | Panel de administración | Banear una prueba y ver que vuelve silenciada |
-| 10. Modo Visual (delicada) | Perfiles y tarjeta con fondo animado, efecto por fuera y animación al abrirse; Inicio en Visual; personalización, GIFs y stickers; imágenes en un proceso aparte con fuzzing; captura en los reportes | Visual, Inicio en Visual, Perfil, Personalizar servidor | Cambiar de modo y ver que en Rendimiento no se descarga nada |
+| 10. Modo Visual (delicada) | Perfiles y tarjeta con fondo animado, efecto por fuera y animación al abrirse; marcos de avatar y editor de efectos con su código para compartir (validado y con fuzzing); Inicio en Visual; personalización (icono animado, fondo del chat, color del tema), GIFs y stickers; imágenes en un proceso aparte con fuzzing; captura en los reportes | Visual, Inicio en Visual, Perfil, Editor de efectos, Personalizar servidor | Cambiar de modo y ver que en Rendimiento no se descarga nada |
 | 11. Cierre | Modo servidor limitado; idiomas; el resto de Ajustes; instaladores con ClamAV; firma con SignPath; actualizaciones firmadas; pruebas de 8 horas | Ajustes (general, apariencia, avisos, descargas, red, acerca de) | Instalar desde cero en XP, en la netbook y en Windows 11 |

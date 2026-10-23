@@ -10,6 +10,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **Etapa 2, paso 2.1: cerrado.** Lector y escritor único de mensajes, saludo con negociación de versión y funciones, y fuzzing (src/common/protocol, fuzz/). Probado en la HP 2133 con XP.
 - **Etapa 2, paso 2.2: cerrado.** Servidor de consola con su clave y su huella, conexión por TLS 1.3 que verifica la huella, protección contra inundaciones (pedida por el dueño, en todos los niveles) y Mbed TLS con control de hilos. Probado en la HP 2133: pruebas automáticas en XP, y conexión real XP → PC con la huella correcta (conecta) y con una falsa (rechaza).
 - **Etapa 2, paso 2.3: cerrado.** Presentación con nombre, canales administrados por el dueño desde adentro (código de dueño provisorio), chat por canal guardado en SQLite, permisos verificados en el servidor, ping, diagnóstico y consola de prueba provisoria (`ventrik.exe --consola`). Probado a mano: HP 2133 como invitado y la PC como dueño, contra el servidor de prueba de la PC.
+- **Diseño actualizado fuera de Claude Code (2026-10-23):** aspecto nuevo de la interfaz (grafito con acento naranja, Barlow) en docs/aspecto.md, con capturas de cada pantalla en docs/pantallas/; ya no vale el aspecto "Equipo de campo". En docs/diseno.md se sumaron: gráfico de ping y pérdida en la barra de estado (los dos modos) y, para la etapa 10, color del tema en los detalles, fondo del chat del servidor, icono del servidor animado, marcos de avatar y el editor de efectos. Nada de eso cambia los pasos 2.4 y 2.5 salvo el aspecto y el gráfico de ping.
 - **Etapa 2, paso 2.4: cerrado.** Voz por DTLS 1.2 a través del servidor: clave derivada de la conexión TLS, reenvío solo al mismo canal, audio con miniaudio o el puente WinMM en XP, `/hablar` en la consola. Probado a mano: voz en los dos sentidos entre la HP 2133 con XP y la PC, y que otro canal no escucha.
 - **Lo que sigue: paso 2.5**: ventana principal en modo Rendimiento y pantalla Inicio con Direct3D 9 y Dear ImGui. Proponer el plan primero.
 
@@ -55,6 +56,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - Las compilaciones de fuzzing son los presets `fuzzing64` y `fuzzing32` (v143, nunca se publican). Usan el mismo `_WIN32_WINNT` que la clásica y RtlGenRandom.
   - Lo aprendido queda en `build\fuzzing\corpus`; cada caso que falla, en `build\fuzzing\fallas`. Las semillas de arranque están en `fuzz\semillas`.
   - Código nuevo que lea datos de red o archivos: sumar su fuzzer en fuzz/ y en CMakeLists.txt y fuzzing.ps1.
+- **Aspecto visual:** docs/aspecto.md (colores, medidas y piezas, y cómo dibujarlas con ImDrawList) y las capturas de docs/pantallas/. Leerlos antes de tocar cualquier pantalla; al terminar una, sacar una captura del mismo tamaño y compararla.
 - **Textos:** van en `lang/es.txt` y `lang/en.txt` (`clave = texto`). `tools/generar_textos.cmake` los mete en el `.exe`, y una prueba exige que estén en los dos idiomas.
 - **Pendientes:** lo provisorio se marca con `VENTRIK_PENDIENTE("texto sin acentos")` (src/common/pendiente.h). Avisa al compilar sin frenar /WX, y check.ps1 lo lista.
 - **Tus preferencias** también están en las memorias:
@@ -162,6 +164,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - Voz, etapa 6: la regla "el UDP viene de la misma IP que el TCP" deja sin voz a casas con dos salidas a internet, algunos CGNAT y servidores con varias placas; revisarla con el relay.
 - Voz, etapa 8: un hilo por núcleo en el servidor (en la netbook, un saludo TLS en el mismo hilo puede meter un corte corto en la voz), tope de voces, corrección de errores de Opus cuando hay pérdida.
 - Voz: al rotar la clave cada hora, el programa corta la sesión vieja antes de tener la nueva (unos milisegundos de voz perdida que Opus disimula); se puede pasar a "armar la nueva antes de soltar la vieja".
+- Para la ventana del 2.5: el aspecto sale de docs/aspecto.md y se compara con docs/pantallas/Rendimiento.png e Inicio.png. La barra de estado lleva, junto al ping, el gráfico del último minuto (ping y pérdida) que abre el diagnóstico.
 - Para la ventana del 2.5: mostrar cada nombre aislado entre U+2068 y U+2069, para que un nombre en hebreo o árabe no desordene la línea del chat.
 - `Presentado` va en un solo mensaje: con unas 880 personas no entra en 64 KiB. Partirlo antes de subir `conexiones_maximas` de 512.
 - Archivos que este paso no tocó todavía tienen comentarios (bytes.cpp, marcos.h, utf.*, registro.h, inicio.h, proceso.cpp, archivos.cpp): se sacan cuando se toquen.
