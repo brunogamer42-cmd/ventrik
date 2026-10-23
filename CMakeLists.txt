@@ -126,7 +126,8 @@ target_include_directories(ventrik_comun PUBLIC src "${VENTRIK_GENERADO}")
 target_link_libraries(ventrik_comun PUBLIC ventrik_opciones gsl mbedtls ws2_32 shell32)
 
 if(VENTRIK_VERSION STREQUAL "fuzzing")
-  foreach(fuzzer fuzz_base fuzz_identidad fuzz_nombres fuzz_protocolo fuzz_textos fuzz_utf)
+  foreach(fuzzer fuzz_base fuzz_identidad fuzz_nombres fuzz_protocolo fuzz_textos fuzz_utf
+          fuzz_voz fuzz_voz_servidor)
     add_executable(${fuzzer} fuzz/${fuzzer}.cpp)
     target_link_libraries(${fuzzer} PRIVATE ventrik_comun)
     add_custom_command(TARGET ${fuzzer} POST_BUILD
@@ -135,17 +136,21 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
   endforeach()
   target_sources(fuzz_base PRIVATE src/server/base.cpp)
   target_link_libraries(fuzz_base PRIVATE sqlite)
+  target_sources(fuzz_voz_servidor PRIVATE src/server/proteccion.cpp src/server/voz.cpp)
+  target_sources(fuzz_voz PRIVATE src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/motor_voz.cpp)
+  target_link_libraries(fuzz_voz PRIVATE opus)
   return()
 endif()
 
 add_library(ventrik_servidor_base STATIC
   src/server/base.cpp src/server/permisos.cpp src/server/proteccion.cpp src/server/registro.cpp
-  src/server/servidor.cpp)
+  src/server/servidor.cpp src/server/voz.cpp)
 target_link_libraries(ventrik_servidor_base PUBLIC ventrik_comun sqlite)
 target_compile_definitions(ventrik_servidor_base PRIVATE FD_SETSIZE=1024)
 add_library(ventrik_cliente_base STATIC
-  src/client/conexion.cpp src/client/consola.cpp src/client/diagnostico.cpp src/client/sesion.cpp)
-target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi)
+  src/client/audio.cpp src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/conexion.cpp
+  src/client/consola.cpp src/client/diagnostico.cpp src/client/motor_voz.cpp src/client/sesion.cpp)
+target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm)
 
 add_executable(ventrik WIN32 src/client/main.cpp)
 target_link_libraries(ventrik PRIVATE ventrik_cliente_base user32)
@@ -160,12 +165,14 @@ add_executable(ventrik_pruebas
   tests/prueba_base.cpp
   tests/prueba_base32.cpp
   tests/prueba_conexion.cpp
+  tests/prueba_dtls.cpp
   tests/prueba_gsl.cpp
   tests/prueba_huella.cpp
   tests/prueba_identidad.cpp
   tests/prueba_imgui.cpp
   tests/prueba_libwebp.cpp
   tests/prueba_mbedtls.cpp
+  tests/prueba_motor_voz.cpp
   tests/prueba_miniaudio.cpp
   tests/prueba_miniupnpc.cpp
   tests/prueba_opus.cpp
@@ -182,6 +189,7 @@ add_executable(ventrik_pruebas
   tests/prueba_sqlite.cpp
   tests/prueba_stb_image.cpp
   tests/prueba_texto.cpp
+  tests/prueba_voz_servidor.cpp
   tests/prueba_textos.cpp
   tests/prueba_utf.cpp)
 target_link_libraries(ventrik_pruebas PRIVATE

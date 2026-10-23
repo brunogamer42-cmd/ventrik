@@ -22,9 +22,17 @@ constexpr std::chrono::milliseconds kPausaSiFallaAceptar{100};
 constexpr std::size_t kAceptadasPorVuelta = 64;
 constexpr std::size_t kMaximoAntesDelSaludo = 16 * 1024;
 constexpr int kLecturasPorVuelta = 16;
+constexpr std::size_t kDatagramasPorVuelta = 256;
+constexpr std::chrono::milliseconds kCadaCuantoRevisarVoz{100};
 constexpr std::size_t kMaximoHistorial = protocolo::kMaximoCuerpo - 64;
 
 enum class Estado { cifrando, saludando, presentando, conectada, cerrando };
+
+Derivar derivar_de(cifrado::SesionTls& tls) {
+  return [&tls](gsl::span<const std::uint8_t> identidad, gsl::span<std::uint8_t> clave) {
+    return tls.exportar(identidad, clave);
+  };
+}
 
 std::uint64_t ahora_ms() {
   const auto desde_1970 = std::chrono::system_clock::now().time_since_epoch();
@@ -73,7 +81,7 @@ Servidor::Servidor(cifrado::IdentidadServidor& identidad, Opciones opciones, Avi
       avisar_(std::move(avisar)),
       proteccion_(opciones_.proteccion) {
   opciones_.conexiones_maximas =
-      std::min(opciones_.conexiones_maximas, static_cast<std::size_t>(FD_SETSIZE - 2));
+      std::min(opciones_.conexiones_maximas, static_cast<std::size_t>(FD_SETSIZE - 3));
 }
 
 Servidor::~Servidor() = default;
@@ -100,13 +108,26 @@ bool Servidor::escuchar() {
   if (buscar_canal(canales_, kCanalGeneral) == nullptr) {
     return false;
   }
-  escucha_ = red::escuchar(opciones_.escuchar);
-  const auto local = escucha_.valido() ? red::direccion_local(escucha_) : std::nullopt;
-  if (!local) {
+  for (int intento = 0; intento < 8 && !udp_.valido(); ++intento) {
+    escucha_ = red::escuchar(opciones_.escuchar);
+    const auto local = escucha_.valido() ? red::direccion_local(escucha_) : std::nullopt;
+    if (!local) {
+      break;
+    }
+    puerto_ = local->puerto;
+    udp_ = red::abrir_udp({opciones_.escuchar.ipv4, puerto_});
+    if (opciones_.escuchar.puerto != 0) {
+      break;
+    }
+  }
+  voz_ = std::make_unique<Voz>(opciones_.voz, [this](const red::Direccion& destino,
+                                                     gsl::span<const std::uint8_t> datos) {
+    red::enviar_a(udp_, destino, datos);
+  });
+  if (!udp_.valido() || !voz_->ok()) {
     escucha_ = red::Socket();
     return false;
   }
-  puerto_ = local->puerto;
   return true;
 }
 
@@ -129,12 +150,14 @@ void Servidor::falla(const Conexion& conexion) {
 }
 
 void Servidor::correr(const std::atomic<bool>& seguir) {
+  SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
   while (seguir.load() && escucha_.valido()) {
     fd_set lectura;
     fd_set escritura;
     FD_ZERO(&lectura);
     FD_ZERO(&escritura);
     FD_SET(static_cast<SOCKET>(despertador_.socket().get()), &lectura);
+    FD_SET(static_cast<SOCKET>(udp_.get()), &lectura);
     auto espera = kEsperaMaxima;
     const auto ahora = Reloj::now();
     if (ahora >= aceptar_desde_) {
@@ -175,6 +198,10 @@ void Servidor::correr(const std::atomic<bool>& seguir) {
     if (FD_ISSET(static_cast<SOCKET>(despertador_.socket().get()), &lectura)) {
       despertador_.vaciar();
     }
+    if (FD_ISSET(static_cast<SOCKET>(udp_.get()), &lectura)) {
+      atender_udp();
+    }
+    renovar_claves();
     base_.atender_respuestas();
     for (std::size_t i = 0; i < conexiones_.size(); ++i) {
       auto& conexion = *conexiones_[i];
@@ -222,6 +249,7 @@ void Servidor::quitar_terminadas() {
                                    [](const auto& conexion) { return conexion->terminar; }),
                     conexiones_.end());
   for (const std::uint32_t id : se_fueron) {
+    voz_->baja(id);
     difundir(protocolo::UsuarioSalio{id});
   }
 }
@@ -276,6 +304,38 @@ void Servidor::aceptar_nuevas() {
     conexion->limite = Reloj::now() + opciones_.tiempo_para_saludar;
     if (conexion->tls->ok()) {
       conexiones_.push_back(std::move(conexion));
+    }
+  }
+}
+
+void Servidor::atender_udp() {
+  std::array<std::uint8_t, protocolo::kMaximoDatagrama> datagrama{};
+  for (std::size_t vuelta = 0; vuelta < kDatagramasPorVuelta; ++vuelta) {
+    const auto recibido = red::recibir_de(udp_, datagrama);
+    if (!recibido) {
+      return;
+    }
+    const auto atada = voz_->recibir(recibido->origen,
+                                     gsl::span<const std::uint8_t>(datagrama).first(recibido->largo),
+                                     Reloj::now());
+    if (const Conexion* conexion = atada ? buscar_conectada(*atada) : nullptr) {
+      avisar(Evento::voz_conectada, *conexion);
+    }
+  }
+}
+
+void Servidor::renovar_claves() {
+  const auto ahora = Reloj::now();
+  if (ahora < revisar_voz_en_) {
+    return;
+  }
+  revisar_voz_en_ = ahora + kCadaCuantoRevisarVoz;
+  for (const std::uint32_t id : voz_->revisar(ahora)) {
+    Conexion* conexion = buscar_conectada(id);
+    const auto clave = conexion != nullptr ? voz_->renovar(id, ahora, derivar_de(*conexion->tls))
+                                           : std::nullopt;
+    if (clave) {
+      encolar(*conexion, *clave);
     }
   }
 }
@@ -493,6 +553,10 @@ void Servidor::atender_presentacion(Conexion& conexion, const protocolo::Marco& 
     }
   }
   encolar(conexion, presentado);
+  if (const auto clave = voz_->alta(conexion.id, conexion.origen.ipv4, conexion.canal, ahora,
+                                    derivar_de(*conexion.tls))) {
+    encolar(conexion, *clave);
+  }
   difundir(protocolo::UsuarioEntro{protocolo::UsuarioInfo{conexion.id, conexion.nombre,
                                                          conexion.canal}},
            conexion.id);
@@ -553,6 +617,7 @@ void Servidor::entrar_a_canal(Conexion& conexion, const protocolo::Marco& marco)
     return;
   }
   conexion.canal = pedido->canal;
+  voz_->mover(conexion.id, conexion.canal);
   difundir(protocolo::UsuarioCambioCanal{conexion.id, conexion.canal});
 }
 
@@ -729,6 +794,7 @@ void Servidor::borrar_canal(Conexion& conexion, const protocolo::Marco& marco) {
           for (auto& otra : conexiones_) {
             if (otra->canal == canal) {
               otra->canal = kCanalGeneral;
+              voz_->mover(otra->id, kCanalGeneral);
             }
           }
           difundir(protocolo::CanalBorrado{canal, kCanalGeneral});

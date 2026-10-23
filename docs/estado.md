@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-23, al cerrar el paso 2.3.
+Última actualización: 2026-10-23, al cerrar el paso 2.4.
 
 ## Dónde estamos
 
@@ -10,7 +10,8 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **Etapa 2, paso 2.1: cerrado.** Lector y escritor único de mensajes, saludo con negociación de versión y funciones, y fuzzing (src/common/protocol, fuzz/). Probado en la HP 2133 con XP.
 - **Etapa 2, paso 2.2: cerrado.** Servidor de consola con su clave y su huella, conexión por TLS 1.3 que verifica la huella, protección contra inundaciones (pedida por el dueño, en todos los niveles) y Mbed TLS con control de hilos. Probado en la HP 2133: pruebas automáticas en XP, y conexión real XP → PC con la huella correcta (conecta) y con una falsa (rechaza).
 - **Etapa 2, paso 2.3: cerrado.** Presentación con nombre, canales administrados por el dueño desde adentro (código de dueño provisorio), chat por canal guardado en SQLite, permisos verificados en el servidor, ping, diagnóstico y consola de prueba provisoria (`ventrik.exe --consola`). Probado a mano: HP 2133 como invitado y la PC como dueño, contra el servidor de prueba de la PC.
-- **Lo que sigue: paso 2.4**: voz por DTLS 1.2 a través del servidor (delicado). Proponer el plan primero; portar de la rama prueba-de-voz lo que sirva.
+- **Etapa 2, paso 2.4: cerrado.** Voz por DTLS 1.2 a través del servidor: clave derivada de la conexión TLS, reenvío solo al mismo canal, audio con miniaudio o el puente WinMM en XP, `/hablar` en la consola. Probado a mano: voz en los dos sentidos entre la HP 2133 con XP y la PC, y que otro canal no escucha.
+- **Lo que sigue: paso 2.5**: ventana principal en modo Rendimiento y pantalla Inicio con Direct3D 9 y Dear ImGui. Proponer el plan primero.
 
 ## Ramas y repositorio
 
@@ -47,10 +48,10 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - Abrir el puerto en todas las placas (0.0.0.0) hace que el firewall de Windows pregunte la primera vez: eso lo tiene que contestar el dueño. Las pruebas escuchan solo en 127.0.0.1 y no preguntan.
   - Servidor de prueba para el dueño: `build\servidor_de_prueba` (huella `JAUB-ASLN-E5PH-PVU4-5WJN-F457-46BH-IJMD-DFBK-PKGW-Q5YJ-6LF7-63EA`).
 - **Servidor, archivos de datos:** `codigo_dueno.txt` (se crea al arrancar por primera vez y se muestra en la consola) y `ventrik.db` (SQLite: canales, mensajes y configuración).
-- **Programa:** `ventrik.exe --consola <ip[:puerto]> <huella> <nombre> [--dueno <código>]` (provisorio hasta el paso 2.5) abre una consola de texto con canales y chat; `/ayuda` lista los comandos. Los `.bat` de `build\para_xp` para probar contra la PC no van a git porque llevan la IP.
+- **Programa:** `ventrik.exe --consola <ip[:puerto]> <huella> <nombre> [--dueno <código>]` (provisorio hasta el paso 2.5) abre una consola de texto con canales, chat y voz (`/hablar` empieza y corta); `/ayuda` lista los comandos. Los `.bat` de `build\para_xp` para probar contra la PC no van a git porque llevan la IP.
 - **Bibliotecas:** versiones, origen y huellas en third_party/VERSIONS.md. Para actualizar una: bajarla, anotarla, reemplazarla y correr `huellas_terceros.ps1 -Actualizar`. Lo nuestro para integrarlas está en `third_party/integracion/`.
 - **Fuzzing:** `tools\fuzzing.ps1 [-Segundos N]` (10 minutos si no se dice otra cosa) corre los fuzzers de fuzz/ en 64 y 32 bits, a la vez, con AddressSanitizer. Antes hay que compilarlos con check.ps1, que además los corre 30 segundos cada vez.
-  - Son 6: `fuzz_protocolo` (con todos los mensajes), `fuzz_nombres` (reglas de nombres y chat contra otra versión escrita aparte), `fuzz_base` (archivo `ventrik.db` dañado o armado a mano), `fuzz_utf`, `fuzz_textos` (huella, código de dueño y dirección) y `fuzz_identidad` (archivo de la clave).
+  - Son 8: `fuzz_voz` (BufferVoz y Opus con paquetes al azar), `fuzz_voz_servidor` (datagramas al azar contra `servidor::Voz`, crudos o cifrados por una sesión real), `fuzz_protocolo` (con todos los mensajes), `fuzz_nombres` (reglas de nombres y chat contra otra versión escrita aparte), `fuzz_base` (archivo `ventrik.db` dañado o armado a mano), `fuzz_utf`, `fuzz_textos` (huella, código de dueño y dirección) y `fuzz_identidad` (archivo de la clave).
   - Las compilaciones de fuzzing son los presets `fuzzing64` y `fuzzing32` (v143, nunca se publican). Usan el mismo `_WIN32_WINNT` que la clásica y RtlGenRandom.
   - Lo aprendido queda en `build\fuzzing\corpus`; cada caso que falla, en `build\fuzzing\fallas`. Las semillas de arranque están en `fuzz\semillas`.
   - Código nuevo que lea datos de red o archivos: sumar su fuzzer en fuzz/ y en CMakeLists.txt y fuzzing.ps1.
@@ -102,6 +103,14 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - el código de dueño se compara en tiempo constante y uno equivocado cuenta como falla para la protección.
 - **Programa:** `cliente::conectar` saluda, se presenta y devuelve la conexión abierta (`ConexionAbierta`) con lo que sobró de leer. `cliente::Sesion` corre la conexión en su propio hilo con una cola de órdenes y otra de novedades (la va a usar la ventana del 2.5) y manda ping cada 5 s.
 - **Textos de la interfaz con datos:** `con_datos(plantilla, {...})` cambia `{1}` a `{9}`; así el orden de las palabras queda en lang/.
+- **Voz (paso 2.4):**
+  - la clave de DTLS no viaja: el servidor manda `ClaveVoz{identidad}` por TLS y los dos lados la derivan con `SesionTls::exportar` (exportador de TLS 1.3, etiqueta "EXPERIMENTAL ventrik voz", contexto = identidad). DTLS 1.2 solo con PSK y AES-GCM o ChaCha20-Poly1305; el servidor respeta el orden del programa (`MBEDTLS_SSL_SRV_CIPHERSUITE_ORDER_CLIENT`);
+  - servidor (`servidor::Voz`, sin sockets): solo atiende UDP de IPs con conexión presentada; una sesión "escucha" para direcciones nuevas que se promueve recién cuando mandó el ServerHello (si solo mandó la cookie, no); `set_client_transport_id` después de **cada** `session_reset` (si no, la cookie nunca coincide); `CLIENT_RECONNECT` sobre una sesión armada la destruye; se ata a la conexión al terminar el saludo y "la última gana". a una sesión armada solo le llegan datagramas cuyos registros son todos datos o avisos de la época 1 (`solo_datos_cifrados`, que solo mira las cabeceras DTLS); el resto va a la escucha, con su cookie y sus topes. Mbed TLS devuelve error ante un ClientHello falso de 14 bytes (`MBEDTLS_SSL_DTLS_CLIENT_PORT_REUSE`) o un mensaje de saludo de la época 0 después del saludo, y eso cortaba la voz de cualquiera (lo encontró la revisión y después el fuzzer);
+  - topes: saludos por IP (20, después 10 por segundo) y una cubeta global de techo; 4 saludos pendientes por IP y 64 en total, 10 s de plazo; por sesión, 120 datagramas por segundo antes de descifrar y 60 voces por segundo reenviadas, una sola voz por datagrama; 60 s sin datos cierra la sesión; la clave rota cada hora ±10 %;
+  - `SesionTls` en modo datagrama: el datagrama entregado se olvida después de cada llamada a Mbed TLS (si no, podía quedar apuntando a memoria vieja); un datagrama vacío no corta la sesión (Mbed TLS lo toma como fin); en datagrama no se recorta lo que se escribe;
+  - UDP: `SIO_UDP_CONNRESET` y `SIO_UDP_NETRESET` apagados (constantes a mano, los SDK los ponen en encabezados distintos), buffer de recepción de 256 KiB (XP trae 8 KiB), el servidor atiende UDP antes que TCP y hasta 256 datagramas por vuelta;
+  - programa: `CanalVoz` en el hilo de la sesión, un socket UDP nuevo por saludo, ping cada 5 s, reintento con espera creciente de 2 a 60 s y algo de azar; el audio y la red se pasan los paquetes por dos colas fijas de un productor y un consumidor (`PuenteVoz`), sin candados ni memoria nueva en el hilo de audio. Una sola `Sesion` por `PuenteVoz` a la vez;
+  - audio: miniaudio desde Vista y el puente WinMM en XP (10 ms, 8 de entrada, 3 adelantados, sin corregir desfase); Opus VOIP de 20 ms; calidad automática: Alto (48 kHz, complejidad 10, 24 kbps) o Bajo (16 kHz, complejidad 0, 20 kbps) en PCs de un núcleo físico (`GetLogicalProcessorInformation` por `GetProcAddress`: los de un núcleo con HyperThreading cuentan como uno); el puente WinMM borra `WHDR_DONE` antes de devolver cada pedazo del micrófono (si no, con el micrófono desenchufado giraba sin pausa en "tiempo crítico"); una sola voz por vez (la primera hasta 1 s de silencio) y espera fija de 40 ms hasta la etapa 3.
 - **Reglas de texto (src/common/texto.cpp):** nombres de 1 a 32 caracteres (64 bytes) sin controles, invisibles ni marcas de dirección; chat hasta 4000 bytes con saltos de línea y U+200D; los nombres se comparan con `LCMapStringW(LOCALE_INVARIANT, LCMAP_UPPERCASE)`. Los mensajes del protocolo las aplican al leer y al escribir.
 - **doctest:** en la clásica va sin su informe de cierres inesperados, que usa SetThreadStackGuarantee.
 - **Al arrancar:**
@@ -149,6 +158,10 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - Windows 11.
 - De las revisiones del 2.1 y 2.2: validar la configuración del servidor cuando se cargue de un archivo (rango del protocolo derecho y sin pasar de `kProtocoloMaximo`; las pruebas usan protocolos 2 a 5).
 - Nombres "parecidos" con letras de otro alfabeto: etapa 9.
+- Voz, etapa 3: buffer que se ajusta solo (hoy 40 ms fijos, unas 110 ms de punta a punta en la red de casa), mezcla de varias voces, silenciar y ensordecer.
+- Voz, etapa 6: la regla "el UDP viene de la misma IP que el TCP" deja sin voz a casas con dos salidas a internet, algunos CGNAT y servidores con varias placas; revisarla con el relay.
+- Voz, etapa 8: un hilo por núcleo en el servidor (en la netbook, un saludo TLS en el mismo hilo puede meter un corte corto en la voz), tope de voces, corrección de errores de Opus cuando hay pérdida.
+- Voz: al rotar la clave cada hora, el programa corta la sesión vieja antes de tener la nueva (unos milisegundos de voz perdida que Opus disimula); se puede pasar a "armar la nueva antes de soltar la vieja".
 - Para la ventana del 2.5: mostrar cada nombre aislado entre U+2068 y U+2069, para que un nombre en hebreo o árabe no desordene la línea del chat.
 - `Presentado` va en un solo mensaje: con unas 880 personas no entra en 64 KiB. Partirlo antes de subir `conexiones_maximas` de 512.
 - Archivos que este paso no tocó todavía tienen comentarios (bytes.cpp, marcos.h, utf.*, registro.h, inicio.h, proceso.cpp, archivos.cpp): se sacan cuando se toquen.

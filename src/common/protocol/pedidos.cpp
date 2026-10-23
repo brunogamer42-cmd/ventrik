@@ -85,6 +85,25 @@ void leer_usuario(Lector& lector, UsuarioInfo& usuario) {
   usuario.canal = lector.leer_u32();
 }
 
+void escribir_opus(Escritor& escritor, const std::vector<std::uint8_t>& opus) {
+  if (opus.empty() || opus.size() > kMaximoOpus) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u16(static_cast<std::uint16_t>(opus.size()));
+  escritor.escribir_bytes(opus);
+}
+
+void leer_opus(Lector& lector, std::vector<std::uint8_t>& opus) {
+  const std::size_t largo = lector.leer_u16();
+  if (largo == 0 || largo > kMaximoOpus) {
+    lector.marcar_error();
+    return;
+  }
+  const auto bytes = lector.leer_bytes(largo);
+  opus.assign(bytes.begin(), bytes.end());
+}
+
 bool es_pedido(std::uint16_t tipo) {
   return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
          tipo <= static_cast<std::uint16_t>(TipoMensaje::ping);
@@ -330,6 +349,52 @@ void escribir(Escritor& escritor, const Pong& mensaje) {
 
 void leer(Lector& lector, Pong& mensaje) {
   mensaje.marca = lector.leer_u64();
+}
+
+void escribir(Escritor& escritor, const ClaveVoz& mensaje) {
+  escritor.escribir_bytes(mensaje.identidad);
+}
+
+void leer(Lector& lector, ClaveVoz& mensaje) {
+  const auto identidad = lector.leer_bytes(mensaje.identidad.size());
+  std::copy(identidad.begin(), identidad.end(), mensaje.identidad.begin());
+}
+
+void escribir(Escritor& escritor, const VozSubida& mensaje) {
+  escritor.escribir_u16(mensaje.numero);
+  escribir_opus(escritor, mensaje.opus);
+}
+
+void leer(Lector& lector, VozSubida& mensaje) {
+  mensaje.numero = lector.leer_u16();
+  leer_opus(lector, mensaje.opus);
+}
+
+void escribir(Escritor& escritor, const VozBajada& mensaje) {
+  escritor.escribir_u32(mensaje.hablante);
+  escritor.escribir_u16(mensaje.numero);
+  escribir_opus(escritor, mensaje.opus);
+}
+
+void leer(Lector& lector, VozBajada& mensaje) {
+  mensaje.hablante = lector.leer_u32();
+  mensaje.numero = lector.leer_u16();
+  leer_opus(lector, mensaje.opus);
+}
+
+std::optional<Marco> separar_datagrama(gsl::span<const std::uint8_t> datos) {
+  if (datos.size() > kMaximoDatagrama) {
+    return std::nullopt;
+  }
+  Lector lector(datos);
+  Marco marco;
+  marco.tipo = lector.leer_u16();
+  const auto cuerpo = lector.leer_bytes(lector.restante());
+  if (!lector.terminado()) {
+    return std::nullopt;
+  }
+  marco.cuerpo.assign(cuerpo.begin(), cuerpo.end());
+  return marco;
 }
 
 }

@@ -50,6 +50,7 @@ servidor_presentada = Entró: {1} ({2})
 servidor_salio = Salió: {1} ({2})
 servidor_sin_respuesta = Cortado, no respondía: {1} ({2})
 servidor_no_lee = Cortado, no leía lo que le mandaban: {1} ({2})
+servidor_voz_conectada = Voz conectada: {1} ({2})
 servidor_codigo_incorrecto = Rechazado (código de dueño equivocado):
 canal_general = General
 
@@ -76,7 +77,7 @@ consola_uso = Uso: ventrik --consola <ip[:puerto]> <huella> <tu nombre> [--dueno
 consola_conectando = Conectando a {1}...
 consola_entraste = Entraste como {1}. Estás en {2}.
 consola_sos_dueno = Sos el dueño: podés crear, renombrar y borrar canales.
-consola_ayuda = Comandos: /canales, /entrar <canal>, /quien, /historial, /diag, /crear <canal>, /renombrar <canal> = <nombre nuevo>, /borrar <canal>, /salir. Lo demás que escribas va al chat de tu canal.
+consola_ayuda = Comandos: /hablar (empezar o cortar la voz), /canales, /entrar <canal>, /quien, /historial, /diag, /crear <canal>, /renombrar <canal> = <nombre nuevo>, /borrar <canal>, /salir. Lo demás que escribas va al chat de tu canal.
 consola_canales = Canales:
 consola_canal_linea = {1} ({2} personas)
 consola_aca = (estás acá)
@@ -91,8 +92,14 @@ consola_canal_borrado = Se borró el canal {1}; los que estaban ahí pasaron a {
 consola_historial = Mensajes guardados de {1}:
 consola_hay_mas = (hay mensajes más viejos: /historial)
 consola_sin_mas = (no hay mensajes más viejos)
-consola_diag = Ping: {1} ms. Procesador: {2} %. RAM: {3} MB. Pérdida de paquetes: llega con la voz.
+consola_diag = Ping: {1} ms. Procesador: {2} %. RAM: {3} MB. Pérdida de paquetes de voz: {4} %.
 consola_sin_ping = todavía no medido
+consola_hablando_vos = Transmitiendo: te escuchan los de tu canal. Escribí /hablar otra vez para cortar.
+consola_callado = Dejaste de transmitir.
+consola_habla = {1} está hablando.
+consola_voz_lista = Voz conectada.
+consola_voz_sin_conexion = Voz sin conexión: el servidor no contesta por UDP (puerto {1}). El chat sigue andando; la voz vuelve a intentar sola.
+consola_sin_audio = No se pudo abrir el micrófono o los parlantes: vas a poder chatear, pero no hablar ni escuchar.
 consola_no_existe = No hay ningún canal con ese nombre.
 consola_mensaje_invalido = Ese mensaje no se puede mandar: está vacío, es muy largo o tiene caracteres que no se permiten.
 consola_nombre_canal_invalido = Ese nombre de canal no se puede usar.

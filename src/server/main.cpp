@@ -61,6 +61,7 @@ ventrik::Clave clave_de(ventrik::servidor::Evento evento) {
     case Evento::sin_respuesta: return Clave::servidor_sin_respuesta;
     case Evento::no_lee: return Clave::servidor_no_lee;
     case Evento::codigo_incorrecto: return Clave::servidor_codigo_incorrecto;
+    case Evento::voz_conectada: return Clave::servidor_voz_conectada;
   }
   return Clave::servidor_conectada;
 }

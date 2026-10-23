@@ -11,7 +11,9 @@
 #include <variant>
 #include <vector>
 
+#include "client/canal_voz.h"
 #include "client/conexion.h"
+#include "client/puente_voz.h"
 #include "common/protocol/pedidos.h"
 #include "common/red/red.h"
 
@@ -47,6 +49,7 @@ struct OpcionesSesion {
   OpcionesConexion conexion;
   std::chrono::milliseconds cada_cuanto_ping{5000};
   std::chrono::milliseconds sin_respuesta{30000};
+  std::shared_ptr<PuenteVoz> voz;
 };
 
 class Sesion {
@@ -77,6 +80,8 @@ class Sesion {
   std::deque<Novedad> novedades_;
   bool terminar_ = false;
   bool desbordada_ = false;
+  std::unique_ptr<CanalVoz> canal_voz_;
+  cifrado::SesionTls* tls_ = nullptr;
   std::thread hilo_;
 };
 

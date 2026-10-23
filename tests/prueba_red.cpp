@@ -1,3 +1,4 @@
+#include <array>
 #include <chrono>
 #include <string>
 
@@ -64,4 +65,43 @@ TEST_CASE("Conectar a un puerto cerrado falla sin quedarse esperando") {
   const auto inicio = std::chrono::steady_clock::now();
   CHECK_FALSE(ventrik::red::conectar(cerrado, 5s).valido());
   CHECK(std::chrono::steady_clock::now() - inicio < 4s);
+}
+
+TEST_CASE("UDP: ida y vuelta, y un puerto cerrado no rompe el socket") {
+  using namespace ventrik::red;
+  const auto a = abrir_udp({kLocal, 0});
+  const auto b = abrir_udp({kLocal, 0});
+  REQUIRE(a.valido());
+  REQUIRE(b.valido());
+  const Direccion dir_a = *direccion_local(a);
+  const Direccion dir_b = *direccion_local(b);
+  Direccion cerrado;
+  {
+    const auto c = abrir_udp({kLocal, 0});
+    cerrado = *direccion_local(c);
+  }
+  const std::array<std::uint8_t, 3> datos = {1, 2, 3};
+  std::array<std::uint8_t, 16> recibido{};
+  CHECK(enviar_a(a, cerrado, datos));
+  REQUIRE(enviar_a(a, dir_b, datos));
+  REQUIRE(esperar(b, true, false, 2s) == Espera::lista);
+  const auto en_b = recibir_de(b, recibido);
+  REQUIRE(en_b);
+  CHECK(en_b->largo == 3);
+  CHECK(en_b->origen == dir_a);
+  REQUIRE(enviar_a(b, dir_a, datos));
+  REQUIRE(esperar(a, true, false, 2s) == Espera::lista);
+  const auto en_a = recibir_de(a, recibido);
+  REQUIRE(en_a);
+  CHECK(en_a->largo == 3);
+  CHECK_FALSE(recibir_de(a, recibido));
+  const auto conectado = conectar_udp(dir_b);
+  REQUIRE(conectado.valido());
+  REQUIRE(enviar_a(conectado, dir_b, datos));
+  REQUIRE(esperar(b, true, false, 2s) == Espera::lista);
+  CHECK(recibir_de(b, recibido)->largo == 3);
+  std::array<std::uint8_t, 2> chico{};
+  REQUIRE(enviar_a(a, dir_b, datos));
+  REQUIRE(esperar(b, true, false, 2s) == Espera::lista);
+  CHECK(recibir_de(b, chico)->largo == 0);
 }

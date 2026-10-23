@@ -1,11 +1,14 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+
+#include <gsl/gsl>
 
 namespace ventrik::red {
 constexpr std::uint16_t kPuertoPredeterminado = 7700;
@@ -56,6 +59,16 @@ Socket escuchar(const Direccion& donde);
 std::optional<Direccion> direccion_local(const Socket& cual);
 std::optional<std::pair<Socket, Direccion>> aceptar(const Socket& escucha, bool& fallo);
 Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo);
+
+struct Recibido {
+  std::size_t largo = 0;
+  Direccion origen;
+};
+
+Socket abrir_udp(const Direccion& donde);
+Socket conectar_udp(const Direccion& destino);
+bool enviar_a(const Socket& cual, const Direccion& destino, gsl::span<const std::uint8_t> datos);
+std::optional<Recibido> recibir_de(const Socket& cual, gsl::span<std::uint8_t> destino);
 
 enum class Espera { lista, tiempo_vencido, error };
 Espera esperar(const Socket& cual, bool para_leer, bool para_escribir,

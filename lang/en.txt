@@ -50,6 +50,7 @@ servidor_presentada = Joined: {1} ({2})
 servidor_salio = Left: {1} ({2})
 servidor_sin_respuesta = Cut off, not answering: {1} ({2})
 servidor_no_lee = Cut off, not reading what was sent: {1} ({2})
+servidor_voz_conectada = Voice connected: {1} ({2})
 servidor_codigo_incorrecto = Rejected (wrong owner code):
 canal_general = General
 
@@ -76,7 +77,7 @@ consola_uso = Usage: ventrik --consola <ip[:port]> <fingerprint> <your name> [--
 consola_conectando = Connecting to {1}...
 consola_entraste = You joined as {1}. You are in {2}.
 consola_sos_dueno = You are the owner: you can create, rename and delete channels.
-consola_ayuda = Commands: /canales, /entrar <channel>, /quien, /historial, /diag, /crear <channel>, /renombrar <channel> = <new name>, /borrar <channel>, /salir. Anything else you type goes to your channel's chat.
+consola_ayuda = Commands: /hablar (start or stop voice), /canales, /entrar <channel>, /quien, /historial, /diag, /crear <channel>, /renombrar <channel> = <new name>, /borrar <channel>, /salir. Anything else you type goes to your channel's chat.
 consola_canales = Channels:
 consola_canal_linea = {1} ({2} people)
 consola_aca = (you are here)
@@ -91,8 +92,14 @@ consola_canal_borrado = Channel {1} was deleted; whoever was there moved to {2}.
 consola_historial = Saved messages of {1}:
 consola_hay_mas = (there are older messages: /historial)
 consola_sin_mas = (there are no older messages)
-consola_diag = Ping: {1} ms. CPU: {2} %. RAM: {3} MB. Packet loss: comes with voice.
+consola_diag = Ping: {1} ms. CPU: {2} %. RAM: {3} MB. Voice packet loss: {4} %.
 consola_sin_ping = not measured yet
+consola_hablando_vos = Transmitting: people in your channel hear you. Type /hablar again to stop.
+consola_callado = You stopped transmitting.
+consola_habla = {1} is talking.
+consola_voz_lista = Voice connected.
+consola_voz_sin_conexion = Voice offline: the server does not answer over UDP (port {1}). Chat keeps working; voice will retry by itself.
+consola_sin_audio = The microphone or speakers could not be opened: you can chat, but not talk or listen.
 consola_no_existe = There is no channel with that name.
 consola_mensaje_invalido = That message can't be sent: it is empty, too long or has characters that are not allowed.
 consola_nombre_canal_invalido = That channel name can't be used.

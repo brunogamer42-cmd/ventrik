@@ -273,3 +273,80 @@ TEST_CASE("Un programa que no lee lo que recibe es desconectado") {
   REQUIRE(salio);
   CHECK(salio->id == mudo.presentado->tu_id);
 }
+
+TEST_CASE("La voz va por UDP solo a los del mismo canal, y sigue andando al rotar la clave") {
+  using ventrik::cliente::EstadoVoz;
+  using ventrik::cliente::PaqueteVoz;
+  using ventrik::cliente::PuenteVoz;
+  ConDueno dueno;
+  auto opciones = dueno.opciones();
+  opciones.voz.rotacion = std::chrono::seconds(1);
+  ServidorDePrueba servidor(opciones);
+  const auto con_voz = [] {
+    ventrik::cliente::OpcionesSesion sesion;
+    sesion.voz = std::make_shared<PuenteVoz>();
+    return sesion;
+  };
+  const auto oa = con_voz();
+  const auto ob = con_voz();
+  const auto oc = con_voz();
+  Cliente ana(servidor, "Ana", dueno.codigo, oa);
+  Cliente beto(servidor, "Beto", {}, ob);
+  Cliente carla(servidor, "Carla", {}, oc);
+  const auto ana_id = ana.entrar().tu_id;
+  beto.entrar();
+  const auto carla_id = carla.entrar().tu_id;
+  ana.ordenar(CrearCanal{"Juegos"});
+  const auto creado = carla.esperar<CanalCreado>();
+  REQUIRE(creado);
+  carla.ordenar(EntrarACanal{creado->canal.id});
+  REQUIRE(ana.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == carla_id; }));
+  for (const auto* puente : {oa.voz.get(), ob.voz.get(), oc.voz.get()}) {
+    REQUIRE(esperar_que([puente] { return puente->estado == EstadoVoz::lista; }));
+  }
+  std::uint16_t numero = 7;
+  const auto hablar = [&numero](PuenteVoz& puente) {
+    PaqueteVoz paquete;
+    paquete.numero = numero++;
+    paquete.largo = 3;
+    paquete.opus[0] = 1;
+    paquete.opus[1] = 2;
+    paquete.opus[2] = 3;
+    REQUIRE(puente.subida.poner(paquete));
+    puente.despertador.despertar();
+  };
+  const auto escuchar = [](PuenteVoz& puente, std::chrono::milliseconds limite) {
+    PaqueteVoz paquete;
+    return esperar_que([&] { return puente.bajada.sacar(paquete); }, limite)
+               ? std::optional<PaqueteVoz>(paquete)
+               : std::nullopt;
+  };
+  hablar(*oa.voz);
+  const auto en_beto = escuchar(*ob.voz, 5s);
+  REQUIRE(en_beto);
+  CHECK(en_beto->hablante == ana_id);
+  CHECK(en_beto->numero == 7);
+  CHECK(en_beto->largo == 3);
+  CHECK(en_beto->opus[2] == 3);
+  CHECK_FALSE(escuchar(*oc.voz, 300ms));
+  CHECK_FALSE(escuchar(*oa.voz, 300ms));
+
+  REQUIRE(esperar_que([&] { return servidor.cuantos(Evento::voz_conectada) >= 6; }, 10s));
+  bool llego = false;
+  for (int intento = 0; intento < 50 && !llego; ++intento) {
+    hablar(*oa.voz);
+    llego = escuchar(*ob.voz, 100ms).has_value();
+  }
+  CHECK(llego);
+
+  carla.ordenar(EntrarACanal{ventrik::servidor::kCanalGeneral});
+  REQUIRE(ana.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == carla_id; }));
+  llego = false;
+  for (int intento = 0; intento < 50 && !llego; ++intento) {
+    hablar(*oa.voz);
+    llego = escuchar(*oc.voz, 100ms).has_value();
+  }
+  CHECK(llego);
+  CHECK(ob.voz->recibidos > 0);
+  CHECK(ob.voz->ping_ms < 1000);
+}

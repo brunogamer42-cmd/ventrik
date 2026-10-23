@@ -17,6 +17,8 @@ namespace ventrik::protocolo {
 constexpr std::size_t kMaximoCanalesEnLista = 256;
 constexpr std::size_t kMaximoUsuariosEnLista = 1024;
 constexpr std::size_t kMaximoMensajesEnHistorial = 256;
+constexpr std::size_t kMaximoOpus = 400;
+constexpr std::size_t kMaximoDatagrama = 2048;
 constexpr std::size_t kMaximoCuerpoPresentacion = 128;
 
 struct Presentarse {
@@ -169,6 +171,24 @@ struct Pong {
   std::uint64_t marca = 0;
 };
 
+struct ClaveVoz {
+  static constexpr TipoMensaje kTipo = TipoMensaje::clave_voz;
+  std::array<std::uint8_t, 16> identidad{};
+};
+
+struct VozSubida {
+  static constexpr TipoMensaje kTipo = TipoMensaje::voz_subida;
+  std::uint16_t numero = 0;
+  std::vector<std::uint8_t> opus;
+};
+
+struct VozBajada {
+  static constexpr TipoMensaje kTipo = TipoMensaje::voz_bajada;
+  std::uint32_t hablante = 0;
+  std::uint16_t numero = 0;
+  std::vector<std::uint8_t> opus;
+};
+
 #define VENTRIK_MENSAJE(Tipo)                     \
   void escribir(Escritor& escritor, const Tipo& mensaje); \
   void leer(Lector& lector, Tipo& mensaje);
@@ -193,6 +213,9 @@ VENTRIK_MENSAJE(BorrarCanal)
 VENTRIK_MENSAJE(Negado)
 VENTRIK_MENSAJE(Ping)
 VENTRIK_MENSAJE(Pong)
+VENTRIK_MENSAJE(ClaveVoz)
+VENTRIK_MENSAJE(VozSubida)
+VENTRIK_MENSAJE(VozBajada)
 
 #undef VENTRIK_MENSAJE
 
@@ -214,5 +237,19 @@ template <typename Mensaje>
   return escritor.ok() &&
          armar_marco(static_cast<std::uint16_t>(Mensaje::kTipo), escritor.datos(), salida);
 }
+
+template <typename Mensaje>
+[[nodiscard]] bool armar_datagrama(const Mensaje& mensaje, std::vector<std::uint8_t>& salida) {
+  Escritor escritor;
+  escritor.escribir_u16(static_cast<std::uint16_t>(Mensaje::kTipo));
+  escribir(escritor, mensaje);
+  if (!escritor.ok() || escritor.datos().size() > kMaximoDatagrama) {
+    return false;
+  }
+  salida = escritor.datos();
+  return true;
+}
+
+std::optional<Marco> separar_datagrama(gsl::span<const std::uint8_t> datos);
 
 }

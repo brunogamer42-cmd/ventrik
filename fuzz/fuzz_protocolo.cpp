@@ -169,7 +169,7 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
   revisar_pedidos<Presentarse, Presentado, PresentacionRechazada, UsuarioEntro, UsuarioSalio,
                   UsuarioCambioCanal, CanalCreado, CanalRenombrado, CanalBorrado, EntrarACanal,
                   EnviarChat, MensajeChat, PedirHistorial, Historial, CrearCanal, RenombrarCanal,
-                  BorrarCanal, Negado, Ping, Pong>(marco.cuerpo);
+                  BorrarCanal, Negado, Ping, Pong, ClaveVoz, VozSubida, VozBajada>(marco.cuerpo);
   switch (static_cast<TipoMensaje>(marco.tipo)) {
     case TipoMensaje::hola:
       if (const auto hola = leer_hola(marco.cuerpo)) {
@@ -291,6 +291,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   }
   const gsl::span<const std::uint8_t> entrada(datos, largo);
   probar_marcos(entrada);
+  if (const auto datagrama = separar_datagrama(entrada)) {
+    exigir(datagrama->cuerpo.size() + 2 == entrada.size());
+    revisar_pedidos<Ping, Pong, VozSubida, VozBajada>(datagrama->cuerpo);
+  }
   probar_lector(entrada);
   probar_escritor(entrada);
   return 0;

@@ -20,6 +20,7 @@
 #include "server/base.h"
 #include "server/permisos.h"
 #include "server/proteccion.h"
+#include "server/voz.h"
 
 namespace ventrik::servidor {
 struct Opciones {
@@ -40,6 +41,7 @@ struct Opciones {
   double historial_por_segundo = 1;
   int intentos_de_presentacion = 5;
   OpcionesProteccion proteccion;
+  OpcionesVoz voz;
   protocolo::ConfigServidor protocolo;
   std::wstring archivo_base;
   std::string nombre_general;
@@ -64,6 +66,7 @@ enum class Evento {
   sin_respuesta,
   no_lee,
   codigo_incorrecto,
+  voz_conectada,
 };
 
 using Avisar = std::function<void(Evento, const red::Direccion&, const std::string&)>;
@@ -101,6 +104,8 @@ class Servidor {
   void cerrar_con_respuesta(Conexion& conexion);
   void difundir_chat(const protocolo::MensajeChat& mensaje);
   void quitar_terminadas();
+  void atender_udp();
+  void renovar_claves();
   bool enviar_pendiente(Conexion& conexion);
   void revisar_lo_recibido(Conexion& conexion);
   void avisar(Evento evento, const Conexion& conexion);
@@ -119,10 +124,13 @@ class Servidor {
   Avisar avisar_;
   std::unique_ptr<cifrado::ConfigTls> config_;
   red::Socket escucha_;
+  red::Socket udp_;
   red::Despertador despertador_;
+  std::unique_ptr<Voz> voz_;
   std::uint16_t puerto_ = 0;
   std::vector<std::unique_ptr<Conexion>> conexiones_;
   std::chrono::steady_clock::time_point aceptar_desde_{};
+  std::chrono::steady_clock::time_point revisar_voz_en_{};
   Proteccion proteccion_;
   std::vector<Canal> canales_;
   std::size_t canales_pedidos_ = 0;

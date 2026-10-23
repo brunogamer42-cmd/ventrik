@@ -10,6 +10,9 @@
 namespace ventrik::red {
 namespace {
 constexpr int kColaDeEspera = 64;
+constexpr int kBufferUdp = 256 * 1024;
+constexpr DWORD kSinAvisoDePuertoCerrado = _WSAIOW(IOC_VENDOR, 12);
+constexpr DWORD kSinAvisoDeRedCaida = _WSAIOW(IOC_VENDOR, 15);
 
 std::optional<std::uint32_t> leer_numero(std::string_view& texto, std::size_t digitos,
                                          std::uint32_t maximo) {
@@ -41,13 +44,25 @@ Direccion de_sockaddr(const sockaddr_in& origen) {
   return Direccion{ntohl(origen.sin_addr.s_addr), ntohs(origen.sin_port)};
 }
 
-bool preparar(SOCKET s) {
+bool preparar(SOCKET s, bool udp = false) {
   u_long sin_trabarse = 1;
   BOOL sin_demora = TRUE;
+  BOOL avisar = FALSE;
+  DWORD devueltos = 0;
   SetHandleInformation(reinterpret_cast<HANDLE>(s), HANDLE_FLAG_INHERIT, 0);
-  return ioctlsocket(s, FIONBIO, &sin_trabarse) == 0 &&
-         setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&sin_demora),
-                    sizeof(sin_demora)) == 0;
+  if (ioctlsocket(s, FIONBIO, &sin_trabarse) != 0) {
+    return false;
+  }
+  if (!udp) {
+    return setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&sin_demora),
+                      sizeof(sin_demora)) == 0;
+  }
+  for (const DWORD aviso : {kSinAvisoDePuertoCerrado, kSinAvisoDeRedCaida}) {
+    WSAIoctl(s, aviso, &avisar, sizeof(avisar), nullptr, 0, &devueltos, nullptr, nullptr);
+  }
+  setsockopt(s, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&kBufferUdp),
+             sizeof(kBufferUdp));
+  return true;
 }
 
 Espera esperar_socket(SOCKET s, bool para_leer, bool para_escribir, bool ver_fallas,
@@ -78,13 +93,24 @@ Espera esperar_socket(SOCKET s, bool para_leer, bool para_escribir, bool ver_fal
   return listos == 0 ? Espera::tiempo_vencido : Espera::lista;
 }
 
-Socket nuevo_socket() {
+Socket nuevo_socket(bool udp = false) {
   VENTRIK_PENDIENTE("solo IPv4: IPv6 en la etapa 6 (XP no atiende las dos con un socket)");
-  Socket nuevo(socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
-  if (!nuevo.valido() || !preparar(nuevo.get())) {
+  Socket nuevo(socket(AF_INET, udp ? SOCK_DGRAM : SOCK_STREAM, udp ? IPPROTO_UDP : IPPROTO_TCP));
+  if (!nuevo.valido() || !preparar(nuevo.get(), udp)) {
     return Socket();
   }
   return nuevo;
+}
+
+bool atar(const Socket& cual, const Direccion& donde) {
+  if (!cual.valido()) {
+    return false;
+  }
+  BOOL exclusivo = TRUE;
+  setsockopt(cual.get(), SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusivo),
+             sizeof(exclusivo));
+  const sockaddr_in direccion = a_sockaddr(donde);
+  return bind(cual.get(), reinterpret_cast<const sockaddr*>(&direccion), sizeof(direccion)) == 0;
 }
 
 }
@@ -168,18 +194,47 @@ Socket& Socket::operator=(Socket&& otro) noexcept {
 
 Socket escuchar(const Direccion& donde) {
   Socket escucha = nuevo_socket();
-  if (!escucha.valido()) {
-    return Socket();
-  }
-  BOOL exclusivo = TRUE;
-  setsockopt(escucha.get(), SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
-             reinterpret_cast<const char*>(&exclusivo), sizeof(exclusivo));
-  const sockaddr_in direccion = a_sockaddr(donde);
-  if (bind(escucha.get(), reinterpret_cast<const sockaddr*>(&direccion), sizeof(direccion)) != 0 ||
-      listen(escucha.get(), kColaDeEspera) != 0) {
+  if (!atar(escucha, donde) || listen(escucha.get(), kColaDeEspera) != 0) {
     return Socket();
   }
   return escucha;
+}
+
+Socket abrir_udp(const Direccion& donde) {
+  Socket nuevo = nuevo_socket(true);
+  return atar(nuevo, donde) ? std::move(nuevo) : Socket();
+}
+
+Socket conectar_udp(const Direccion& destino) {
+  Socket nuevo = nuevo_socket(true);
+  const sockaddr_in direccion = a_sockaddr(destino);
+  return nuevo.valido() && connect(nuevo.get(), reinterpret_cast<const sockaddr*>(&direccion),
+                                   sizeof(direccion)) == 0
+             ? std::move(nuevo)
+             : Socket();
+}
+
+bool enviar_a(const Socket& cual, const Direccion& destino, gsl::span<const std::uint8_t> datos) {
+  const sockaddr_in direccion = a_sockaddr(destino);
+  return sendto(cual.get(), reinterpret_cast<const char*>(datos.data()),
+                static_cast<int>(datos.size()), 0, reinterpret_cast<const sockaddr*>(&direccion),
+                sizeof(direccion)) == static_cast<int>(datos.size());
+}
+
+std::optional<Recibido> recibir_de(const Socket& cual, gsl::span<std::uint8_t> destino) {
+  sockaddr_in origen = {};
+  int largo = sizeof(origen);
+  const int leidos = recvfrom(cual.get(), reinterpret_cast<char*>(destino.data()),
+                              static_cast<int>(destino.size()), 0,
+                              reinterpret_cast<sockaddr*>(&origen), &largo);
+  if (leidos >= 0) {
+    return Recibido{static_cast<std::size_t>(leidos), de_sockaddr(origen)};
+  }
+  const int error = WSAGetLastError();
+  if (error == WSAECONNRESET || error == WSAENETRESET || error == WSAEMSGSIZE) {
+    return Recibido{0, de_sockaddr(origen)};
+  }
+  return std::nullopt;
 }
 
 std::optional<Direccion> direccion_local(const Socket& cual) {
@@ -237,19 +292,13 @@ Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo) {
 }
 
 Despertador::Despertador() {
-  Socket nuevo(::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP));
-  u_long sin_trabarse = 1;
-  const sockaddr_in local = a_sockaddr(Direccion{0x7F000001, 0});
-  sockaddr_in propia = {};
-  int largo = sizeof(propia);
-  if (!nuevo.valido() || ioctlsocket(nuevo.get(), FIONBIO, &sin_trabarse) != 0 ||
-      bind(nuevo.get(), reinterpret_cast<const sockaddr*>(&local), sizeof(local)) != 0 ||
-      getsockname(nuevo.get(), reinterpret_cast<sockaddr*>(&propia), &largo) != 0 ||
-      connect(nuevo.get(), reinterpret_cast<const sockaddr*>(&propia), largo) != 0) {
-    return;
+  Socket nuevo = abrir_udp(Direccion{0x7F000001, 0});
+  const auto propia = direccion_local(nuevo);
+  const sockaddr_in destino = a_sockaddr(propia.value_or(Direccion{}));
+  if (propia &&
+      connect(nuevo.get(), reinterpret_cast<const sockaddr*>(&destino), sizeof(destino)) == 0) {
+    socket_ = std::move(nuevo);
   }
-  SetHandleInformation(reinterpret_cast<HANDLE>(nuevo.get()), HANDLE_FLAG_INHERIT, 0);
-  socket_ = std::move(nuevo);
 }
 
 void Despertador::despertar() const {

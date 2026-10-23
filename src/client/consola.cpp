@@ -14,7 +14,9 @@
 
 #include <windows.h>
 
+#include "client/audio.h"
 #include "client/diagnostico.h"
+#include "client/motor_voz.h"
 #include "client/sesion.h"
 #include "common/cifrado/inicio.h"
 #include "common/pendiente.h"
@@ -124,7 +126,24 @@ std::string hora_local(std::uint64_t hora_ms, std::string sin_hora) {
 
 class Charla {
  public:
-  Charla(const Consola& consola, Sesion& sesion) : consola_(consola), sesion_(sesion) {}
+  Charla(const Consola& consola, Sesion& sesion, PuenteVoz& puente, MotorVoz& motor,
+         std::uint16_t puerto)
+      : consola_(consola), sesion_(sesion), puente_(puente), motor_(motor), puerto_(puerto) {}
+
+  void revisar_voz() {
+    const auto estado = puente_.estado.load();
+    if ((estado == EstadoVoz::lista || estado == EstadoVoz::sin_conexion) && estado != anunciado_) {
+      consola_.decir(estado == EstadoVoz::lista ? Clave::consola_voz_lista
+                                                : Clave::consola_voz_sin_conexion,
+                     {std::to_string(puerto_)});
+      anunciado_ = estado;
+    }
+    const auto hablante = puente_.hablando.load();
+    if (hablante != 0 && hablante != hablante_mostrado_) {
+      consola_.decir(Clave::consola_habla, {nombre_de_usuario(hablante)});
+    }
+    hablante_mostrado_ = hablante;
+  }
 
   bool terminada() const { return terminada_; }
 
@@ -157,10 +176,16 @@ class Charla {
       sesion_.ordenar(protocolo::PedirHistorial{mi_canal(), mas_viejo_});
     } else if (comando == "/diag") {
       const auto medicion = diagnostico_.medir();
+      const std::uint64_t perdidos = puente_.perdidos;
+      const std::uint64_t total = perdidos + puente_.recibidos;
       consola_.decir(Clave::consola_diag,
                      {ping_ ? std::to_string(*ping_) : consola_.texto_de(Clave::consola_sin_ping),
                       std::to_string(static_cast<int>(medicion.procesador + 0.5)),
-                      std::to_string(medicion.ram_bytes / (1024 * 1024))});
+                      std::to_string(medicion.ram_bytes / (1024 * 1024)),
+                      std::to_string(total == 0 ? 0 : perdidos * 100 / total)});
+    } else if (comando == "/hablar") {
+      motor_.transmitir(!motor_.transmitiendo());
+      consola_.decir(motor_.transmitiendo() ? Clave::consola_hablando_vos : Clave::consola_callado);
     } else if (comando == "/salir") {
       terminada_ = true;
     } else if (comando == "/entrar") {
@@ -367,7 +392,12 @@ class Charla {
 
   const Consola& consola_;
   Sesion& sesion_;
+  PuenteVoz& puente_;
+  MotorVoz& motor_;
+  std::uint16_t puerto_;
   Diagnostico diagnostico_;
+  EstadoVoz anunciado_ = EstadoVoz::sin_clave;
+  std::uint32_t hablante_mostrado_ = 0;
   std::uint32_t mi_id_ = 0;
   std::vector<protocolo::CanalInfo> canales_;
   std::map<std::uint32_t, protocolo::UsuarioInfo> usuarios_;
@@ -424,12 +454,21 @@ int abrir_consola(Idioma idioma, int cantidad, wchar_t** argumentos) {
     }
   }).detach();
 
-  Sesion sesion(*direccion, *huella, quien);
-  Charla charla(consola, sesion);
+  const auto puente = std::make_shared<PuenteVoz>();
+  MotorVoz motor(*puente, calidad_automatica());
+  Audio audio;
+  if (!motor.ok() || !audio.abrir(motor.frecuencia(), MotorVoz::procesar_audio, &motor)) {
+    consola.decir(Clave::consola_sin_audio);
+  }
+  OpcionesSesion opciones;
+  opciones.voz = puente;
+  Sesion sesion(*direccion, *huella, quien, opciones);
+  Charla charla(consola, sesion, *puente, motor, direccion->puerto);
   while (!charla.terminada()) {
     for (const Novedad& novedad : sesion.esperar_novedades(100ms)) {
       charla.mostrar(novedad);
     }
+    charla.revisar_voz();
     for (const std::string& linea : lineas->tomar()) {
       charla.ordenar(linea);
     }

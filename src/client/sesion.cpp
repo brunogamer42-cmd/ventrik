@@ -16,6 +16,7 @@ using protocolo::TipoMensaje;
 constexpr std::size_t kMaximoNovedades = 4096;
 constexpr std::size_t kMaximoSalida = 1024 * 1024;
 constexpr int kLecturasPorVuelta = 16;
+constexpr std::chrono::milliseconds kEsperaConVoz{100};
 
 std::uint64_t milisegundos_desde_arranque() {
   return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -116,6 +117,14 @@ bool Sesion::procesar(const protocolo::Marco& marco) {
       return publicar_si(protocolo::Historial{});
     case TipoMensaje::negado:
       return publicar_si(protocolo::Negado{});
+    case TipoMensaje::clave_voz: {
+      const auto clave = protocolo::leer_mensaje<protocolo::ClaveVoz>(marco.cuerpo);
+      cifrado::Secreto secreto(32);
+      if (clave && canal_voz_ && tls_->exportar(clave->identidad, secreto.bytes())) {
+        canal_voz_->clave(*clave, std::move(secreto));
+      }
+      return clave.has_value();
+    }
     case TipoMensaje::pong: {
       const auto pong = protocolo::leer_mensaje<protocolo::Pong>(marco.cuerpo);
       const std::uint64_t ahora = milisegundos_desde_arranque();
@@ -137,8 +146,19 @@ void Sesion::correr() {
   if (resultado.estado != EstadoConexion::conectado || !resultado.abierta || !despertador_.ok()) {
     return;
   }
+  SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+  if (opciones_.voz && opciones_.voz->despertador.ok()) {
+    canal_voz_ = std::make_unique<CanalVoz>(destino_, *opciones_.voz);
+  }
+  const auto cerrar_voz = gsl::finally([this] {
+    canal_voz_.reset();
+    if (opciones_.voz) {
+      opciones_.voz->estado = EstadoVoz::sin_conexion;
+    }
+  });
   ConexionAbierta& abierta = *resultado.abierta;
   cifrado::SesionTls& tls = abierta.tls();
+  tls_ = &tls;
   std::vector<std::uint8_t> salida;
   auto proximo_ping = Reloj::now();
   auto ultimo_dato = Reloj::now();
@@ -218,6 +238,9 @@ void Sesion::correr() {
       publicar(Fin{MotivoFin::sin_respuesta});
       return;
     }
+    if (canal_voz_) {
+      canal_voz_->atender(Reloj::now());
+    }
 
     fd_set lectura;
     fd_set escritura;
@@ -229,18 +252,30 @@ void Sesion::correr() {
       FD_SET(canal, &escritura);
     }
     FD_SET(static_cast<SOCKET>(despertador_.socket().get()), &lectura);
+    if (canal_voz_) {
+      FD_SET(static_cast<SOCKET>(opciones_.voz->despertador.socket().get()), &lectura);
+      if (canal_voz_->socket().valido()) {
+        FD_SET(static_cast<SOCKET>(canal_voz_->socket().get()), &lectura);
+      }
+    }
     const auto hasta_el_ping = std::chrono::duration_cast<std::chrono::milliseconds>(
         proximo_ping - Reloj::now());
     const auto espera = tls.hay_datos_guardados()
                             ? std::chrono::milliseconds{0}
                             : std::clamp(hasta_el_ping, std::chrono::milliseconds{0},
-                                         opciones_.cada_cuanto_ping);
+                                         canal_voz_ ? kEsperaConVoz : opciones_.cada_cuanto_ping);
     timeval tiempo = {};
     tiempo.tv_sec = static_cast<long>(espera.count() / 1000);
     tiempo.tv_usec = static_cast<long>((espera.count() % 1000) * 1000);
-    if (select(0, &lectura, &escritura, nullptr, &tiempo) > 0 &&
-        FD_ISSET(static_cast<SOCKET>(despertador_.socket().get()), &lectura)) {
+    const int listos = select(0, &lectura, &escritura, nullptr, &tiempo);
+    if (listos < 0) {
+      Sleep(10);
+    }
+    if (listos > 0) {
       despertador_.vaciar();
+      if (canal_voz_) {
+        opciones_.voz->despertador.vaciar();
+      }
     }
   }
 }
