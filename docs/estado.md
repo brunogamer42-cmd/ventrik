@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-23, al cerrar el paso 2.4.
+Última actualización: 2026-10-23, al terminar la parte 1 del paso 2.5.
 
 ## Dónde estamos
 
@@ -12,7 +12,8 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **Etapa 2, paso 2.3: cerrado.** Presentación con nombre, canales administrados por el dueño desde adentro (código de dueño provisorio), chat por canal guardado en SQLite, permisos verificados en el servidor, ping, diagnóstico y consola de prueba provisoria (`ventrik.exe --consola`). Probado a mano: HP 2133 como invitado y la PC como dueño, contra el servidor de prueba de la PC.
 - **Diseño actualizado fuera de Claude Code (2026-10-23):** aspecto nuevo de la interfaz (grafito con acento naranja, Barlow) en docs/aspecto.md, con capturas de cada pantalla en docs/pantallas/; ya no vale el aspecto "Equipo de campo". En docs/diseno.md se sumaron: gráfico de ping y pérdida en la barra de estado (los dos modos) y, para la etapa 10, color del tema en los detalles, fondo del chat del servidor, icono del servidor animado, marcos de avatar y el editor de efectos. Nada de eso cambia los pasos 2.4 y 2.5 salvo el aspecto y el gráfico de ping.
 - **Etapa 2, paso 2.4: cerrado.** Voz por DTLS 1.2 a través del servidor: clave derivada de la conexión TLS, reenvío solo al mismo canal, audio con miniaudio o el puente WinMM en XP, `/hablar` en la consola. Probado a mano: voz en los dos sentidos entre la HP 2133 con XP y la PC, y que otro canal no escucha.
-- **Lo que sigue: paso 2.5**: ventana principal en modo Rendimiento y pantalla Inicio con Direct3D 9 y Dear ImGui. Proponer el plan primero.
+- **Etapa 2, paso 2.5, parte 1: cerrada.** La ventana con Direct3D 9 y Dear ImGui, el aspecto de docs/aspecto.md (fuentes Barlow dentro del .exe, piezas e íconos dibujados por código) y la pantalla Inicio: servidores guardados en esta PC, entrar con dirección, huella, nombre y código de dueño, y lo de etapas futuras apagado con un cartel que dice en qué etapa llega. Ícono del programa y emblema sacados de docs/logo.png (el dueño pidió solo la cabeza con los auriculares). Comparada con docs/pantallas/Inicio.png. Probada a mano en la PC y en la HP 2133 (entrar, guardado, dueño, huella falsa, minimizar y bloquear).
+- **Lo que sigue: paso 2.5, parte 2**: la pantalla del servidor (canales, chat, hablar con una tecla, barra de estado con el gráfico de ping) y borrar la consola de prueba.
 
 ## Ramas y repositorio
 
@@ -49,10 +50,10 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - Abrir el puerto en todas las placas (0.0.0.0) hace que el firewall de Windows pregunte la primera vez: eso lo tiene que contestar el dueño. Las pruebas escuchan solo en 127.0.0.1 y no preguntan.
   - Servidor de prueba para el dueño: `build\servidor_de_prueba` (huella `JAUB-ASLN-E5PH-PVU4-5WJN-F457-46BH-IJMD-DFBK-PKGW-Q5YJ-6LF7-63EA`).
 - **Servidor, archivos de datos:** `codigo_dueno.txt` (se crea al arrancar por primera vez y se muestra en la consola) y `ventrik.db` (SQLite: canales, mensajes y configuración).
-- **Programa:** `ventrik.exe --consola <ip[:puerto]> <huella> <nombre> [--dueno <código>]` (provisorio hasta el paso 2.5) abre una consola de texto con canales, chat y voz (`/hablar` empieza y corta); `/ayuda` lista los comandos. Los `.bat` de `build\para_xp` para probar contra la PC no van a git porque llevan la IP.
+- **Programa:** `ventrik.exe` abre la ventana. Los servidores a los que se entró quedan en `%APPDATA%\Ventrik\Programa\programa.dat` (sin el código de dueño). `ventrik.exe --consola <ip[:puerto]> <huella> <nombre> [--dueno <código>]` (provisorio hasta la parte 2 del paso 2.5) abre una consola de texto con canales, chat y voz (`/hablar` empieza y corta); `/ayuda` lista los comandos. Los `.bat` de `build\para_xp` para probar contra la PC no van a git porque llevan la IP.
 - **Bibliotecas:** versiones, origen y huellas en third_party/VERSIONS.md. Para actualizar una: bajarla, anotarla, reemplazarla y correr `huellas_terceros.ps1 -Actualizar`. Lo nuestro para integrarlas está en `third_party/integracion/`.
 - **Fuzzing:** `tools\fuzzing.ps1 [-Segundos N]` (10 minutos si no se dice otra cosa) corre los fuzzers de fuzz/ en 64 y 32 bits, a la vez, con AddressSanitizer. Antes hay que compilarlos con check.ps1, que además los corre 30 segundos cada vez.
-  - Son 8: `fuzz_voz` (BufferVoz y Opus con paquetes al azar), `fuzz_voz_servidor` (datagramas al azar contra `servidor::Voz`, crudos o cifrados por una sesión real), `fuzz_protocolo` (con todos los mensajes), `fuzz_nombres` (reglas de nombres y chat contra otra versión escrita aparte), `fuzz_base` (archivo `ventrik.db` dañado o armado a mano), `fuzz_utf`, `fuzz_textos` (huella, código de dueño y dirección) y `fuzz_identidad` (archivo de la clave).
+  - Son 9: `fuzz_guardados` (archivo de servidores guardados, que tiene que volver a armarse byte por byte), `fuzz_voz` (BufferVoz y Opus con paquetes al azar), `fuzz_voz_servidor` (datagramas al azar contra `servidor::Voz`, crudos o cifrados por una sesión real), `fuzz_protocolo` (con todos los mensajes), `fuzz_nombres` (reglas de nombres y chat contra otra versión escrita aparte), `fuzz_base` (archivo `ventrik.db` dañado o armado a mano), `fuzz_utf`, `fuzz_textos` (huella, código de dueño y dirección) y `fuzz_identidad` (archivo de la clave).
   - Las compilaciones de fuzzing son los presets `fuzzing64` y `fuzzing32` (v143, nunca se publican). Usan el mismo `_WIN32_WINNT` que la clásica y RtlGenRandom.
   - Lo aprendido queda en `build\fuzzing\corpus`; cada caso que falla, en `build\fuzzing\fallas`. Las semillas de arranque están en `fuzz\semillas`.
   - Código nuevo que lea datos de red o archivos: sumar su fuzzer en fuzz/ y en CMakeLists.txt y fuzzing.ps1.
@@ -104,6 +105,22 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - `Cubeta` (proteccion.h) es la única cuenta de ritmo: la usan la protección por IP y los topes por persona;
   - el código de dueño se compara en tiempo constante y uno equivocado cuenta como falla para la protección.
 - **Programa:** `cliente::conectar` saluda, se presenta y devuelve la conexión abierta (`ConexionAbierta`) con lo que sobró de leer. `cliente::Sesion` corre la conexión en su propio hilo con una cola de órdenes y otra de novedades (la va a usar la ventana del 2.5) y manda ping cada 5 s.
+- **Ventana (paso 2.5):**
+  - Direct3D 9 con dispositivo HAL, proceso de vértices por hardware y, si no se puede, por software (placas viejas como la VIA de la HP 2133). `D3DCREATE_FPU_PRESERVE`: sin eso, Direct3D 9 pone el procesador en precisión simple y en la clásica cambian las cuentas con `double`. `D3DPRESENT_INTERVAL_IMMEDIATE`: en ventana, XP espera el refresco de la pantalla girando sin pausa.
+  - Se dibuja solo cuando hace falta: 3 cuadros después de cada mensaje de Windows, como mucho uno cada 15 ms, y un cuadro cada 100 ms solo durante 1,5 s después del último movimiento con el mouse sobre algo (para que aparezcan los carteles) o mientras el dispositivo está perdido (pantalla bloqueada). Minimizada no dibuja. Medido en la PC: quieta y minimizada, 0 % de procesador.
+  - Las novedades de la sesión se leen en cada vuelta del bucle (`atender`), aunque no se dibuje: si no, con la ventana minimizada o la PC bloqueada unas horas, la cola de 4096 se llenaba con los pings y la sesión se cortaba. La sesión avisa con `kMensajeNovedades` (uno solo pendiente a la vez).
+  - Cancelar un intento de conexión es instantáneo: la sesión tiene un segundo `Despertador` (`cancelar_`) que la espera de la red mira mientras conecta y saluda. Antes, destruir la sesión esperaba hasta 15 s y congelaba la ventana. Mientras conecta, el botón dice "Cancelar" (en la tarjeta y en el formulario) y Enter no lanza otro intento.
+  - Se puede usar con teclado solo (Tab, flechas, Espacio y Enter: `NavEnableKeyboard` y botones con `EnableNav`). Alt solo no abre el menú del sistema; Alt+Espacio y Alt+F4 sí andan.
+  - Tamaño mínimo de 1100 × 640 (por la escala), recortado al área de trabajo del monitor para que con 125 % o más en pantallas chicas no quede más grande que la pantalla. Las dos columnas de Inicio se desplazan si no entran.
+  - Si la placa no tiene texturas dinámicas (`D3DCAPS2_DYNAMICTEXTURES`), Dear ImGui no podría dibujar las letras: se muestra el aviso de "sin Direct3D". Al recuperar el dispositivo, el formato vuelve a `D3DFMT_UNKNOWN` (si el escritorio cambió de color, el `Reset` fallaría para siempre).
+  - La ventana se muestra recién después del primer cuadro: no parpadea en blanco y la prueba de check.ps1 sabe que dibujó. Alt solo no abre el menú del sistema (va a ser la tecla para hablar).
+  - Escala de Windows: `SetProcessDPIAware` por `GetProcAddress` y `LOGPIXELSX / 96` en `style.FontScaleDpi`; todas las medidas pasan por `px()`. Sin escala distinta por monitor.
+  - Dear ImGui sin `imgui.ini`, sin mando (cargaría xinput por nombre), sin abrir enlaces solos (`IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS`) y sin cursor que titila.
+  - Fuentes: recursos RCDATA de `src/client/ventrik.rc`, cargadas sin copiar. El tamaño de ImGui es 1,2 veces el de CSS (Barlow mide 1200 unidades de alto por 1000 de "em"); una prueba lo comprueba. Barlow cubre el alfabeto latino: los nombres en cirílico, griego, hebreo, árabe o chino se ven como recuadros.
+  - U+2068 y U+2069 no hacen falta: Dear ImGui nunca reordena texto de derecha a izquierda, así que un nombre no puede desordenar la línea.
+  - Ícono: `tools\hacer_icono.ps1` lo arma desde docs/logo.png (16 a 128 como mapas de bits de 32 bits, que XP entiende, y 256 en PNG). El emblema de la barra sale del mismo ícono (entrada de 48, 64, 96 o 128 según la escala) como textura `D3DPOOL_MANAGED`, que sobrevive al `Reset`.
+  - Servidores guardados (`client/guardados.cpp`): marca `VKPR`, versión 1, tecla para hablar, tu nombre y hasta 32 servidores (IPv4, puerto, huella, nombre usado, último canal y última vez). Se lee con el `Lector` y tiene una sola forma válida. Dañado: empieza vacío, avisa y se reescribe; de una versión más nueva, ilegible o de más de 16 KiB: avisa y no se toca, y antes de cada escritura se vuelve a mirar el archivo por si otra versión lo cambió. Cualquier cambio de formato tiene que subir la versión (un v1 con algo agregado al final cuenta como dañado), y la marca y la versión van siempre en los primeros 6 bytes. La clave es la dirección; el último usado va primero; `recordar` no acepta servidores inválidos. El código de dueño no se guarda (etapa 4).
+  - Inicio contra la captura: se siguió la captura donde no coincide con aspecto.md (título de página Barlow Bold 27, títulos de bloque 17, buscador con fondo de panel, botones de tarjeta de 44). Las tarjetas muestran la dirección porque el protocolo todavía no tiene nombre del servidor.
 - **Textos de la interfaz con datos:** `con_datos(plantilla, {...})` cambia `{1}` a `{9}`; así el orden de las palabras queda en lang/.
 - **Voz (paso 2.4):**
   - la clave de DTLS no viaja: el servidor manda `ClaveVoz{identidad}` por TLS y los dos lados la derivan con `SesionTls::exportar` (exportador de TLS 1.3, etiqueta "EXPERIMENTAL ventrik voz", contexto = identidad). DTLS 1.2 solo con PSK y AES-GCM o ChaCha20-Poly1305; el servidor respeta el orden del programa (`MBEDTLS_SSL_SRV_CIPHERSUITE_ORDER_CLIENT`);
@@ -151,6 +168,8 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **El antivirus de Windows** bloquea unos segundos los `.exe` recién hechos: check.ps1 reintenta la copia.
 - **libFuzzer** escribe lo que aprende en la **primera** carpeta que recibe: nunca pasarle primero `fuzz\semillas`.
 - **AddressSanitizer** guarda la memoria liberada un rato (para detectar usos tardíos), así que el fuzzer llega a unos 600 MB. No es una pérdida: con `ASAN_OPTIONS=quarantine_size_mb=16` se queda en 135 MB.
+- **rc.exe** busca los archivos de un `.rc` al lado del `.rc`, no en la carpeta de compilación.
+- **Para manejar la ventana desde un programa** (como hará la prueba del 2.6): las teclas van bien como `WM_CHAR`/`WM_KEYDOWN` a la ventana, pero el mouse no: Dear ImGui lee la posición real con `GetCursorPos` cuando el puntero no está sobre la ventana.
 - **Start-Process** no pone comillas a los argumentos: con espacios en la ruta del proyecto, ponerlas a mano (fuzzing.ps1 lo hace).
 
 ## Pendientes (además de los VENTRIK_PENDIENTE)
@@ -164,8 +183,13 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - Voz, etapa 6: la regla "el UDP viene de la misma IP que el TCP" deja sin voz a casas con dos salidas a internet, algunos CGNAT y servidores con varias placas; revisarla con el relay.
 - Voz, etapa 8: un hilo por núcleo en el servidor (en la netbook, un saludo TLS en el mismo hilo puede meter un corte corto en la voz), tope de voces, corrección de errores de Opus cuando hay pérdida.
 - Voz: al rotar la clave cada hora, el programa corta la sesión vieja antes de tener la nueva (unos milisegundos de voz perdida que Opus disimula); se puede pasar a "armar la nueva antes de soltar la vieja".
-- Para la ventana del 2.5: el aspecto sale de docs/aspecto.md y se compara con docs/pantallas/Rendimiento.png e Inicio.png. La barra de estado lleva, junto al ping, el gráfico del último minuto (ping y pérdida) que abre el diagnóstico.
-- Para la ventana del 2.5: mostrar cada nombre aislado entre U+2068 y U+2069, para que un nombre en hebreo o árabe no desordene la línea del chat.
+- Paso 2.5, parte 2: la pantalla del servidor se compara con docs/pantallas/Rendimiento.png. La barra de estado lleva, junto al ping, el gráfico del último minuto (ping y pérdida) que abre el diagnóstico.
+- Nombres en alfabetos que Barlow no tiene (cirílico, griego, hebreo, árabe, chino): se ven como recuadros. Sumar fuentes es decisión del dueño.
+- Memoria de la ventana: unos 70 MB en Windows 10 (casi todo de Direct3D 9) y 7 MB en la HP 2133 con XP (medido por el dueño, Administrador de tareas).
+- Por VNC, en la HP 2133 la ventana no se ve (en la pantalla de la propia PC sí). El VNC usa un controlador espejo (sin él gasta mucho), y ese controlador no ve lo que dibuja Direct3D. Decisión del dueño: dejarlo así, sin cambios solo para el VNC; la netbook se prueba usándola directamente.
+- Sin Direct3D (XP por Escritorio remoto o en una máquina virtual sin 3D) solo se ve el aviso. Mientras se arrastra el borde de la ventana no se redibuja (la imagen se estira hasta soltar). Con el escritorio de XP en 16 bits el emblema puede quedar invisible (el ícono pierde la transparencia).
+- Servidores guardados: con dos programas abiertos a la vez, gana el último que guarda (no se mezclan). Si hace falta, un mutex con nombre que cubra leer, mezclar y escribir. La tecla para hablar se valida en el archivo cuando se use (parte 2), en la lectura y en la escritura a la vez.
+- `borrar_temporales_de` corre antes de leer: en un disco FAT32, un corte justo entre borrar el archivo viejo y renombrar el nuevo puede perder la lista. Muy poco probable; la función es la misma para todos los archivos.
 - `Presentado` va en un solo mensaje: con unas 880 personas no entra en 64 KiB. Partirlo antes de subir `conexiones_maximas` de 512.
 - Archivos que este paso no tocó todavía tienen comentarios (bytes.cpp, marcos.h, utf.*, registro.h, inicio.h, proceso.cpp, archivos.cpp): se sacan cuando se toquen.
 - Para el paso 2.5 y la reconexión automática (etapa 8): **nunca** reintentar solo después de "la huella no coincide". Es un aviso de seguridad, y 5 intentos en un minuto bloquean 5 minutos la IP de toda la casa.

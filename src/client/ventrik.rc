@@ -1,0 +1,5 @@
+VENTRIK ICON "ventrik.ico"
+BARLOW_NORMAL RCDATA "../../third_party/fuentes/Barlow-Regular.ttf"
+BARLOW_FUERTE RCDATA "../../third_party/fuentes/Barlow-SemiBold.ttf"
+BARLOW_NEGRITA RCDATA "../../third_party/fuentes/Barlow-Bold.ttf"
+BARLOW_TITULO RCDATA "../../third_party/fuentes/BarlowSemiCondensed-SemiBold.ttf"

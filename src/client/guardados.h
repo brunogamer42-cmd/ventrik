@@ -1,0 +1,41 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include <gsl/gsl>
+
+#include "common/cifrado/huella.h"
+#include "common/red/red.h"
+
+namespace ventrik::cliente {
+constexpr std::size_t kMaximoServidoresGuardados = 32;
+constexpr std::size_t kMaximoArchivoGuardados = 16384;
+
+struct ServidorGuardado {
+  red::Direccion direccion;
+  cifrado::Huella::Bytes huella{};
+  std::string nombre;
+  std::uint32_t canal = 0;
+  std::string nombre_canal;
+  std::uint64_t ultima_vez_ms = 0;
+};
+
+struct Guardados {
+  std::uint8_t tecla_hablar = 0;
+  std::string nombre;
+  std::vector<ServidorGuardado> servidores;
+};
+
+enum class LecturaGuardados { leidos, danados, version_nueva, error };
+
+LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& guardados);
+std::vector<std::uint8_t> armar_guardados(const Guardados& guardados);
+bool recordar(Guardados& guardados, ServidorGuardado servidor);
+
+LecturaGuardados cargar_guardados(Guardados& guardados);
+bool guardar_guardados(const Guardados& guardados);
+
+}

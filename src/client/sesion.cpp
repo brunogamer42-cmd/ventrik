@@ -31,6 +31,31 @@ bool agregar(std::vector<std::uint8_t>& salida, const Mensaje& mensaje) {
 
 }
 
+std::string explicar(Idioma idioma, const IntentoDeConexion& intento) {
+  switch (intento.estado) {
+    case EstadoConexion::programa_viejo:
+      return con_datos(texto(idioma, Clave::conectar_programa_viejo), {a_texto(intento.version_pedida)});
+    case EstadoConexion::sin_respuesta: return std::string(texto(idioma, Clave::conectar_sin_respuesta));
+    case EstadoConexion::cifrado_rechazado: return std::string(texto(idioma, Clave::conectar_cifrado_rechazado));
+    case EstadoConexion::huella_distinta: return std::string(texto(idioma, Clave::conectar_huella_distinta));
+    case EstadoConexion::servidor_viejo: return std::string(texto(idioma, Clave::conectar_servidor_viejo));
+    case EstadoConexion::rechazo_ilegible: return std::string(texto(idioma, Clave::conectar_rechazo_ilegible));
+    case EstadoConexion::cortada: return std::string(texto(idioma, Clave::conectar_cortada));
+    case EstadoConexion::nombre_invalido: return std::string(texto(idioma, Clave::conectar_nombre_invalido));
+    case EstadoConexion::nombre_en_uso: return std::string(texto(idioma, Clave::conectar_nombre_en_uso));
+    case EstadoConexion::codigo_incorrecto: return std::string(texto(idioma, Clave::conectar_codigo_incorrecto));
+    case EstadoConexion::servidor_lleno: return std::string(texto(idioma, Clave::conectar_servidor_lleno));
+    default: return std::string(texto(idioma, Clave::conectar_error_interno));
+  }
+}
+
+std::string explicar(Idioma idioma, const Fin& fin) {
+  return std::string(texto(idioma, fin.motivo == MotivoFin::sin_respuesta     ? Clave::fin_sin_respuesta
+                                   : fin.motivo == MotivoFin::mensaje_ilegible ? Clave::fin_ilegible
+                                   : fin.motivo == MotivoFin::desbordada       ? Clave::fin_desbordada
+                                                                               : Clave::fin_cortado));
+}
+
 Sesion::Sesion(const red::Direccion& destino, const cifrado::Huella& huella, Presentacion quien,
                OpcionesSesion opciones)
     : destino_(destino),
@@ -45,6 +70,7 @@ Sesion::~Sesion() {
     terminar_ = true;
   }
   despertador_.despertar();
+  cancelar_.despertar();
   hilo_.join();
 }
 
@@ -75,6 +101,9 @@ bool Sesion::publicar(Novedad novedad) {
     novedades_.push_back(std::move(novedad));
   }
   hay_novedades_.notify_all();
+  if (opciones_.al_haber_novedades) {
+    opciones_.al_haber_novedades();
+  }
   return true;
 }
 
@@ -140,10 +169,16 @@ bool Sesion::procesar(const protocolo::Marco& marco) {
 }
 
 void Sesion::correr() {
-  auto resultado = conectar(destino_, huella_, quien_, opciones_.conexion);
+  if (!despertador_.ok() || !cancelar_.ok()) {
+    publicar(IntentoDeConexion{});
+    return;
+  }
+  OpcionesConexion conexion = opciones_.conexion;
+  conexion.cancelar = &cancelar_.socket();
+  auto resultado = conectar(destino_, huella_, quien_, conexion);
   publicar(IntentoDeConexion{resultado.estado, resultado.version_pedida, resultado.cifrado,
                              resultado.presentado});
-  if (resultado.estado != EstadoConexion::conectado || !resultado.abierta || !despertador_.ok()) {
+  if (resultado.estado != EstadoConexion::conectado || !resultado.abierta) {
     return;
   }
   SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);

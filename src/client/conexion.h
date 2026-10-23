@@ -26,6 +26,7 @@ struct OpcionesConexion {
   std::chrono::milliseconds tiempo_para_conectar{5000};
   std::chrono::milliseconds tiempo_para_saludar{10000};
   protocolo::Hola hola{kProtocoloMinimo, kProtocoloMaximo, kVersionPrograma, 0};
+  const red::Socket* cancelar = nullptr;
 };
 
 enum class EstadoConexion {

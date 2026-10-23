@@ -37,6 +37,7 @@ class Consola {
         entrada_(CreateFileW(L"CONIN$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr,
                              OPEN_EXISTING, 0, nullptr)) {}
 
+  Idioma idioma() const { return idioma_; }
   std::string texto_de(Clave clave) const { return std::string(texto(idioma_, clave)); }
 
   void decir(Clave clave, std::initializer_list<std::string_view> datos = {}) const {
@@ -81,22 +82,6 @@ class Lineas {
   std::mutex candado_;
   std::deque<std::string> lineas_;
 };
-
-Clave clave_de(EstadoConexion estado) {
-  switch (estado) {
-    case EstadoConexion::sin_respuesta: return Clave::conectar_sin_respuesta;
-    case EstadoConexion::cifrado_rechazado: return Clave::conectar_cifrado_rechazado;
-    case EstadoConexion::huella_distinta: return Clave::conectar_huella_distinta;
-    case EstadoConexion::servidor_viejo: return Clave::conectar_servidor_viejo;
-    case EstadoConexion::rechazo_ilegible: return Clave::conectar_rechazo_ilegible;
-    case EstadoConexion::cortada: return Clave::conectar_cortada;
-    case EstadoConexion::nombre_invalido: return Clave::conectar_nombre_invalido;
-    case EstadoConexion::nombre_en_uso: return Clave::conectar_nombre_en_uso;
-    case EstadoConexion::codigo_incorrecto: return Clave::conectar_codigo_incorrecto;
-    case EstadoConexion::servidor_lleno: return Clave::conectar_servidor_lleno;
-    default: return Clave::conectar_error_interno;
-  }
-}
 
 Clave clave_de(protocolo::MotivoNegado motivo) {
   switch (motivo) {
@@ -219,10 +204,7 @@ class Charla {
  private:
   void atender(const IntentoDeConexion& intento) {
     if (intento.estado != EstadoConexion::conectado || !intento.presentado) {
-      consola_.escribir(intento.estado == EstadoConexion::programa_viejo
-                            ? con_datos(consola_.texto_de(Clave::conectar_programa_viejo),
-                                        {a_texto(intento.version_pedida)})
-                            : consola_.texto_de(clave_de(intento.estado)));
+      consola_.escribir(explicar(consola_.idioma(), intento));
       terminada_ = true;
       return;
     }
@@ -316,10 +298,7 @@ class Charla {
   void atender(const PingMedido& ping) { ping_ = ping.milisegundos; }
 
   void atender(const Fin& fin) {
-    consola_.decir(fin.motivo == MotivoFin::sin_respuesta     ? Clave::consola_fin_sin_respuesta
-                   : fin.motivo == MotivoFin::mensaje_ilegible ? Clave::consola_fin_ilegible
-                   : fin.motivo == MotivoFin::desbordada       ? Clave::consola_fin_desbordada
-                                                               : Clave::consola_fin_cortado);
+    consola_.escribir(explicar(consola_.idioma(), fin));
     terminada_ = true;
   }
 

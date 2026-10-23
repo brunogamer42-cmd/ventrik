@@ -10,6 +10,7 @@
 
 titulo_ventana = Ventrik
 aviso_windows_viejo = Ventrik necesita Windows XP con Service Pack 3 o una versión más nueva de Windows.
+aviso_sin_direct3d = Ventrik no pudo usar la placa de video (Direct3D 9). Revisá que Windows tenga instalado el controlador de video.
 
 # Servidor (ventana de consola, por ahora)
 servidor_titulo = Servidor de Ventrik, versión
@@ -67,9 +68,52 @@ conectar_servidor_viejo = El servidor usa una versión de Ventrik demasiado viej
 conectar_rechazo_ilegible = El servidor no aceptó la conexión.
 conectar_cortada = El servidor cortó la conexión antes de terminar el saludo. Puede estar lleno: probá de nuevo en un rato.
 conectar_nombre_en_uso = Ya hay alguien con ese nombre en el servidor.
-conectar_codigo_incorrecto = Ese código de dueño no es el de este servidor.
+conectar_codigo_incorrecto = El código de dueño es incorrecto. Revisalo y probá de nuevo: si fallás varias veces seguidas, el servidor no te deja probar por unos minutos.
 conectar_servidor_lleno = El servidor está lleno.
 conectar_error_interno = No se pudo iniciar el cifrado o la red.
+
+# Ventana: pantalla Inicio
+inicio_tus_servidores = Tus servidores
+inicio_subtitulo = Los servidores a los que entraste desde esta PC.
+inicio_explorar = Explorar públicos
+inicio_buscar_red = Buscar en mi red
+inicio_hostear = Hostear un servidor
+inicio_buscar = Buscar en tus servidores
+inicio_sin_servidores = Todavía no entraste a ningún servidor. Para entrar al primero, completá "Entrar con invitación".
+inicio_sin_resultados = Ningún servidor coincide con lo que buscás.
+inicio_entrar = Entrar
+inicio_entrar_dueno = Entrar como dueño…
+inicio_quitar = Quitar de la lista
+inicio_desconectar = Desconectar
+inicio_cancelar = Cancelar
+inicio_conectando = Conectando…
+inicio_conectado_como = Conectado como {1}
+inicio_ultima_vez = Última vez: {1}
+inicio_entraste_como = Entraste como {1}.
+inicio_ultimo_canal = Tu último canal: {1}.
+inicio_invitacion = Entrar con invitación
+inicio_invitacion_ayuda = Pedile la dirección y la huella a quien maneja el servidor.
+inicio_direccion = Dirección, por ejemplo 203.0.113.20:7700
+inicio_huella = Huella del servidor
+inicio_nombre = Tu nombre
+inicio_codigo = Código de dueño (solo si sos el dueño)
+inicio_tu_estado = Tu estado
+inicio_tu_estado_ayuda = Cómo te ven los demás
+inicio_disponible = Disponible
+inicio_tu_identidad = Tu identidad
+inicio_tu_identidad_ayuda = Es la clave con la que entrás a tus servidores. Si reinstalás Windows sin una copia, se pierde.
+inicio_hacer_copia = Hacer una copia ahora
+inicio_reportar = Reportar
+inicio_ajustes = Ajustes
+inicio_modo_rendimiento = Rendimiento
+inicio_modo_visual = Visual
+inicio_version = Ventrik, versión {1}
+inicio_pie_modo = Modo Rendimiento
+inicio_llega_en = Todavía no está: llega en la etapa {1}.
+inicio_no_se_guardo = No se pudo guardar la lista de servidores en esta PC.
+inicio_lista_nueva = La lista de servidores es de una versión más nueva de Ventrik: esta versión no la cambia. Está en %APPDATA%\Ventrik\Programa.
+inicio_lista_ilegible = No se pudo leer la lista de servidores de esta PC: por ahora no se guardan los cambios.
+inicio_lista_danada = La lista de servidores estaba dañada y se empezó una nueva.
 
 # Consola de prueba (provisoria, hasta la ventana del paso 2.5)
 consola_titulo = Ventrik (consola de prueba)
@@ -110,10 +154,10 @@ consola_negado_texto_invalido = El servidor no aceptó ese texto.
 consola_negado_demasiado_rapido = Más despacio: esperá unos segundos.
 consola_negado_lleno = No entra: se llegó al máximo.
 consola_negado_nombre_en_uso = Ya hay un canal con ese nombre.
-consola_fin_cortado = El servidor cortó la conexión.
-consola_fin_sin_respuesta = El servidor dejó de responder.
-consola_fin_ilegible = El servidor mandó algo que no se entiende: por seguridad, se cortó la conexión.
-consola_fin_desbordada = Llegaron demasiadas novedades sin mostrar: se cortó la conexión para no mostrar datos viejos.
+fin_cortado = El servidor cortó la conexión.
+fin_sin_respuesta = El servidor dejó de responder.
+fin_ilegible = El servidor mandó algo que no se entiende: por seguridad, se cortó la conexión.
+fin_desbordada = Llegaron demasiadas novedades sin mostrar: se cortó la conexión para no mostrar datos viejos.
 consola_mensaje = [{1}] {2}: {3}
 consola_desconocido = (desconocido)
 consola_sin_hora = --:--

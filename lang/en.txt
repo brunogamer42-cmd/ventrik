@@ -10,6 +10,7 @@
 
 titulo_ventana = Ventrik
 aviso_windows_viejo = Ventrik needs Windows XP with Service Pack 3 or a newer version of Windows.
+aviso_sin_direct3d = Ventrik could not use the graphics card (Direct3D 9). Check that Windows has the video driver installed.
 
 # Server (console window, for now)
 servidor_titulo = Ventrik server, version
@@ -67,9 +68,52 @@ conectar_servidor_viejo = The server uses a version of Ventrik too old for this 
 conectar_rechazo_ilegible = The server did not accept the connection.
 conectar_cortada = The server cut the connection before the greeting finished. It may be full: try again in a while.
 conectar_nombre_en_uso = Someone on the server already uses that name.
-conectar_codigo_incorrecto = That owner code is not this server's.
+conectar_codigo_incorrecto = The owner code is wrong. Check it and try again: if you fail several times in a row, the server won't let you try for a few minutes.
 conectar_servidor_lleno = The server is full.
 conectar_error_interno = Encryption or networking could not be started.
+
+# Window: Home screen
+inicio_tus_servidores = Your servers
+inicio_subtitulo = The servers you joined from this PC.
+inicio_explorar = Browse public
+inicio_buscar_red = Search my network
+inicio_hostear = Host a server
+inicio_buscar = Search your servers
+inicio_sin_servidores = You haven't joined any server yet. To join the first one, fill in "Join with invitation".
+inicio_sin_resultados = No server matches your search.
+inicio_entrar = Join
+inicio_entrar_dueno = Join as owner…
+inicio_quitar = Remove from the list
+inicio_desconectar = Disconnect
+inicio_cancelar = Cancel
+inicio_conectando = Connecting…
+inicio_conectado_como = Connected as {1}
+inicio_ultima_vez = Last time: {1}
+inicio_entraste_como = You joined as {1}.
+inicio_ultimo_canal = Your last channel: {1}.
+inicio_invitacion = Join with invitation
+inicio_invitacion_ayuda = Ask whoever runs the server for its address and fingerprint.
+inicio_direccion = Address, for example 203.0.113.20:7700
+inicio_huella = Server fingerprint
+inicio_nombre = Your name
+inicio_codigo = Owner code (only if you are the owner)
+inicio_tu_estado = Your status
+inicio_tu_estado_ayuda = How others see you
+inicio_disponible = Available
+inicio_tu_identidad = Your identity
+inicio_tu_identidad_ayuda = It is the key you use to join your servers. If you reinstall Windows without a copy, it is lost.
+inicio_hacer_copia = Make a copy now
+inicio_reportar = Report
+inicio_ajustes = Settings
+inicio_modo_rendimiento = Performance
+inicio_modo_visual = Visual
+inicio_version = Ventrik, version {1}
+inicio_pie_modo = Performance mode
+inicio_llega_en = Not here yet: it arrives in stage {1}.
+inicio_no_se_guardo = The server list could not be saved on this PC.
+inicio_lista_nueva = The server list is from a newer version of Ventrik: this version doesn't change it. It is in %APPDATA%\Ventrik\Programa.
+inicio_lista_ilegible = The server list on this PC could not be read: changes are not saved for now.
+inicio_lista_danada = The server list was damaged and a new one was started.
 
 # Test console (temporary, until the window of step 2.5)
 consola_titulo = Ventrik (test console)
@@ -110,10 +154,10 @@ consola_negado_texto_invalido = The server did not accept that text.
 consola_negado_demasiado_rapido = Slow down: wait a few seconds.
 consola_negado_lleno = It doesn't fit: the limit was reached.
 consola_negado_nombre_en_uso = There is already a channel with that name.
-consola_fin_cortado = The server cut the connection.
-consola_fin_sin_respuesta = The server stopped answering.
-consola_fin_ilegible = The server sent something that can't be understood: for safety, the connection was cut.
-consola_fin_desbordada = Too many updates arrived without being shown: the connection was cut to avoid showing stale data.
+fin_cortado = The server cut the connection.
+fin_sin_respuesta = The server stopped answering.
+fin_ilegible = The server sent something that can't be understood: for safety, the connection was cut.
+fin_desbordada = Too many updates arrived without being shown: the connection was cut to avoid showing stale data.
 consola_mensaje = [{1}] {2}: {3}
 consola_desconocido = (unknown)
 consola_sin_hora = --:--

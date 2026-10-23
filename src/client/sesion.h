@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -16,6 +17,7 @@
 #include "client/puente_voz.h"
 #include "common/protocol/pedidos.h"
 #include "common/red/red.h"
+#include "common/textos.h"
 
 namespace ventrik::cliente {
 struct IntentoDeConexion {
@@ -50,7 +52,11 @@ struct OpcionesSesion {
   std::chrono::milliseconds cada_cuanto_ping{5000};
   std::chrono::milliseconds sin_respuesta{30000};
   std::shared_ptr<PuenteVoz> voz;
+  std::function<void()> al_haber_novedades;
 };
+
+std::string explicar(Idioma idioma, const IntentoDeConexion& intento);
+std::string explicar(Idioma idioma, const Fin& fin);
 
 class Sesion {
  public:
@@ -74,6 +80,7 @@ class Sesion {
   const Presentacion quien_;
   const OpcionesSesion opciones_;
   red::Despertador despertador_;
+  red::Despertador cancelar_;
   std::mutex candado_;
   std::condition_variable hay_novedades_;
   std::deque<Orden> ordenes_;

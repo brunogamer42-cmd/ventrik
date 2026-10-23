@@ -158,7 +158,12 @@ function Probar-Ventana([string]$exe) {
             $null = $proceso.CloseMainWindow()
             $cerro = $proceso.WaitForExit(10000)
         }
-        Informar 'Se cierra bien' ($cerro -and $proceso.ExitCode -eq 0)
+        # Código 3: no hay Direct3D 9 y mostró el aviso. Solo se acepta en GitHub (-SoloModerna).
+        if ($SoloModerna -and $cerro -and $proceso.ExitCode -eq 3) {
+            Write-Host '  AVISO  Esta máquina no tiene Direct3D 9: la ventana mostró el aviso y se cerró' -ForegroundColor Yellow
+        } else {
+            Informar 'Se cierra bien' ($cerro -and $proceso.ExitCode -eq 0)
+        }
     } finally {
         if (-not $proceso.HasExited) { $proceso.Kill() }
     }

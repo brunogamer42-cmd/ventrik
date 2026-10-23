@@ -16,7 +16,8 @@ namespace ventrik::cliente {
 namespace {
 using Reloj = std::chrono::steady_clock;
 
-bool esperar(const red::Socket& canal, cifrado::Paso paso, Reloj::time_point limite) {
+bool esperar(const red::Socket& canal, cifrado::Paso paso, Reloj::time_point limite,
+             const red::Socket* cancelar) {
   if ((paso != cifrado::Paso::esperar_lectura && paso != cifrado::Paso::esperar_escritura) ||
       Reloj::now() >= limite) {
     return false;
@@ -25,18 +26,18 @@ bool esperar(const red::Socket& canal, cifrado::Paso paso, Reloj::time_point lim
                               std::chrono::duration_cast<std::chrono::milliseconds>(
                                   limite - Reloj::now()));
   return red::esperar(canal, paso == cifrado::Paso::esperar_lectura,
-                      paso == cifrado::Paso::esperar_escritura, falta) == red::Espera::lista;
+                      paso == cifrado::Paso::esperar_escritura, falta, cancelar) == red::Espera::lista;
 }
 
 bool enviar_todo(ConexionAbierta& abierta, const std::vector<std::uint8_t>& salida,
-                 Reloj::time_point limite, ResultadoConexion& resultado) {
+                 Reloj::time_point limite, const red::Socket* cancelar, ResultadoConexion& resultado) {
   gsl::span<const std::uint8_t> resto(salida);
   while (!resto.empty()) {
     std::size_t escritos = 0;
     const auto paso = abierta.tls().escribir(resto, escritos);
     if (paso == cifrado::Paso::listo) {
       resto = resto.subspan(escritos);
-    } else if (!esperar(abierta.canal(), paso, limite)) {
+    } else if (!esperar(abierta.canal(), paso, limite, cancelar)) {
       resultado.estado = EstadoConexion::cortada;
       resultado.codigo = abierta.tls().ultimo_error();
       return false;
@@ -46,7 +47,7 @@ bool enviar_todo(ConexionAbierta& abierta, const std::vector<std::uint8_t>& sali
 }
 
 std::optional<protocolo::Marco> leer_marco(ConexionAbierta& abierta, Reloj::time_point limite,
-                                           ResultadoConexion& resultado) {
+                                           const red::Socket* cancelar, ResultadoConexion& resultado) {
   for (;;) {
     if (!abierta.sobrante().empty()) {
       gsl::span<const std::uint8_t> datos(abierta.sobrante());
@@ -68,7 +69,7 @@ std::optional<protocolo::Marco> leer_marco(ConexionAbierta& abierta, Reloj::time
     if (paso == cifrado::Paso::listo) {
       const auto llegado = gsl::span<const std::uint8_t>(recibido).first(leidos);
       abierta.sobrante().assign(llegado.begin(), llegado.end());
-    } else if (!esperar(abierta.canal(), paso, limite)) {
+    } else if (!esperar(abierta.canal(), paso, limite, cancelar)) {
       resultado.estado = EstadoConexion::cortada;
       resultado.codigo = abierta.tls().ultimo_error();
       return std::nullopt;
@@ -145,7 +146,7 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     resultado.estado = EstadoConexion::nombre_invalido;
     return resultado;
   }
-  red::Socket nuevo = red::conectar(destino, opciones.tiempo_para_conectar);
+  red::Socket nuevo = red::conectar(destino, opciones.tiempo_para_conectar, opciones.cancelar);
   if (!nuevo.valido()) {
     resultado.estado = EstadoConexion::sin_respuesta;
     return resultado;
@@ -167,7 +168,7 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     if (paso == cifrado::Paso::listo) {
       break;
     }
-    if (esperar(abierta->canal(), paso, limite)) {
+    if (esperar(abierta->canal(), paso, limite, opciones.cancelar)) {
       continue;
     }
     const bool vencido = paso == cifrado::Paso::esperar_lectura ||
@@ -194,10 +195,10 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   if (!cuerpo.ok() ||
       !protocolo::armar_marco(static_cast<std::uint16_t>(protocolo::TipoMensaje::hola),
                               cuerpo.datos(), salida) ||
-      !enviar_todo(*abierta, salida, limite, resultado)) {
+      !enviar_todo(*abierta, salida, limite, opciones.cancelar, resultado)) {
     return resultado;
   }
-  auto marco = leer_marco(*abierta, limite, resultado);
+  auto marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
   if (!marco || !interpretar_saludo(*marco, opciones.hola, tls, resultado)) {
     return resultado;
   }
@@ -210,10 +211,10 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   }
   salida.clear();
   if (!protocolo::armar_mensaje(presentarse, salida) ||
-      !enviar_todo(*abierta, salida, limite, resultado)) {
+      !enviar_todo(*abierta, salida, limite, opciones.cancelar, resultado)) {
     return resultado;
   }
-  marco = leer_marco(*abierta, limite, resultado);
+  marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
   if (!marco) {
     return resultado;
   }

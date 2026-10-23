@@ -105,3 +105,16 @@ TEST_CASE("UDP: ida y vuelta, y un puerto cerrado no rompe el socket") {
   REQUIRE(esperar(b, true, false, 2s) == Espera::lista);
   CHECK(recibir_de(b, chico)->largo == 0);
 }
+
+TEST_CASE("Una espera se corta enseguida cuando suena el despertador de cancelar") {
+  const ventrik::red::Despertador cancelar;
+  const auto escucha = ventrik::red::escuchar({kLocal, 0});
+  REQUIRE(cancelar.ok());
+  REQUIRE(escucha.valido());
+  CHECK(ventrik::red::esperar(escucha, true, false, 10ms, &cancelar.socket()) ==
+        ventrik::red::Espera::tiempo_vencido);
+  cancelar.despertar();
+  const auto antes = std::chrono::steady_clock::now();
+  CHECK(ventrik::red::esperar(escucha, true, false, 5s, &cancelar.socket()) == ventrik::red::Espera::error);
+  CHECK(std::chrono::steady_clock::now() - antes < 1s);
+}

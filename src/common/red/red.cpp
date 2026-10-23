@@ -66,7 +66,7 @@ bool preparar(SOCKET s, bool udp = false) {
 }
 
 Espera esperar_socket(SOCKET s, bool para_leer, bool para_escribir, bool ver_fallas,
-                           std::chrono::milliseconds tiempo) {
+                           std::chrono::milliseconds tiempo, const Socket* cancelar) {
   fd_set lectura;
   fd_set escritura;
   fd_set falla;
@@ -82,12 +82,16 @@ Espera esperar_socket(SOCKET s, bool para_leer, bool para_escribir, bool ver_fal
   if (ver_fallas) {
     FD_SET(s, &falla);
   }
+  if (cancelar != nullptr) {
+    FD_SET(static_cast<SOCKET>(cancelar->get()), &lectura);
+  }
   const auto milisegundos = tiempo.count() < 0 ? 0 : tiempo.count();
   timeval espera = {};
   espera.tv_sec = static_cast<long>(milisegundos / 1000);
   espera.tv_usec = static_cast<long>((milisegundos % 1000) * 1000);
   const int listos = select(0, &lectura, &escritura, &falla, &espera);
-  if (listos < 0 || FD_ISSET(s, &falla)) {
+  if (listos < 0 || FD_ISSET(s, &falla) ||
+      (cancelar != nullptr && FD_ISSET(static_cast<SOCKET>(cancelar->get()), &lectura))) {
     return Espera::error;
   }
   return listos == 0 ? Espera::tiempo_vencido : Espera::lista;
@@ -269,7 +273,7 @@ std::optional<std::pair<Socket, Direccion>> aceptar(const Socket& escucha, bool&
   return std::nullopt;
 }
 
-Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo) {
+Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo, const Socket* cancelar) {
   Socket nuevo = nuevo_socket();
   if (!nuevo.valido()) {
     return Socket();
@@ -279,7 +283,7 @@ Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo) {
       WSAGetLastError() != WSAEWOULDBLOCK) {
     return Socket();
   }
-  if (esperar_socket(static_cast<SOCKET>(nuevo.get()), false, true, true, tiempo) != Espera::lista) {
+  if (esperar_socket(static_cast<SOCKET>(nuevo.get()), false, true, true, tiempo, cancelar) != Espera::lista) {
     return Socket();
   }
   int error = 0;
@@ -317,8 +321,8 @@ void Despertador::vaciar() const {
 }
 
 Espera esperar(const Socket& cual, bool para_leer, bool para_escribir,
-               std::chrono::milliseconds tiempo) {
-  return esperar_socket(static_cast<SOCKET>(cual.get()), para_leer, para_escribir, false, tiempo);
+               std::chrono::milliseconds tiempo, const Socket* cancelar) {
+  return esperar_socket(static_cast<SOCKET>(cual.get()), para_leer, para_escribir, false, tiempo, cancelar);
 }
 
 }

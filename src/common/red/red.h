@@ -58,7 +58,7 @@ class Socket {
 Socket escuchar(const Direccion& donde);
 std::optional<Direccion> direccion_local(const Socket& cual);
 std::optional<std::pair<Socket, Direccion>> aceptar(const Socket& escucha, bool& fallo);
-Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo);
+Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo, const Socket* cancelar = nullptr);
 
 struct Recibido {
   std::size_t largo = 0;
@@ -72,7 +72,7 @@ std::optional<Recibido> recibir_de(const Socket& cual, gsl::span<std::uint8_t> d
 
 enum class Espera { lista, tiempo_vencido, error };
 Espera esperar(const Socket& cual, bool para_leer, bool para_escribir,
-               std::chrono::milliseconds tiempo);
+               std::chrono::milliseconds tiempo, const Socket* cancelar = nullptr);
 
 class Despertador {
  public:

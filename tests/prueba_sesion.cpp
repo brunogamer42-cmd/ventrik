@@ -1,6 +1,7 @@
 #include <chrono>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -349,4 +350,18 @@ TEST_CASE("La voz va por UDP solo a los del mismo canal, y sigue andando al rota
   CHECK(llego);
   CHECK(ob.voz->recibidos > 0);
   CHECK(ob.voz->ping_ms < 1000);
+}
+
+TEST_CASE("Cerrar una sesión que todavía está saludando no espera el plazo del saludo") {
+  const auto escucha = ventrik::red::escuchar({0x7F000001, 0});
+  REQUIRE(escucha.valido());
+  const auto donde = ventrik::red::direccion_local(escucha);
+  REQUIRE(donde);
+  const auto antes = std::chrono::steady_clock::now();
+  {
+    ventrik::cliente::Sesion sesion(*donde, ventrik::cifrado::Huella(ventrik::cifrado::Huella::Bytes{}),
+                                    {"Nadie", std::nullopt});
+    std::this_thread::sleep_for(300ms);
+  }
+  CHECK(std::chrono::steady_clock::now() - antes < 2s);
 }

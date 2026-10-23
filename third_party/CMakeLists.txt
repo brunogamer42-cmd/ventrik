@@ -82,6 +82,9 @@ add_library(imgui STATIC
   imgui/backends/imgui_impl_win32.cpp
   imgui/backends/imgui_impl_dx9.cpp)
 target_include_directories(imgui PUBLIC imgui imgui/backends)
+target_compile_definitions(imgui
+  PUBLIC IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS
+  PRIVATE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
 target_link_libraries(imgui PRIVATE ventrik_opciones_terceros)
 
 # El módulo sin pantalla de Dear ImGui, solo para las pruebas.
