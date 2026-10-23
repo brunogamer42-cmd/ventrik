@@ -169,9 +169,17 @@ Con una tecla aparte, hablás a una persona, a un grupo o a otro canal sin mover
 Cada canal tiene su chat, y los mensajes y archivos quedan guardados en el servidor el tiempo que elija el dueño: no guardar, 7 días, 30 días o siempre.
 
 - **Historial:** quien entra ve el historial completo. Se carga por partes, primero lo más nuevo.
+- **Topes del chat:** hasta 4000 bytes por mensaje, con saltos de línea; 10 mensajes cada 10 segundos por persona y 20 seguidos (después 2 por segundo) sumando todas las conexiones de una misma IP. Sin caracteres de control ni marcas que dan vuelta el texto.
+- **Por defecto se guarda siempre,** hasta que el dueño elija otra cosa.
 - **Archivos:** se suben al servidor y quedan en el chat. Viajan por partes, se reanudan si se corta la conexión y se guardan directo en el disco.
 - **La voz va primero:** los archivos viajan con menor prioridad y un límite de velocidad configurable, así una descarga grande no mete retraso en la voz.
 - **Tamaño máximo:** lo decide el servidor. Por ejemplo, 500 MB por archivo en un servidor normal y 25 MB en el modo limitado.
+
+### Canales y nombres
+
+- **Canales:** el servidor arranca con "General", que se puede renombrar pero no borrar. Al borrar un canal, quienes estaban ahí pasan a General. Hasta 60 canales.
+- **Nombres de personas y canales:** de 1 a 32 caracteres, sin espacios al principio, al final ni dobles, y sin controles, caracteres invisibles ni marcas de dirección de texto. Dos nombres que solo cambian en mayúsculas, en letras anchas o en cómo está escrita una tilde cuentan como el mismo. Las letras parecidas de otros alfabetos (como la "а" cirílica) quedan para la etapa 9.
+- **Dueño, provisorio hasta las identidades (etapa 4):** la primera vez que arranca, el servidor crea un código de dueño de 128 bits al azar y lo muestra en su consola esa sola vez; después muestra solo dónde está guardado, para que no salga en una captura junto con la huella. Quien se presenta con ese código administra los canales desde adentro del programa, como en Discord. Un código equivocado cuenta como intento fallido para la protección contra ataques.
 
 ### Antivirus antes de publicar
 
@@ -298,7 +306,8 @@ El servidor no confía en nada de lo que dice un programa: cualquiera puede modi
 | Descargar archivos de canales ajenos | Cada descarga verifica que estés en ese canal |
 | Inyección SQL | Siempre consultas preparadas en SQLite |
 | Conexiones que nunca terminan de saludar | Tiempo máximo para el saludo inicial y tope de conexiones pendientes por IP |
-| Un programa que no lee lo que recibe | Colas con tope: si no lee, se descarta su voz en vez de acumularla en la memoria |
+| Un programa que no lee lo que recibe | Colas con tope: si no lee, se descarta su voz en vez de acumularla en la memoria. Si lo pendiente de chat y control pasa de 1 MiB, se lo desconecta |
+| Conexiones muertas | Ping cada 5 segundos; sin datos recibidos ni enviados durante 30 segundos, se cortan |
 | Imagen "bomba" (1 MB que declara 50.000 × 50.000 píxeles) | Se leen las dimensiones antes de decodificar, con tope de píxeles y de cuadros |
 | Nombres de archivo con trampas | Cada archivo se guarda con un nombre aleatorio; el nombre original es solo texto |
 

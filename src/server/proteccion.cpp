@@ -5,26 +5,21 @@
 
 namespace ventrik::servidor {
 
-namespace {
-
-bool tomar_ficha(double& fichas, Proteccion::Instante& ultima, double rafaga, double por_segundo,
-                 Proteccion::Instante ahora) {
-  const std::chrono::duration<double> pasado = ahora - ultima;
-  fichas = std::min(rafaga, fichas + std::max(0.0, pasado.count()) * por_segundo);
-  ultima = ahora;
-  if (fichas < 1) {
+bool Cubeta::tomar(Instante ahora) {
+  const std::chrono::duration<double> pasado = ahora - ultima_;
+  fichas_ = std::min(rafaga_, fichas_ + std::max(0.0, pasado.count()) * por_segundo_);
+  ultima_ = ahora;
+  if (fichas_ < 1) {
     return false;
   }
-  fichas -= 1;
+  fichas_ -= 1;
   return true;
 }
 
-}  // namespace
-
-Proteccion::Proteccion(OpcionesProteccion opciones) : opciones_(std::move(opciones)) {
-  total_.fichas = opciones_.rafaga_total;
-  reserva_.fichas = opciones_.rafaga_reserva;
-}
+Proteccion::Proteccion(OpcionesProteccion opciones)
+    : opciones_(std::move(opciones)),
+      total_(opciones_.rafaga_total, opciones_.saludos_por_segundo_total),
+      reserva_(opciones_.rafaga_reserva, opciones_.reserva_por_segundo) {}
 
 Proteccion::Ip& Proteccion::registro_de(std::uint32_t ip, Instante ahora) {
   auto encontrada = ips_.find(ip);
@@ -33,8 +28,8 @@ Proteccion::Ip& Proteccion::registro_de(std::uint32_t ip, Instante ahora) {
       olvidar(ahora);
     }
     Ip nueva;
-    nueva.conexiones.fichas = opciones_.rafaga_por_ip;
-    nueva.conexiones.ultima = ahora;
+    nueva.conexiones = Cubeta(opciones_.rafaga_por_ip, opciones_.conexiones_por_segundo_por_ip, ahora);
+    nueva.chat = Cubeta(opciones_.rafaga_chat_por_ip, opciones_.chat_por_segundo_por_ip, ahora);
     encontrada = ips_.emplace(ip, nueva).first;
   }
   encontrada->second.ultimo_uso = ahora;
@@ -42,7 +37,6 @@ Proteccion::Ip& Proteccion::registro_de(std::uint32_t ip, Instante ahora) {
 }
 
 void Proteccion::olvidar(Instante ahora) {
-  // Primero las que no guardan nada importante: sin bloqueo, sin saludo bueno y quietas hace rato.
   for (auto ip = ips_.begin(); ip != ips_.end();) {
     const bool quieta = ahora - ip->second.ultimo_uso > opciones_.ventana_de_fallas;
     if (quieta && ahora >= ip->second.bloqueada_hasta && ahora >= ip->second.conocida_hasta) {
@@ -51,7 +45,6 @@ void Proteccion::olvidar(Instante ahora) {
       ++ip;
     }
   }
-  // Con miles de IPs atacando a la vez, la memoria igual tiene techo: se van primero las desconocidas.
   const auto importa = [ahora](const Ip& ip) {
     return ahora < ip.bloqueada_hasta || ahora < ip.conocida_hasta;
   };
@@ -79,9 +72,7 @@ Veredicto Proteccion::nueva_conexion(std::uint32_t ip, Instante ahora) {
   Veredicto veredicto;
   if (ahora < registro.bloqueada_hasta) {
     veredicto.decision = Decision::bloqueada;
-  } else if (!tomar_ficha(registro.conexiones.fichas, registro.conexiones.ultima,
-                          opciones_.rafaga_por_ip, opciones_.conexiones_por_segundo_por_ip,
-                          ahora)) {
+  } else if (!registro.conexiones.tomar(ahora)) {
     veredicto.decision = Decision::demasiado_rapido;
   } else {
     return veredicto;
@@ -92,14 +83,12 @@ Veredicto Proteccion::nueva_conexion(std::uint32_t ip, Instante ahora) {
 
 Veredicto Proteccion::empezar_saludo(std::uint32_t ip, Instante ahora) {
   Veredicto veredicto;
-  if (tomar_ficha(total_.fichas, total_.ultima, opciones_.rafaga_total,
-                  opciones_.saludos_por_segundo_total, ahora)) {
+  if (total_.tomar(ahora)) {
     return veredicto;
   }
   const auto encontrada = ips_.find(ip);
   const bool conocida = encontrada != ips_.end() && ahora < encontrada->second.conocida_hasta;
-  if (conocida && tomar_ficha(reserva_.fichas, reserva_.ultima, opciones_.rafaga_reserva,
-                              opciones_.reserva_por_segundo, ahora)) {
+  if (conocida && reserva_.tomar(ahora)) {
     return veredicto;
   }
   veredicto.decision = Decision::ocupado;
@@ -126,4 +115,8 @@ void Proteccion::saludo_completo(std::uint32_t ip, Instante ahora) {
   registro_de(ip, ahora).conocida_hasta = ahora + opciones_.conocida_por;
 }
 
-}  // namespace ventrik::servidor
+bool Proteccion::puede_chatear(std::uint32_t ip, Instante ahora) {
+  return registro_de(ip, ahora).chat.tomar(ahora);
+}
+
+}

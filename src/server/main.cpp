@@ -1,13 +1,13 @@
-// Servidor de Ventrik: por ahora, en una ventana de consola.
-
 #include <atomic>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
 #include <windows.h>
 
 #include "common/archivos.h"
+#include "common/cifrado/codigo_dueno.h"
 #include "common/cifrado/identidad.h"
 #include "common/cifrado/inicio.h"
 #include "common/proceso.h"
@@ -35,10 +35,52 @@ void escribir_linea(std::string_view texto) {
     const std::wstring ancho = ventrik::a_utf16(texto) + L"\r\n";
     WriteConsoleW(salida, ancho.data(), static_cast<DWORD>(ancho.size()), &escritos, nullptr);
   } else {
-    // Redirigida a un archivo: UTF-8, que no depende de la página de códigos.
     const std::string linea = std::string(texto) + "\r\n";
     WriteFile(salida, linea.data(), static_cast<DWORD>(linea.size()), &escritos, nullptr);
   }
+}
+
+ventrik::Clave clave_de(ventrik::servidor::Evento evento) {
+  using ventrik::Clave;
+  using ventrik::servidor::Evento;
+  switch (evento) {
+    case Evento::conectada: return Clave::servidor_conectada;
+    case Evento::desconectada: return Clave::servidor_desconectada;
+    case Evento::rechazo_cifrado: return Clave::servidor_rechazo_cifrado;
+    case Evento::rechazo_saludo: return Clave::servidor_rechazo_saludo;
+    case Evento::tiempo_vencido: return Clave::servidor_tiempo_vencido;
+    case Evento::demasiadas_pendientes: return Clave::servidor_demasiadas_pendientes;
+    case Evento::demasiadas_por_ip: return Clave::servidor_demasiadas_por_ip;
+    case Evento::lleno: return Clave::servidor_lleno;
+    case Evento::demasiado_rapido: return Clave::servidor_demasiado_rapido;
+    case Evento::bloqueada: return Clave::servidor_bloqueada;
+    case Evento::rechazo_bloqueada: return Clave::servidor_rechazo_bloqueada;
+    case Evento::ocupado: return Clave::servidor_ocupado;
+    case Evento::presentada: return Clave::servidor_presentada;
+    case Evento::salio: return Clave::servidor_salio;
+    case Evento::sin_respuesta: return Clave::servidor_sin_respuesta;
+    case Evento::no_lee: return Clave::servidor_no_lee;
+    case Evento::codigo_incorrecto: return Clave::servidor_codigo_incorrecto;
+  }
+  return Clave::servidor_conectada;
+}
+
+std::optional<ventrik::cifrado::CodigoDueno> cargar_o_crear_codigo(const std::wstring& archivo,
+                                                                   bool& creado) {
+  ventrik::cifrado::Secreto leido;
+  const auto lectura = ventrik::leer_archivo(archivo, 256, leido);
+  if (lectura == ventrik::LecturaArchivo::leido) {
+    const std::string_view texto(reinterpret_cast<const char*>(leido.bytes().data()), leido.size());
+    return ventrik::cifrado::leer_codigo_dueno(texto.substr(0, texto.find_last_not_of(" \r\n") + 1));
+  }
+  auto nuevo = ventrik::cifrado::CodigoDueno::generar();
+  if (lectura != ventrik::LecturaArchivo::no_existe || !nuevo) {
+    return std::nullopt;
+  }
+  const std::string texto = nuevo->a_texto();
+  const auto bytes = gsl::make_span(reinterpret_cast<const std::uint8_t*>(texto.data()), texto.size());
+  creado = ventrik::escribir_archivo_nuevo(archivo, bytes) == ventrik::EscrituraNueva::escrito;
+  return creado ? nuevo : std::nullopt;
 }
 
 bool leer_puerto(std::wstring_view texto, std::uint16_t& puerto) {
@@ -59,7 +101,7 @@ bool leer_puerto(std::wstring_view texto, std::uint16_t& puerto) {
   return true;
 }
 
-}  // namespace
+}
 
 int wmain(int cantidad, wchar_t** argumentos) {
   ventrik::endurecer_carga_de_dll();
@@ -152,56 +194,39 @@ int wmain(int cantidad, wchar_t** argumentos) {
   }
   escribir_linea("");
 
+  const std::wstring archivo_codigo = carpeta + L"\\codigo_dueno.txt";
   ventrik::servidor::Opciones opciones;
   opciones.escuchar.puerto = puerto;
+  opciones.archivo_base = carpeta + L"\\ventrik.db";
+  opciones.nombre_general = texto(ventrik::Clave::canal_general);
+  bool codigo_creado = false;
+  opciones.codigo_dueno = cargar_o_crear_codigo(archivo_codigo, codigo_creado);
+  if (!opciones.codigo_dueno) {
+    escribir_linea(texto(ventrik::Clave::servidor_error_codigo) + " " + ventrik::a_utf8(archivo_codigo));
+    return 1;
+  }
+  escribir_linea(codigo_creado ? texto(ventrik::Clave::servidor_codigo_dueno)
+                               : texto(ventrik::Clave::servidor_codigo_dueno_en));
+  escribir_linea("    " + (codigo_creado ? opciones.codigo_dueno->a_texto()
+                                         : ventrik::a_utf8(archivo_codigo)));
+  escribir_linea("");
   ventrik::servidor::Registro registro(escribir_linea,
                                       texto(ventrik::Clave::servidor_avisos_perdidos));
   const auto avisar = [&texto, &registro](ventrik::servidor::Evento evento,
-                                          const ventrik::red::Direccion& origen) {
-    ventrik::Clave clave = ventrik::Clave::servidor_conectada;
-    switch (evento) {
-      case ventrik::servidor::Evento::conectada:
-        clave = ventrik::Clave::servidor_conectada;
-        break;
-      case ventrik::servidor::Evento::desconectada:
-        clave = ventrik::Clave::servidor_desconectada;
-        break;
-      case ventrik::servidor::Evento::rechazo_cifrado:
-        clave = ventrik::Clave::servidor_rechazo_cifrado;
-        break;
-      case ventrik::servidor::Evento::rechazo_saludo:
-        clave = ventrik::Clave::servidor_rechazo_saludo;
-        break;
-      case ventrik::servidor::Evento::tiempo_vencido:
-        clave = ventrik::Clave::servidor_tiempo_vencido;
-        break;
-      case ventrik::servidor::Evento::demasiadas_pendientes:
-        clave = ventrik::Clave::servidor_demasiadas_pendientes;
-        break;
-      case ventrik::servidor::Evento::demasiadas_por_ip:
-        clave = ventrik::Clave::servidor_demasiadas_por_ip;
-        break;
-      case ventrik::servidor::Evento::lleno:
-        clave = ventrik::Clave::servidor_lleno;
-        break;
-      case ventrik::servidor::Evento::demasiado_rapido:
-        clave = ventrik::Clave::servidor_demasiado_rapido;
-        break;
-      case ventrik::servidor::Evento::bloqueada:
-        clave = ventrik::Clave::servidor_bloqueada;
-        break;
-      case ventrik::servidor::Evento::rechazo_bloqueada:
-        clave = ventrik::Clave::servidor_rechazo_bloqueada;
-        break;
-      case ventrik::servidor::Evento::ocupado:
-        clave = ventrik::Clave::servidor_ocupado;
-        break;
+                                          const ventrik::red::Direccion& origen,
+                                          const std::string& nombre) {
+    if (evento == ventrik::servidor::Evento::conectada) {
+      return;
     }
-    registro.agregar(texto(clave) + " " + ventrik::red::a_texto(origen));
+    const std::string ip = ventrik::red::a_texto(origen);
+    registro.agregar(nombre.empty() ? texto(clave_de(evento)) + " " + ip
+                                    : ventrik::con_datos(texto(clave_de(evento)), {nombre, ip}));
   };
   ventrik::servidor::Servidor servidor(*cargada.identidad, opciones, avisar);
   if (!servidor.escuchar()) {
-    escribir_linea(texto(ventrik::Clave::servidor_error_puerto) + " " + std::to_string(puerto));
+    escribir_linea(servidor.base_abierta()
+                       ? texto(ventrik::Clave::servidor_error_puerto) + " " + std::to_string(puerto)
+                       : texto(ventrik::Clave::servidor_error_base) + " " + ventrik::a_utf8(opciones.archivo_base));
     return 1;
   }
   escribir_linea(texto(ventrik::Clave::servidor_puerto) + " " + std::to_string(servidor.puerto()));

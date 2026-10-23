@@ -1,15 +1,16 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-22, al cerrar el paso 2.2.
+Última actualización: 2026-10-23, al cerrar el paso 2.3.
 
 ## Dónde estamos
 
 - **Etapa 0: cerrada.** Falta solo probar en Windows 11 (no hay PC con Windows 11).
 - **Etapa 1: cerrada.** Resultados en docs/mediciones.md; decisiones en docs/diseno.md.
 - **Etapa 2, paso 2.1: cerrado.** Lector y escritor único de mensajes, saludo con negociación de versión y funciones, y fuzzing (src/common/protocol, fuzz/). Probado en la HP 2133 con XP.
-- **Etapa 2, paso 2.2: cerrado.** Servidor de consola con su clave y su huella, conexión por TLS 1.3 que verifica la huella, protección contra inundaciones (pedida por el dueño, en todos los niveles) y Mbed TLS con control de hilos.
-- **Lo que sigue: paso 2.3**: canales, entrar y salir, chat por canal en SQLite con consultas preparadas, permisos básicos verificados en el servidor en cada acción y panel de diagnóstico. Proponer el plan primero. Ver "Pendientes" para lo que la revisión del 2.2 dejó para el 2.3.
+- **Etapa 2, paso 2.2: cerrado.** Servidor de consola con su clave y su huella, conexión por TLS 1.3 que verifica la huella, protección contra inundaciones (pedida por el dueño, en todos los niveles) y Mbed TLS con control de hilos. Probado en la HP 2133: pruebas automáticas en XP, y conexión real XP → PC con la huella correcta (conecta) y con una falsa (rechaza).
+- **Etapa 2, paso 2.3: cerrado.** Presentación con nombre, canales administrados por el dueño desde adentro (código de dueño provisorio), chat por canal guardado en SQLite, permisos verificados en el servidor, ping, diagnóstico y consola de prueba provisoria (`ventrik.exe --consola`). Probado a mano: HP 2133 como invitado y la PC como dueño, contra el servidor de prueba de la PC.
+- **Lo que sigue: paso 2.4**: voz por DTLS 1.2 a través del servidor (delicado). Proponer el plan primero; portar de la rama prueba-de-voz lo que sirva.
 
 ## Ramas y repositorio
 
@@ -25,7 +26,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 ## Equipos y herramientas
 
 - **PC de trabajo:** Windows 10 Pro 64 bits, Intel Xeon E5-2690 v4. Sin parlantes, con auriculares. IP en la red local: 192.168.0.153 (por DHCP, puede cambiar). La red es "Privada".
-- **HP 2133 (netbook de referencia):** Windows XP SP3, VIA C7-M 1,2 GHz, un núcleo. El dueño prueba ahí copiando `build\para_xp` con un pendrive (`H:\para_xp\`), y los archivos que deja (`resultado.txt`, `opus_complejidad.txt`, `registro_eco.csv`) se leen desde `H:\para_xp\`.
+- **HP 2133 (netbook de referencia):** Windows XP SP3, VIA C7-M 1,2 GHz, un núcleo. En la red local: 192.168.0.42 (por DHCP). El dueño prueba ahí copiando `build\para_xp` con un pendrive (`H:\para_xp\`), y los archivos que deja (`resultado.txt`, `opus_complejidad.txt`, `registro_eco.csv`) se leen desde `H:\para_xp\`.
 - **Visual Studio:** las Build Tools 2022 que instaló Applio, en `C:\ApplioV3.0.5\bin\build_tools`, con v143, v141, v141_xp, el SDK 7.1A, AddressSanitizer y CMake 3.31 adentro (no está en el PATH: check.ps1 lo encuentra con vswhere).
 - **GitHub CLI:** `C:\Program Files\GitHub CLI\gh.exe`, con sesión iniciada. El modo automático de permisos bloqueó crear el repositorio público; lo creó el dueño.
 - **VirtualBox** está instalado, sin máquinas.
@@ -45,10 +46,11 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - `--huella` muestra la huella y termina sin abrir el puerto, así no salta el aviso del firewall.
   - Abrir el puerto en todas las placas (0.0.0.0) hace que el firewall de Windows pregunte la primera vez: eso lo tiene que contestar el dueño. Las pruebas escuchan solo en 127.0.0.1 y no preguntan.
   - Servidor de prueba para el dueño: `build\servidor_de_prueba` (huella `JAUB-ASLN-E5PH-PVU4-5WJN-F457-46BH-IJMD-DFBK-PKGW-Q5YJ-6LF7-63EA`).
-- **Programa:** `ventrik.exe --conectar <ip[:puerto]> <huella>` (provisorio hasta el paso 2.5) muestra en un cuadro si se conectó o por qué no. `build\para_xp\conectar_a_la_pc.bat` y `conectar_con_huella_falsa.bat` lo usan contra el servidor de prueba de la PC; no van a git porque llevan la IP.
+- **Servidor, archivos de datos:** `codigo_dueno.txt` (se crea al arrancar por primera vez y se muestra en la consola) y `ventrik.db` (SQLite: canales, mensajes y configuración).
+- **Programa:** `ventrik.exe --consola <ip[:puerto]> <huella> <nombre> [--dueno <código>]` (provisorio hasta el paso 2.5) abre una consola de texto con canales y chat; `/ayuda` lista los comandos. Los `.bat` de `build\para_xp` para probar contra la PC no van a git porque llevan la IP.
 - **Bibliotecas:** versiones, origen y huellas en third_party/VERSIONS.md. Para actualizar una: bajarla, anotarla, reemplazarla y correr `huellas_terceros.ps1 -Actualizar`. Lo nuestro para integrarlas está en `third_party/integracion/`.
 - **Fuzzing:** `tools\fuzzing.ps1 [-Segundos N]` (10 minutos si no se dice otra cosa) corre los fuzzers de fuzz/ en 64 y 32 bits, a la vez, con AddressSanitizer. Antes hay que compilarlos con check.ps1, que además los corre 30 segundos cada vez.
-  - Son 4: `fuzz_protocolo`, `fuzz_utf`, `fuzz_textos` (huella y dirección) y `fuzz_identidad` (archivo de la clave).
+  - Son 6: `fuzz_protocolo` (con todos los mensajes), `fuzz_nombres` (reglas de nombres y chat contra otra versión escrita aparte), `fuzz_base` (archivo `ventrik.db` dañado o armado a mano), `fuzz_utf`, `fuzz_textos` (huella, código de dueño y dirección) y `fuzz_identidad` (archivo de la clave).
   - Las compilaciones de fuzzing son los presets `fuzzing64` y `fuzzing32` (v143, nunca se publican). Usan el mismo `_WIN32_WINNT` que la clásica y RtlGenRandom.
   - Lo aprendido queda en `build\fuzzing\corpus`; cada caso que falla, en `build\fuzzing\fallas`. Las semillas de arranque están en `fuzz\semillas`.
   - Código nuevo que lea datos de red o archivos: sumar su fuzzer en fuzz/ y en CMakeLists.txt y fuzzing.ps1.
@@ -59,7 +61,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - medir antes de cambiar;
   - no pedir pruebas largas;
   - comprobar uno mismo todo lo posible;
-  - comentarios cortos, solo para explicar por qué.
+  - sin comentarios en el código y lo más corto posible, reusando funciones que ya existen.
 
 ## Decisiones técnicas que no están a la vista
 
@@ -80,6 +82,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - TLS 1.3 solo; AES-128-GCM, AES-256-GCM y ChaCha20-Poly1305; X25519 y P-256; firma ECDSA P-256; solo intercambio efímero, sin tickets. El programa ordena los cifrados según AES-NI;
   - la huella se verifica con `mbedtls_ssl_set_verify` en modo OPTIONAL (REQUIRED exige una autoridad certificante): si no coincide devuelve error fatal, y antes de mandar el Hola se vuelve a confirmar. `mbedtls_ssl_set_hostname(NULL)` es obligatorio desde Mbed TLS 3.6.3;
   - cada llamada a TLS lee como mucho 64 veces y 32 KiB: Mbed TLS descarta sin límite registros ChangeCipherSpec y alertas sueltas, y sin tope trababa el hilo de red.
+  - un envío que quedó a medias (`WANT_WRITE`) se reintenta con **el mismo largo** (`SesionTls::a_medias_`): al reintentar, Mbed TLS manda lo que tenía guardado pero devuelve como enviado el largo nuevo, y si mientras tanto se encolaron más datos se perdían sin aviso. Lo prueba "Un envío TLS a medias..." en prueba_conexion.cpp.
 - **Huella:** SHA-256 de la clave pública (SubjectPublicKeyInfo), en base32 de a 4 (`src/common/cifrado/huella.cpp`). Se compara en tiempo constante.
 - **Identidad del servidor:** clave ECDSA P-256 en DER; el certificado se rehace en cada arranque y vence en 2099. Al cargar se revisa que la pública y la privada coincidan (`mbedtls_pk_check_pair`). Si el archivo existe pero no sirve, el servidor no arranca. La clave se crea sin reemplazar nunca un archivo existente (si otro servidor la creó a la vez, gana el otro).
 - **Red:** Winsock con funciones de XP, solo IPv4. Sockets sin trabarse y sin heredarse. `SO_EXCLUSIVEADDRUSE` y `SetHandleInformation` pueden fallar en XP sin que importe. `aceptar` saltea las conexiones que se cortaron en la cola.
@@ -88,7 +91,18 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - topes: 10 s para cifrar y saludar, 5 s para cerrar, 4 a medio saludar y 16 en total por IP, 64 a medio saludar en total, 512 conexiones, 16 KiB antes del saludo, mensajes de 64 bytes hasta el Hola;
   - `proteccion.cpp`: ritmo por IP, bloqueo temporal, turno global de saludos y una reserva con techo para las IP conocidas (diseno.md, "Contra inundaciones de conexiones"). Una falla le quita a una IP lo de conocida;
   - `registro.cpp`: la consola se escribe desde otro hilo con una cola de 256 líneas; si se llena, descarta y avisa cuántas.
-- **Programa:** `cliente::conectar` espera con tiempos máximos y devuelve la conexión abierta (`ConexionAbierta`), que avisa el cierre al destruirse.
+- **Servidor, paso 2.3:**
+  - `base.cpp`: SQLite en su propio hilo (`ServicioBase`) con una cola de 4096 pedidos; cada función de `Base` se niega si la llama otro hilo. Las respuestas vuelven al hilo de red, que se despierta con un socket UDP de 127.0.0.1 (`red::Despertador`, anda en XP);
+  - `permisos.cpp`: una función por pedido, sin red, que dice sí o el motivo del no;
+  - estado de canales y personas en memoria (copia de la base); el hilo de red nunca espera a la base salvo al arrancar;
+  - topes: 10 mensajes de chat cada 10 s por persona y 20 (más 2 por segundo) por IP; 20 pedidos (más 5 por segundo) y 3 historiales (más 1 por segundo) por persona; 60 canales, 5 intentos de nombre, 30 s sin datos, 1 MiB pendiente de enviar por conexión, historial de a 256 mensajes o 64 KiB;
+  - la cola de salida borra lo ya enviado cuando pasa de 64 KiB o de la mitad (así no crece sin fin, no pasa de 1 MiB + 64 KiB y no se copia entera en cada envío), y el socket se marca para escribir apenas hay algo pendiente: si no, lo encolado para otra persona esperaba a su próximo ping. Si el envío avanza, la conexión cuenta como viva aunque no mande nada;
+  - la base: ids de canal con AUTOINCREMENT (nunca se reusan), un mensaje solo se guarda si su canal existe, `SQLITE_DBCONFIG_DEFENSIVE`, `trusted_schema=OFF`, filas de 64 KiB como máximo, y se mira `user_version` antes de tocar nada. El historial descarta filas fuera de orden (un índice dañado las devuelve así);
+  - `Cubeta` (proteccion.h) es la única cuenta de ritmo: la usan la protección por IP y los topes por persona;
+  - el código de dueño se compara en tiempo constante y uno equivocado cuenta como falla para la protección.
+- **Programa:** `cliente::conectar` saluda, se presenta y devuelve la conexión abierta (`ConexionAbierta`) con lo que sobró de leer. `cliente::Sesion` corre la conexión en su propio hilo con una cola de órdenes y otra de novedades (la va a usar la ventana del 2.5) y manda ping cada 5 s.
+- **Textos de la interfaz con datos:** `con_datos(plantilla, {...})` cambia `{1}` a `{9}`; así el orden de las palabras queda en lang/.
+- **Reglas de texto (src/common/texto.cpp):** nombres de 1 a 32 caracteres (64 bytes) sin controles, invisibles ni marcas de dirección; chat hasta 4000 bytes con saltos de línea y U+200D; los nombres se comparan con `LCMapStringW(LOCALE_INVARIANT, LCMAP_UPPERCASE)`. Los mensajes del protocolo las aplican al leer y al escribir.
 - **doctest:** en la clásica va sin su informe de cierres inesperados, que usa SetThreadStackGuarantee.
 - **Al arrancar:**
   - `endurecer_carga_de_dll()` (SetDefaultDllDirectories, o si no SetDllDirectoryW);
@@ -121,6 +135,8 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **SDK 7.1A (el de XP):** su `objbase.h` no compila con `/permissive-`; antes de `windows.h` y `shlobj.h` va `struct IUnknown;` (src/common/archivos.cpp).
 - **Nombres de parámetros** como `socket` tapan la función global de Winsock y frenan /W4 (C4459).
 - **dumpbin muestra en hexadecimal** la cantidad de manejadores de SafeSEH.
+- **Caracteres que dan vuelta el texto** (U+202A–202E, U+2066–2069) dentro del código frenan /WX (C5255, contra "Trojan Source"): en las pruebas van como bytes, por ejemplo `"\xE2\x80\xAE"`.
+- **Una prueba no crea su propio `cifrado::Inicio`:** al destruirse apaga PSA y las pruebas que siguen fallan. Ya lo crea tests/main.cpp.
 - **El antivirus de Windows** bloquea unos segundos los `.exe` recién hechos: check.ps1 reintenta la copia.
 - **libFuzzer** escribe lo que aprende en la **primera** carpeta que recibe: nunca pasarle primero `fuzz\semillas`.
 - **AddressSanitizer** guarda la memoria liberada un rato (para detectar usos tardíos), así que el fuzzer llega a unos 600 MB. No es una pérdida: con `ASAN_OPTIONS=quarantine_size_mb=16` se queda en 135 MB.
@@ -131,13 +147,11 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - Prueba de 10 minutos (con la primera beta) y prueba larga del puente WinMM en XP.
 - Números de la prueba de red entre la PC y la HP 2133, la RAM en la HP 2133, el ancho de banda medido y el arranque.
 - Windows 11.
-- Etapa 2: envoltorio de un solo hilo para SQLite (paso 2.3).
-- De las revisiones del 2.1 y 2.2, para el 2.3:
-  - tiempo máximo y "sigue ahí" (keepalive) para las conexiones ya saludadas: hoy esperan para siempre, y un programa que no lee lo que recibe se queda conectado;
-  - el bucle de lectura de `Servidor::avanzar` renueva el tope en cada `leer`: con mensajes después del saludo necesita un tope por vuelta y mirar lo que Mbed TLS ya tiene guardado (`mbedtls_ssl_get_bytes_avail`) si corta antes;
-  - colas de salida con tope (diseño: "Un programa que no lee lo que recibe");
-  - validar la configuración del servidor cuando se cargue de un archivo: rango del protocolo derecho y sin pasar de `kProtocoloMaximo` (las pruebas usan protocolos 2 a 5);
-  - qué caracteres acepta `leer_texto`: hoy rechaza solo UTF-8 inválido y el byte 0. Faltan controles, saltos de línea en nombres y caracteres invisibles o de dirección (diseno.md, "Nombres disfrazados con Unicode"); ojo, en el chat el U+200D arma emojis.
+- De las revisiones del 2.1 y 2.2: validar la configuración del servidor cuando se cargue de un archivo (rango del protocolo derecho y sin pasar de `kProtocoloMaximo`; las pruebas usan protocolos 2 a 5).
+- Nombres "parecidos" con letras de otro alfabeto: etapa 9.
+- Para la ventana del 2.5: mostrar cada nombre aislado entre U+2068 y U+2069, para que un nombre en hebreo o árabe no desordene la línea del chat.
+- `Presentado` va en un solo mensaje: con unas 880 personas no entra en 64 KiB. Partirlo antes de subir `conexiones_maximas` de 512.
+- Archivos que este paso no tocó todavía tienen comentarios (bytes.cpp, marcos.h, utf.*, registro.h, inicio.h, proceso.cpp, archivos.cpp): se sacan cuando se toquen.
 - Para el paso 2.5 y la reconexión automática (etapa 8): **nunca** reintentar solo después de "la huella no coincide". Es un aviso de seguridad, y 5 intentos en un minuto bloquean 5 minutos la IP de toda la casa.
 - Para las etapas 6 y 7: con relay, muchas personas llegan desde la misma IP; los topes por IP y el bloqueo necesitan otra regla ahí. Las pruebas de puerto del directorio no tienen que contar como fallas. Con IPv6, los topes por IP van por bloque /64.
 - Ajustar los números de la protección contra inundaciones después de medir en la HP 2133 como servidor (modo servidor limitado).

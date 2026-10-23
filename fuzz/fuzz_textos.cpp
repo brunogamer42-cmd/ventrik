@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 
+#include "common/cifrado/codigo_dueno.h"
 #include "common/cifrado/huella.h"
 #include "common/red/red.h"
 
@@ -15,7 +16,7 @@ void exigir(bool condicion) {
   }
 }
 
-}  // namespace
+}
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t largo) {
   const std::string_view texto(reinterpret_cast<const char*>(datos), largo);
@@ -25,6 +26,11 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     exigir(escrita.size() == 64);
     const auto otra_vez = ventrik::cifrado::leer_huella(escrita);
     exigir(otra_vez && *otra_vez == *huella);
+  }
+
+  if (const auto codigo = ventrik::cifrado::leer_codigo_dueno(texto)) {
+    const auto otra_vez = ventrik::cifrado::leer_codigo_dueno(codigo->a_texto());
+    exigir(otra_vez && *otra_vez == *codigo);
   }
 
   if (const auto direccion = ventrik::red::leer_direccion(texto)) {

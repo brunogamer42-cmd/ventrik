@@ -6,22 +6,35 @@
 #include <unordered_map>
 
 namespace ventrik::servidor {
+using Instante = std::chrono::steady_clock::time_point;
 
-// Valores iniciales, para ajustar después de medir en la HP 2133 (diseño: "Contra saturación").
+class Cubeta {
+ public:
+  Cubeta() = default;
+  Cubeta(double rafaga, double por_segundo, Instante ahora = {})
+      : rafaga_(rafaga), por_segundo_(por_segundo), fichas_(rafaga), ultima_(ahora) {}
+  bool tomar(Instante ahora);
+
+ private:
+  double rafaga_ = 0;
+  double por_segundo_ = 0;
+  double fichas_ = 0;
+  Instante ultima_;
+};
+
 struct OpcionesProteccion {
   double rafaga_por_ip = 16;
   double conexiones_por_segundo_por_ip = 1;
-  // Cada saludo cuesta una firma ECDSA: con muchas IPs a la vez, esto cuida el procesador.
   double rafaga_total = 40;
   double saludos_por_segundo_total = 20;
   int fallas_para_bloquear = 5;
   std::chrono::seconds ventana_de_fallas{60};
   std::chrono::seconds tiempo_de_bloqueo{300};
-  // Reserva para quien ya saludó bien, con techo: cualquiera puede saludar bien una vez.
   std::chrono::hours conocida_por{24};
   double rafaga_reserva = 20;
   double reserva_por_segundo = 10;
-  // Durante un ataque, cada IP se avisa una vez cada tanto y no en cada intento.
+  double rafaga_chat_por_ip = 20;
+  double chat_por_segundo_por_ip = 2;
   std::chrono::seconds silencio_entre_avisos{30};
   std::size_t ips_recordadas = 4096;
 };
@@ -35,28 +48,20 @@ struct Veredicto {
 
 class Proteccion {
  public:
-  using Instante = std::chrono::steady_clock::time_point;
-
   explicit Proteccion(OpcionesProteccion opciones = {});
 
-  // Al aceptar: bloqueo y ritmo de la IP.
   Veredicto nueva_conexion(std::uint32_t ip, Instante ahora);
-  // Cuando el otro empieza a hablar, antes de la parte cara del cifrado: el turno global.
   Veredicto empezar_saludo(std::uint32_t ip, Instante ahora);
-  // Devuelve true si con esta falla la IP quedó bloqueada.
   bool fallo(std::uint32_t ip, Instante ahora);
-  // No borra las fallas: si no, un saludo bueno cada cuatro malos esquivaría el bloqueo.
   void saludo_completo(std::uint32_t ip, Instante ahora);
+  bool puede_chatear(std::uint32_t ip, Instante ahora);
 
   std::size_t ips_recordadas() const { return ips_.size(); }
 
  private:
-  struct Cubeta {
-    double fichas = 0;
-    Instante ultima;
-  };
   struct Ip {
     Cubeta conexiones;
+    Cubeta chat;
     int fallas = 0;
     Instante primera_falla;
     Instante bloqueada_hasta;
@@ -76,4 +81,4 @@ class Proteccion {
   Instante total_avisado_hasta_;
 };
 
-}  // namespace ventrik::servidor
+}

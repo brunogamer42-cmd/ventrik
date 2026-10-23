@@ -14,7 +14,7 @@ namespace {
 constexpr std::uint32_t kUna = 0x0A000001;
 constexpr std::uint32_t kOtra = 0x0A000002;
 
-const Proteccion::Instante kInicio = Proteccion::Instante{} + 1000s;
+const ventrik::servidor::Instante kInicio = ventrik::servidor::Instante{} + 1000s;
 
 OpcionesProteccion chicas() {
   OpcionesProteccion opciones;
@@ -156,4 +156,18 @@ TEST_CASE("Al olvidar IPs, primero se olvidan las quietas y no las bloqueadas") 
   proteccion.nueva_conexion(3, kInicio);
   proteccion.nueva_conexion(4, kInicio + 120s);
   CHECK(proteccion.nueva_conexion(kUna, kInicio + 121s).decision == Decision::bloqueada);
+}
+
+TEST_CASE("El chat tiene un tope por IP, sumando todas sus conexiones") {
+  OpcionesProteccion opciones = chicas();
+  opciones.rafaga_chat_por_ip = 4;
+  opciones.chat_por_segundo_por_ip = 1;
+  Proteccion proteccion(opciones);
+  for (int i = 0; i < 4; ++i) {
+    CHECK(proteccion.puede_chatear(kUna, kInicio));
+  }
+  CHECK_FALSE(proteccion.puede_chatear(kUna, kInicio));
+  CHECK(proteccion.puede_chatear(kOtra, kInicio));
+  CHECK(proteccion.puede_chatear(kUna, kInicio + 1s));
+  CHECK_FALSE(proteccion.puede_chatear(kUna, kInicio + 1s));
 }

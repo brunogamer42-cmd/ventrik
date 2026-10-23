@@ -152,7 +152,7 @@ target_compile_definitions(sqlite PRIVATE
   SQLITE_THREADSAFE=0         # usar siempre desde un mismo hilo
   SQLITE_OMIT_LOAD_EXTENSION  # no puede cargar código de afuera (DLL)
   SQLITE_DQS=0)               # comillas dobles solo para nombres, nunca texto
-if(VENTRIK_VERSION STREQUAL "clasica")
+if(VENTRIK_VERSION STREQUAL "clasica" OR VENTRIK_VERSION STREQUAL "fuzzing")
   # SQLite usa GetTickCount64 (Vista en adelante): en XP va una propia.
   target_sources(sqlite PRIVATE "${INTEGRACION}/sqlite/ventrik_sqlite_xp.c")
   set_source_files_properties(sqlite/sqlite3.c PROPERTIES

@@ -10,19 +10,36 @@
 #include "common/version.h"
 
 namespace ventrik::protocolo {
-
 enum class TipoMensaje : std::uint16_t {
   hola = 1,
   bienvenida = 2,
   rechazo = 3,
+  presentarse = 10,
+  entrar_a_canal = 11,
+  enviar_chat = 12,
+  pedir_historial = 13,
+  crear_canal = 14,
+  renombrar_canal = 15,
+  borrar_canal = 16,
+  ping = 17,
+  presentado = 30,
+  presentacion_rechazada = 31,
+  usuario_entro = 32,
+  usuario_salio = 33,
+  usuario_cambio_canal = 34,
+  canal_creado = 35,
+  canal_renombrado = 36,
+  canal_borrado = 37,
+  mensaje_chat = 38,
+  historial = 39,
+  negado = 40,
+  pong = 41,
 };
 
 using Funciones = std::uint64_t;
 
-// Mientras se saluda alcanza con mensajes chicos (el Hola mide 18 bytes): menos memoria para un extraño.
 constexpr std::size_t kMaximoCuerpoSaludo = 64;
 
-// Formato fijo para siempre: así cualquier versión puede pedirle a otra que actualice.
 struct Hola {
   std::uint16_t protocolo_minimo = 0;
   std::uint16_t protocolo_maximo = 0;
@@ -67,4 +84,4 @@ void escribir(Escritor& escritor, const Rechazo& rechazo);
 [[nodiscard]] std::optional<Bienvenida> leer_bienvenida(gsl::span<const std::uint8_t> cuerpo);
 [[nodiscard]] std::optional<Rechazo> leer_rechazo(gsl::span<const std::uint8_t> cuerpo);
 
-}  // namespace ventrik::protocolo
+}

@@ -218,7 +218,14 @@ Paso SesionTls::leer(gsl::span<std::uint8_t> destino, std::size_t& leidos) {
 Paso SesionTls::escribir(gsl::span<const std::uint8_t> datos, std::size_t& escritos) {
   escritos = 0;
   renovar_presupuesto();
-  const int resultado = mbedtls_ssl_write(&ssl_, datos.data(), datos.size());
+  const int maximo = mbedtls_ssl_get_max_out_record_payload(&ssl_);
+  const std::size_t largo = std::min(
+      datos.size(), a_medias_ != 0 ? a_medias_
+                                   : maximo > 0 ? static_cast<std::size_t>(maximo) : datos.size());
+  const int resultado = mbedtls_ssl_write(&ssl_, datos.data(), largo);
+  a_medias_ = resultado == MBEDTLS_ERR_SSL_WANT_WRITE || resultado == MBEDTLS_ERR_SSL_WANT_READ
+                  ? largo
+                  : 0;
   if (resultado >= 0) {
     escritos = static_cast<std::size_t>(resultado);
     return Paso::listo;

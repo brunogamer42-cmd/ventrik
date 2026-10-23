@@ -5,10 +5,7 @@
 #include <windows.h>
 
 namespace ventrik {
-
 namespace {
-
-// LOCALE_SISO639LANGNAME devuelve hasta 9 caracteres, contando el final.
 constexpr int kLargoCodigoWindows = 9;
 
 const char* buscar(std::size_t indice_idioma, Clave clave) {
@@ -20,7 +17,7 @@ const char* buscar(std::size_t indice_idioma, Clave clave) {
   return generado::kTextos[indice_idioma][indice_clave];
 }
 
-}  // namespace
+}
 
 std::size_t cantidad_idiomas() { return generado::kCantidadIdiomas; }
 
@@ -43,7 +40,6 @@ Idioma idioma_de_windows() {
   if (largo <= 1) {
     return Idioma{generado::kIdiomaRespaldo};
   }
-  // El código ISO 639 son letras minúsculas; cualquier otra cosa se descarta.
   std::string ascii;
   for (int i = 0; i < largo - 1; ++i) {
     const wchar_t letra = codigo[i];
@@ -82,4 +78,22 @@ bool falta_traduccion(Idioma idioma, Clave clave) {
   return std::string_view(buscar(idioma.indice, clave)).empty();
 }
 
-}  // namespace ventrik
+std::string con_datos(std::string_view plantilla, std::initializer_list<std::string_view> datos) {
+  std::string resultado;
+  for (std::size_t i = 0; i < plantilla.size(); ++i) {
+    const std::size_t numero = i + 2 < plantilla.size() && plantilla[i] == '{' &&
+                                       plantilla[i + 2] == '}' && plantilla[i + 1] >= '1' &&
+                                       plantilla[i + 1] <= '9'
+                                   ? static_cast<std::size_t>(plantilla[i + 1] - '1')
+                                   : datos.size();
+    if (numero < datos.size()) {
+      resultado += *(datos.begin() + numero);
+      i += 2;
+    } else {
+      resultado.push_back(plantilla[i]);
+    }
+  }
+  return resultado;
+}
+
+}

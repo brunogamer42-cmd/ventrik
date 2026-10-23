@@ -1,14 +1,14 @@
 #include "common/red/red.h"
 
+#include <array>
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 #include "common/pendiente.h"
 
 namespace ventrik::red {
-
 namespace {
-
 constexpr int kColaDeEspera = 64;
 
 std::optional<std::uint32_t> leer_numero(std::string_view& texto, std::size_t digitos,
@@ -44,7 +44,6 @@ Direccion de_sockaddr(const sockaddr_in& origen) {
 bool preparar(SOCKET s) {
   u_long sin_trabarse = 1;
   BOOL sin_demora = TRUE;
-  // Sin heredarse a ClamAV. Puede fallar en XP con firewalls viejos (LSP): no es motivo para no andar.
   SetHandleInformation(reinterpret_cast<HANDLE>(s), HANDLE_FLAG_INHERIT, 0);
   return ioctlsocket(s, FIONBIO, &sin_trabarse) == 0 &&
          setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&sin_demora),
@@ -88,7 +87,7 @@ Socket nuevo_socket() {
   return nuevo;
 }
 
-}  // namespace
+}
 
 bool operator==(const Direccion& a, const Direccion& b) {
   return a.ipv4 == b.ipv4 && a.puerto == b.puerto;
@@ -172,7 +171,6 @@ Socket escuchar(const Direccion& donde) {
   if (!escucha.valido()) {
     return Socket();
   }
-  // Que otro programa no robe el puerto; si XP no lo deja (sin ser administrador), igual anda.
   BOOL exclusivo = TRUE;
   setsockopt(escucha.get(), SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
              reinterpret_cast<const char*>(&exclusivo), sizeof(exclusivo));
@@ -196,7 +194,6 @@ std::optional<Direccion> direccion_local(const Socket& cual) {
 
 std::optional<std::pair<Socket, Direccion>> aceptar(const Socket& escucha, bool& fallo) {
   fallo = false;
-  // Cualquiera puede conectarse y cortar antes de ser aceptado: eso no es una falla del puerto.
   for (int intento = 0; intento < kColaDeEspera; ++intento) {
     sockaddr_in origen = {};
     int largo = sizeof(origen);
@@ -227,7 +224,6 @@ Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo) {
       WSAGetLastError() != WSAEWOULDBLOCK) {
     return Socket();
   }
-  // En Windows, un connect que falla avisa como falla y no como escritura.
   if (esperar_socket(static_cast<SOCKET>(nuevo.get()), false, true, true, tiempo) != Espera::lista) {
     return Socket();
   }
@@ -240,10 +236,40 @@ Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo) {
   return nuevo;
 }
 
+Despertador::Despertador() {
+  Socket nuevo(::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP));
+  u_long sin_trabarse = 1;
+  const sockaddr_in local = a_sockaddr(Direccion{0x7F000001, 0});
+  sockaddr_in propia = {};
+  int largo = sizeof(propia);
+  if (!nuevo.valido() || ioctlsocket(nuevo.get(), FIONBIO, &sin_trabarse) != 0 ||
+      bind(nuevo.get(), reinterpret_cast<const sockaddr*>(&local), sizeof(local)) != 0 ||
+      getsockname(nuevo.get(), reinterpret_cast<sockaddr*>(&propia), &largo) != 0 ||
+      connect(nuevo.get(), reinterpret_cast<const sockaddr*>(&propia), largo) != 0) {
+    return;
+  }
+  SetHandleInformation(reinterpret_cast<HANDLE>(nuevo.get()), HANDLE_FLAG_INHERIT, 0);
+  socket_ = std::move(nuevo);
+}
+
+void Despertador::despertar() const {
+  const char uno = 1;
+  if (socket_.valido()) {
+    send(socket_.get(), &uno, 1, 0);
+  }
+}
+
+void Despertador::vaciar() const {
+  std::array<char, 64> basura{};
+  for (int i = 0; i < 256 && socket_.valido() &&
+                  recv(socket_.get(), basura.data(), static_cast<int>(basura.size()), 0) > 0;
+       ++i) {
+  }
+}
+
 Espera esperar(const Socket& cual, bool para_leer, bool para_escribir,
                std::chrono::milliseconds tiempo) {
-  // Sin mirar fallas: un byte urgente (fuera de banda) las marcaría aunque la conexión ande.
   return esperar_socket(static_cast<SOCKET>(cual.get()), para_leer, para_escribir, false, tiempo);
 }
 
-}  // namespace ventrik::red
+}

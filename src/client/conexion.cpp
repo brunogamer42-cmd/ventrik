@@ -9,18 +9,14 @@
 
 #include <gsl/gsl>
 
-#include "common/cifrado/tls.h"
-#include "common/protocol/marcos.h"
 #include "common/protocol/negociacion.h"
+#include "common/texto.h"
 
 namespace ventrik::cliente {
-
 namespace {
-
 using Reloj = std::chrono::steady_clock;
 
 bool esperar(const red::Socket& canal, cifrado::Paso paso, Reloj::time_point limite) {
-  // Con datos esperando, select dice "listo" aunque le quede 0 de tiempo: el reloj se mira acá.
   if ((paso != cifrado::Paso::esperar_lectura && paso != cifrado::Paso::esperar_escritura) ||
       Reloj::now() >= limite) {
     return false;
@@ -32,25 +28,72 @@ bool esperar(const red::Socket& canal, cifrado::Paso paso, Reloj::time_point lim
                       paso == cifrado::Paso::esperar_escritura, falta) == red::Espera::lista;
 }
 
-ResultadoConexion interpretar(const protocolo::Marco& marco, const protocolo::Hola& hola,
-                              const cifrado::SesionTls& tls) {
-  ResultadoConexion resultado;
+bool enviar_todo(ConexionAbierta& abierta, const std::vector<std::uint8_t>& salida,
+                 Reloj::time_point limite, ResultadoConexion& resultado) {
+  gsl::span<const std::uint8_t> resto(salida);
+  while (!resto.empty()) {
+    std::size_t escritos = 0;
+    const auto paso = abierta.tls().escribir(resto, escritos);
+    if (paso == cifrado::Paso::listo) {
+      resto = resto.subspan(escritos);
+    } else if (!esperar(abierta.canal(), paso, limite)) {
+      resultado.estado = EstadoConexion::cortada;
+      resultado.codigo = abierta.tls().ultimo_error();
+      return false;
+    }
+  }
+  return true;
+}
+
+std::optional<protocolo::Marco> leer_marco(ConexionAbierta& abierta, Reloj::time_point limite,
+                                           ResultadoConexion& resultado) {
+  for (;;) {
+    if (!abierta.sobrante().empty()) {
+      gsl::span<const std::uint8_t> datos(abierta.sobrante());
+      auto marco = abierta.ensamblador().siguiente(datos);
+      std::vector<std::uint8_t> resto(datos.begin(), datos.end());
+      abierta.sobrante().swap(resto);
+      if (abierta.ensamblador().error()) {
+        resultado.estado = EstadoConexion::rechazo_ilegible;
+        return std::nullopt;
+      }
+      if (marco) {
+        return marco;
+      }
+      continue;
+    }
+    std::array<std::uint8_t, 4096> recibido{};
+    std::size_t leidos = 0;
+    const auto paso = abierta.tls().leer(recibido, leidos);
+    if (paso == cifrado::Paso::listo) {
+      const auto llegado = gsl::span<const std::uint8_t>(recibido).first(leidos);
+      abierta.sobrante().assign(llegado.begin(), llegado.end());
+    } else if (!esperar(abierta.canal(), paso, limite)) {
+      resultado.estado = EstadoConexion::cortada;
+      resultado.codigo = abierta.tls().ultimo_error();
+      return std::nullopt;
+    }
+  }
+}
+
+bool interpretar_saludo(const protocolo::Marco& marco, const protocolo::Hola& hola,
+                        const cifrado::SesionTls& tls, ResultadoConexion& resultado) {
   resultado.estado = EstadoConexion::rechazo_ilegible;
   if (marco.tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::bienvenida)) {
     const auto bienvenida = protocolo::leer_bienvenida(marco.cuerpo);
-    if (bienvenida && protocolo::aceptar_bienvenida(hola, *bienvenida)) {
-      resultado.estado = EstadoConexion::conectado;
-      resultado.protocolo = bienvenida->protocolo;
-      resultado.cifrado = tls.cifrado();
+    if (!bienvenida || !protocolo::aceptar_bienvenida(hola, *bienvenida)) {
+      return false;
     }
-    return resultado;
+    resultado.protocolo = bienvenida->protocolo;
+    resultado.cifrado = tls.cifrado();
+    return true;
   }
   if (marco.tipo != static_cast<std::uint16_t>(protocolo::TipoMensaje::rechazo)) {
-    return resultado;
+    return false;
   }
   const auto rechazo = protocolo::leer_rechazo(marco.cuerpo);
   if (!rechazo || !protocolo::aceptar_rechazo(hola, *rechazo)) {
-    return resultado;
+    return false;
   }
   if (rechazo->motivo == protocolo::MotivoRechazo::programa_viejo) {
     resultado.estado = EstadoConexion::programa_viejo;
@@ -58,14 +101,50 @@ ResultadoConexion interpretar(const protocolo::Marco& marco, const protocolo::Ho
   } else if (rechazo->motivo == protocolo::MotivoRechazo::servidor_viejo) {
     resultado.estado = EstadoConexion::servidor_viejo;
   }
-  return resultado;
+  return false;
 }
 
-}  // namespace
+void interpretar_presentacion(const protocolo::Marco& marco, ResultadoConexion& resultado) {
+  resultado.estado = EstadoConexion::rechazo_ilegible;
+  if (marco.tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::presentado)) {
+    resultado.presentado = protocolo::leer_mensaje<protocolo::Presentado>(marco.cuerpo);
+    if (resultado.presentado) {
+      resultado.estado = EstadoConexion::conectado;
+    }
+    return;
+  }
+  if (marco.tipo != static_cast<std::uint16_t>(protocolo::TipoMensaje::presentacion_rechazada)) {
+    return;
+  }
+  const auto rechazo = protocolo::leer_mensaje<protocolo::PresentacionRechazada>(marco.cuerpo);
+  if (!rechazo) {
+    return;
+  }
+  switch (rechazo->motivo) {
+    case protocolo::MotivoPresentacion::nombre_invalido:
+      resultado.estado = EstadoConexion::nombre_invalido;
+      break;
+    case protocolo::MotivoPresentacion::nombre_en_uso:
+      resultado.estado = EstadoConexion::nombre_en_uso;
+      break;
+    case protocolo::MotivoPresentacion::codigo_incorrecto:
+      resultado.estado = EstadoConexion::codigo_incorrecto;
+      break;
+    case protocolo::MotivoPresentacion::lleno:
+      resultado.estado = EstadoConexion::servidor_lleno;
+      break;
+  }
+}
+
+}
 
 ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella& huella,
-                           const OpcionesConexion& opciones) {
+                           const Presentacion& quien, const OpcionesConexion& opciones) {
   ResultadoConexion resultado;
+  if (!es_nombre_valido(quien.nombre)) {
+    resultado.estado = EstadoConexion::nombre_invalido;
+    return resultado;
+  }
   red::Socket nuevo = red::conectar(destino, opciones.tiempo_para_conectar);
   if (!nuevo.valido()) {
     resultado.estado = EstadoConexion::sin_respuesta;
@@ -76,7 +155,6 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     return resultado;
   }
   auto abierta = std::make_unique<ConexionAbierta>(std::move(config), std::move(nuevo));
-  const red::Socket& canal = abierta->canal();
   cifrado::SesionTls& tls = abierta->tls();
   if (!tls.ok()) {
     return resultado;
@@ -89,12 +167,11 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     if (paso == cifrado::Paso::listo) {
       break;
     }
-    if (esperar(canal, paso, limite)) {
+    if (esperar(abierta->canal(), paso, limite)) {
       continue;
     }
     const bool vencido = paso == cifrado::Paso::esperar_lectura ||
                          paso == cifrado::Paso::esperar_escritura;
-    // Un servidor lleno o que se apaga corta sin más: no es un cifrado inseguro.
     resultado.estado = tls.huella_distinta()       ? EstadoConexion::huella_distinta
                        : vencido                   ? EstadoConexion::sin_respuesta
                        : paso == cifrado::Paso::cerrado ? EstadoConexion::cortada
@@ -102,7 +179,6 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     resultado.codigo = tls.ultimo_error();
     return resultado;
   }
-  // Aunque Mbed TLS dé el visto bueno, sin la huella confirmada no sale nada.
   if (!tls.huella_confirmada()) {
     resultado.estado = EstadoConexion::huella_distinta;
     return resultado;
@@ -117,42 +193,31 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   std::vector<std::uint8_t> salida;
   if (!cuerpo.ok() ||
       !protocolo::armar_marco(static_cast<std::uint16_t>(protocolo::TipoMensaje::hola),
-                              cuerpo.datos(), salida)) {
+                              cuerpo.datos(), salida) ||
+      !enviar_todo(*abierta, salida, limite, resultado)) {
     return resultado;
   }
-  gsl::span<const std::uint8_t> resto(salida);
-  while (!resto.empty()) {
-    std::size_t escritos = 0;
-    const auto paso = tls.escribir(resto, escritos);
-    if (paso == cifrado::Paso::listo) {
-      resto = resto.subspan(escritos);
-    } else if (!esperar(canal, paso, limite)) {
-      resultado.estado = EstadoConexion::cortada;
-      resultado.codigo = tls.ultimo_error();
-      return resultado;
-    }
+  auto marco = leer_marco(*abierta, limite, resultado);
+  if (!marco || !interpretar_saludo(*marco, opciones.hola, tls, resultado)) {
+    return resultado;
   }
 
-  protocolo::Ensamblador ensamblador(protocolo::kMaximoCuerpoSaludo);
-  std::array<std::uint8_t, 512> recibido{};
-  std::optional<protocolo::Marco> respuesta;
-  while (!respuesta) {
-    std::size_t leidos = 0;
-    const auto paso = tls.leer(recibido, leidos);
-    if (paso == cifrado::Paso::listo) {
-      auto datos = gsl::span<const std::uint8_t>(recibido).first(leidos);
-      respuesta = ensamblador.siguiente(datos);
-      if (ensamblador.error()) {
-        resultado.estado = EstadoConexion::rechazo_ilegible;
-        return resultado;
-      }
-    } else if (!esperar(canal, paso, limite)) {
-      resultado.estado = EstadoConexion::cortada;
-      resultado.codigo = tls.ultimo_error();
-      return resultado;
-    }
+  abierta->ensamblador().cambiar_maximo(protocolo::kMaximoCuerpo);
+  protocolo::Presentarse presentarse;
+  presentarse.nombre = quien.nombre;
+  if (quien.codigo_dueno) {
+    presentarse.codigo_dueno = quien.codigo_dueno->bytes();
   }
-  resultado = interpretar(*respuesta, opciones.hola, tls);
+  salida.clear();
+  if (!protocolo::armar_mensaje(presentarse, salida) ||
+      !enviar_todo(*abierta, salida, limite, resultado)) {
+    return resultado;
+  }
+  marco = leer_marco(*abierta, limite, resultado);
+  if (!marco) {
+    return resultado;
+  }
+  interpretar_presentacion(*marco, resultado);
   if (resultado.estado == EstadoConexion::conectado) {
     resultado.abierta = std::move(abierta);
   }
@@ -168,4 +233,4 @@ ConexionAbierta::~ConexionAbierta() {
   tls_->cerrar();
 }
 
-}  // namespace ventrik::cliente
+}

@@ -13,13 +13,9 @@
 #include "common/cifrado/identidad.h"
 
 namespace ventrik::cifrado {
-
-// TLS 1.3 solo, con AES-GCM o ChaCha20-Poly1305, X25519 o P-256 y firmas ECDSA P-256.
 class ConfigTls {
  public:
-  // La identidad tiene que vivir más que la configuración.
   static std::unique_ptr<ConfigTls> para_servidor(IdentidadServidor& identidad);
-  // Las pruebas la usan con un certificado y una clave que no se corresponden.
   static std::unique_ptr<ConfigTls> para_servidor(mbedtls_x509_crt* certificado,
                                                   mbedtls_pk_context* clave);
   static std::unique_ptr<ConfigTls> para_programa();
@@ -28,7 +24,6 @@ class ConfigTls {
   ConfigTls(const ConfigTls&) = delete;
   ConfigTls& operator=(const ConfigTls&) = delete;
 
-  // Para las pruebas que arman un servidor o un programa tramposo.
   mbedtls_ssl_config* crudo() { return &config_; }
   const mbedtls_ssl_config* crudo() const { return &config_; }
 
@@ -36,14 +31,12 @@ class ConfigTls {
   mbedtls_ssl_config config_;
 };
 
-// Sin AES-NI (como en la HP 2133), ChaCha20 es más rápido que AES-GCM.
 bool procesador_acelera_aes();
 
 enum class Paso { listo, esperar_lectura, esperar_escritura, cerrado, error };
 
 class SesionTls {
  public:
-  // `conexion` es un SOCKET de Winsock sin trabarse; tiene que vivir más que la sesión.
   SesionTls(const ConfigTls& config, std::uintptr_t conexion);
   ~SesionTls();
   SesionTls(const SesionTls&) = delete;
@@ -51,7 +44,6 @@ class SesionTls {
 
   bool ok() const { return ok_; }
 
-  // Solo el programa: el apretón de manos se corta si la clave del servidor no tiene esta huella.
   void exigir_huella(const Huella& esperada);
   bool huella_confirmada() const { return huella_confirmada_; }
   bool huella_distinta() const { return huella_distinta_; }
@@ -63,11 +55,11 @@ class SesionTls {
 
   int ultimo_error() const { return ultimo_error_; }
   std::size_t bytes_recibidos() const { return canal_.total; }
+  bool hay_datos_guardados() const { return mbedtls_ssl_check_pending(&ssl_) != 0; }
   std::string cifrado() const;
   bool es_tls13() const;
 
  private:
-  // Topes por llamada: Mbed TLS descarta sin límite ciertos registros chicos y trabaría el hilo.
   struct Canal {
     std::uintptr_t socket = 0;
     std::size_t presupuesto = 0;
@@ -89,6 +81,7 @@ class SesionTls {
   bool huella_distinta_ = false;
   bool ok_ = false;
   int ultimo_error_ = 0;
+  std::size_t a_medias_ = 0;
 };
 
-}  // namespace ventrik::cifrado
+}

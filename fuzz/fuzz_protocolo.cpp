@@ -15,6 +15,7 @@
 #include "common/protocol/marcos.h"
 #include "common/protocol/mensajes.h"
 #include "common/protocol/negociacion.h"
+#include "common/protocol/pedidos.h"
 #include "common/utf.h"
 #include "common/version.h"
 
@@ -34,13 +35,11 @@ struct Separado {
   bool error = false;
 };
 
-// Como el servidor: un tope chico hasta el primer mensaje (el saludo) y otro después.
 struct Topes {
   std::size_t primero = kMaximoCuerpo;
   std::size_t despues = kMaximoCuerpo;
 };
 
-// Sin el Ensamblador y sin el Lector, para comparar contra algo escrito aparte.
 Separado separar_a_mano(gsl::span<const std::uint8_t> flujo, const Topes& topes) {
   Separado separado;
   std::size_t i = 0;
@@ -115,6 +114,16 @@ void exigir_ida_y_vuelta(const Mensaje& mensaje, gsl::span<const std::uint8_t> c
   exigir(escritor.datos() == std::vector<std::uint8_t>(cuerpo.begin(), cuerpo.end()));
 }
 
+template <typename... Mensajes>
+void revisar_pedidos(gsl::span<const std::uint8_t> cuerpo) {
+  const auto revisar = [cuerpo](auto mensaje) {
+    if (auto leido = leer_mensaje<decltype(mensaje)>(cuerpo)) {
+      exigir_ida_y_vuelta(*leido, cuerpo);
+    }
+  };
+  (revisar(Mensajes{}), ...);
+}
+
 void revisar_negociacion(const Hola& hola, const ConfigServidor& servidor) {
   const auto respuesta = negociar(hola, servidor);
   const bool rango_valido = hola.protocolo_minimo > 0 && hola.protocolo_minimo <= hola.protocolo_maximo;
@@ -157,6 +166,10 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
   exigir(armar_marco(marco.tipo, marco.cuerpo, armado));
   exigir(armado.size() == kCabeceraMarco + marco.cuerpo.size());
 
+  revisar_pedidos<Presentarse, Presentado, PresentacionRechazada, UsuarioEntro, UsuarioSalio,
+                  UsuarioCambioCanal, CanalCreado, CanalRenombrado, CanalBorrado, EntrarACanal,
+                  EnviarChat, MensajeChat, PedirHistorial, Historial, CrearCanal, RenombrarCanal,
+                  BorrarCanal, Negado, Ping, Pong>(marco.cuerpo);
   switch (static_cast<TipoMensaje>(marco.tipo)) {
     case TipoMensaje::hola:
       if (const auto hola = leer_hola(marco.cuerpo)) {
@@ -223,7 +236,6 @@ void probar_marcos(gsl::span<const std::uint8_t> entrada) {
   }
 }
 
-// Lecturas en cualquier orden: el lector tiene que aguantar usos que los mensajes no hacen.
 void probar_lector(gsl::span<const std::uint8_t> entrada) {
   const std::size_t mitad = entrada.size() / 2;
   Lector ordenes(entrada.first(std::min<std::size_t>(mitad, 256)));
@@ -271,7 +283,7 @@ void probar_escritor(gsl::span<const std::uint8_t> entrada) {
   exigir(lector.terminado());
 }
 
-}  // namespace
+}
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t largo) {
   if (largo == 0) {

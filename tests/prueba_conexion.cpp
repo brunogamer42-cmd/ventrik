@@ -20,6 +20,7 @@
 #include "common/cifrado/tls.h"
 #include "common/red/red.h"
 #include "server/servidor.h"
+#include "servidor_de_prueba.h"
 #include <doctest/doctest.h>
 
 using namespace std::chrono_literals;
@@ -27,29 +28,18 @@ using ventrik::cifrado::ConfigTls;
 using ventrik::cifrado::IdentidadServidor;
 using ventrik::cliente::EstadoConexion;
 using ventrik::servidor::Evento;
+using namespace prueba;
 
 namespace {
 
-constexpr std::uint32_t kLocal = 0x7F000001;
-
-IdentidadServidor identidad_nueva() {
-  auto identidad = IdentidadServidor::crear_nueva();
-  REQUIRE(identidad);
-  return std::move(*identidad);
+ventrik::cliente::ResultadoConexion entrar(const ventrik::red::Direccion& destino,
+                                           const ventrik::cifrado::Huella& huella,
+                                           const ventrik::cliente::OpcionesConexion& opciones = {}) {
+  static std::atomic<int> numero{0};
+  return ventrik::cliente::conectar(destino, huella, {"Prueba " + std::to_string(++numero), {}},
+                                    opciones);
 }
 
-bool esperar_que(const std::function<bool()>& condicion, std::chrono::milliseconds limite = 5s) {
-  const auto hasta = std::chrono::steady_clock::now() + limite;
-  while (!condicion()) {
-    if (std::chrono::steady_clock::now() >= hasta) {
-      return false;
-    }
-    std::this_thread::sleep_for(10ms);
-  }
-  return true;
-}
-
-// true si el otro lado cierra antes de `limite`.
 bool se_cierra(const ventrik::red::Socket& canal, std::chrono::milliseconds limite) {
   const auto hasta = std::chrono::steady_clock::now() + limite;
   while (std::chrono::steady_clock::now() < hasta) {
@@ -73,39 +63,6 @@ bool enviar_todo(const ventrik::red::Socket& canal, const std::string& datos) {
          static_cast<int>(datos.size());
 }
 
-class ServidorDePrueba {
- public:
-  explicit ServidorDePrueba(ventrik::servidor::Opciones opciones = {})
-      : identidad_(identidad_nueva()) {
-    opciones.escuchar = ventrik::red::Direccion{kLocal, 0};
-    servidor_ = std::make_unique<ventrik::servidor::Servidor>(
-        identidad_, opciones,
-        [this](Evento evento, const ventrik::red::Direccion&) { contar(evento); });
-    REQUIRE(servidor_->escuchar());
-    hilo_ = std::thread([this] { servidor_->correr(seguir_); });
-  }
-  ~ServidorDePrueba() {
-    seguir_ = false;
-    hilo_.join();
-  }
-  ServidorDePrueba(const ServidorDePrueba&) = delete;
-  ServidorDePrueba& operator=(const ServidorDePrueba&) = delete;
-
-  ventrik::red::Direccion direccion() const { return {kLocal, servidor_->puerto()}; }
-  const ventrik::cifrado::Huella& huella() const { return identidad_.huella(); }
-  int cuantos(Evento evento) const { return eventos_[static_cast<std::size_t>(evento)].load(); }
-
- private:
-  void contar(Evento evento) { ++eventos_[static_cast<std::size_t>(evento)]; }
-
-  IdentidadServidor identidad_;
-  std::array<std::atomic<int>, 16> eventos_{};
-  std::atomic<bool> seguir_{true};
-  std::unique_ptr<ventrik::servidor::Servidor> servidor_;
-  std::thread hilo_;
-};
-
-// Atiende una sola conexión: o con una configuración TLS armada por la prueba, o mandando bytes fijos.
 class ServidorFalso {
  public:
   explicit ServidorFalso(std::unique_ptr<ConfigTls> config) : config_(std::move(config)) {
@@ -182,7 +139,6 @@ std::unique_ptr<ConfigTls> config_ajustada(IdentidadServidor& identidad,
   return config;
 }
 
-// Un programa tramposo: devuelve 0 si el servidor lo dejó terminar el apretón de manos, o el error.
 int apreton_tramposo(const ventrik::red::Direccion& destino, const ventrik::cifrado::Huella& huella,
                      void (*ajustar)(mbedtls_ssl_config*)) {
   auto config = ConfigTls::para_programa();
@@ -221,7 +177,6 @@ void solo_ccm8(mbedtls_ssl_config* config) {
   mbedtls_ssl_conf_ciphersuites(config, kSoloCcm8);
 }
 
-// Un certificado de autoridad con la clave pública de `publica`, firmado con `firmante`.
 std::vector<unsigned char> autoridad_con_clave_ajena(mbedtls_pk_context& publica,
                                                      mbedtls_pk_context& firmante) {
   mbedtls_x509write_cert escritor;
@@ -247,7 +202,6 @@ std::vector<unsigned char> autoridad_con_clave_ajena(mbedtls_pk_context& publica
   return std::vector<unsigned char>(der.end() - largo, der.end());
 }
 
-// Un ServerHello de TLS 1.2 (sin la extensión de versiones) que elige un cifrado que el programa ofreció.
 std::string server_hello_tls12() {
   std::string cuerpo = "\x03\x03";
   cuerpo += std::string(32, '\x11');
@@ -257,11 +211,11 @@ std::string server_hello_tls12() {
   return std::string("\x16\x03\x03\x00", 4) + static_cast<char>(mensaje.size()) + mensaje;
 }
 
-}  // namespace
+}
 
 TEST_CASE("Con la huella correcta, el programa se conecta por TLS 1.3 y saluda") {
   ServidorDePrueba servidor;
-  const auto resultado = ventrik::cliente::conectar(servidor.direccion(), servidor.huella());
+  const auto resultado = entrar(servidor.direccion(), servidor.huella());
   REQUIRE(resultado.estado == EstadoConexion::conectado);
   CHECK(resultado.protocolo == ventrik::kProtocoloMaximo);
   CAPTURE(resultado.cifrado);
@@ -274,7 +228,7 @@ TEST_CASE("Con la huella correcta, el programa se conecta por TLS 1.3 y saluda")
 TEST_CASE("Con otra huella, el programa corta sin mandar nada") {
   ServidorDePrueba servidor;
   const auto otra = identidad_nueva().huella();
-  const auto resultado = ventrik::cliente::conectar(servidor.direccion(), otra);
+  const auto resultado = entrar(servidor.direccion(), otra);
   CHECK(resultado.estado == EstadoConexion::huella_distinta);
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::rechazo_cifrado) == 1; }));
   CHECK(servidor.cuantos(Evento::conectada) == 0);
@@ -285,7 +239,7 @@ TEST_CASE("Un servidor que muestra el certificado verdadero sin tener su clave n
   auto verdadera = identidad_nueva();
   auto falsa = identidad_nueva();
   ServidorFalso falso(ConfigTls::para_servidor(verdadera.certificado(), falsa.clave()));
-  const auto resultado = ventrik::cliente::conectar(falso.direccion(), verdadera.huella());
+  const auto resultado = entrar(falso.direccion(), verdadera.huella());
   CHECK(resultado.estado == EstadoConexion::cifrado_rechazado);
   CHECK_FALSE(falso.completo());
 }
@@ -297,12 +251,11 @@ TEST_CASE("Una cadena con la clave verdadera en segundo lugar no engaña al prog
   mbedtls_x509_crt_init(&cadena);
   REQUIRE(mbedtls_x509_crt_parse_der(&cadena, falsa.certificado()->raw.p,
                                      falsa.certificado()->raw.len) == 0);
-  // Una autoridad falsa con la clave pública verdadera: Mbed TLS la pone en segundo lugar.
   const auto autoridad = autoridad_con_clave_ajena(*verdadera.clave(), *falsa.clave());
   REQUIRE(mbedtls_x509_crt_parse_der(&cadena, autoridad.data(), autoridad.size()) == 0);
   {
     ServidorFalso falso(ConfigTls::para_servidor(&cadena, falsa.clave()));
-    const auto resultado = ventrik::cliente::conectar(falso.direccion(), verdadera.huella());
+    const auto resultado = entrar(falso.direccion(), verdadera.huella());
     CHECK(resultado.estado == EstadoConexion::huella_distinta);
     CHECK_FALSE(falso.completo());
   }
@@ -313,7 +266,7 @@ TEST_CASE("Un servidor que contesta con TLS 1.2 no engaña al programa") {
   ServidorFalso falso(server_hello_tls12());
   ventrik::cliente::OpcionesConexion opciones;
   opciones.tiempo_para_saludar = 3s;
-  const auto resultado = ventrik::cliente::conectar(falso.direccion(), identidad_nueva().huella(), opciones);
+  const auto resultado = entrar(falso.direccion(), identidad_nueva().huella(), opciones);
   CHECK(resultado.estado == EstadoConexion::cifrado_rechazado);
   CHECK(resultado.codigo == MBEDTLS_ERR_SSL_ILLEGAL_PARAMETER);
 }
@@ -321,7 +274,7 @@ TEST_CASE("Un servidor que contesta con TLS 1.2 no engaña al programa") {
 TEST_CASE("Un servidor que solo habla TLS 1.2 no engaña al programa") {
   auto identidad = identidad_nueva();
   ServidorFalso falso(config_ajustada(identidad, solo_tls12));
-  const auto resultado = ventrik::cliente::conectar(falso.direccion(), identidad.huella());
+  const auto resultado = entrar(falso.direccion(), identidad.huella());
   CHECK(resultado.estado == EstadoConexion::cifrado_rechazado);
   CHECK_FALSE(falso.completo());
 }
@@ -329,7 +282,7 @@ TEST_CASE("Un servidor que solo habla TLS 1.2 no engaña al programa") {
 TEST_CASE("Un servidor que solo acepta un cifrado más débil no engaña al programa") {
   auto identidad = identidad_nueva();
   ServidorFalso falso(config_ajustada(identidad, solo_ccm8));
-  const auto resultado = ventrik::cliente::conectar(falso.direccion(), identidad.huella());
+  const auto resultado = entrar(falso.direccion(), identidad.huella());
   CHECK(resultado.estado == EstadoConexion::cifrado_rechazado);
   CHECK_FALSE(falso.completo());
 }
@@ -339,7 +292,7 @@ TEST_CASE("El servidor rechaza a un programa que intenta TLS 1.2 y sigue atendie
   CHECK(apreton_tramposo(servidor.direccion(), servidor.huella(), solo_tls12) ==
         MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE);
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::rechazo_cifrado) == 1; }));
-  CHECK(ventrik::cliente::conectar(servidor.direccion(), servidor.huella()).estado ==
+  CHECK(entrar(servidor.direccion(), servidor.huella()).estado ==
         EstadoConexion::conectado);
 }
 
@@ -357,12 +310,11 @@ TEST_CASE("Basura en lugar de TLS: el servidor corta y sigue atendiendo") {
   REQUIRE(enviar_todo(canal, "GET / HTTP/1.1\r\nHost: ventrik\r\n\r\n"));
   CHECK(se_cierra(canal, 5s));
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::rechazo_cifrado) == 1; }));
-  CHECK(ventrik::cliente::conectar(servidor.direccion(), servidor.huella()).estado ==
+  CHECK(entrar(servidor.direccion(), servidor.huella()).estado ==
         EstadoConexion::conectado);
 }
 
 TEST_CASE("Una inundación de registros que Mbed TLS descarta no traba al servidor") {
-  // Con 10 s para saludar, solo el tope de bytes antes del saludo puede cortarla tan rápido.
   ventrik::servidor::Opciones opciones;
   opciones.tiempo_para_saludar = 10s;
   ServidorDePrueba servidor(opciones);
@@ -388,7 +340,7 @@ TEST_CASE("Una inundación de registros que Mbed TLS descarta no traba al servid
       }
     }
   });
-  const auto resultado = ventrik::cliente::conectar(servidor.direccion(), servidor.huella());
+  const auto resultado = entrar(servidor.direccion(), servidor.huella());
   CHECK(resultado.estado == EstadoConexion::conectado);
   CHECK(esperar_que([&] { return cortada.load(); }, 3s));
   CHECK(std::chrono::steady_clock::now() - inicio < 4s);
@@ -427,7 +379,7 @@ TEST_CASE("Hay un tope de conexiones por IP, también para las ya saludadas") {
   ServidorDePrueba servidor(opciones);
   std::vector<ventrik::cliente::ResultadoConexion> saludadas;
   for (int i = 0; i < 2; ++i) {
-    saludadas.push_back(ventrik::cliente::conectar(servidor.direccion(), servidor.huella()));
+    saludadas.push_back(entrar(servidor.direccion(), servidor.huella()));
     REQUIRE(saludadas.back().estado == EstadoConexion::conectado);
     REQUIRE(saludadas.back().abierta);
   }
@@ -449,7 +401,7 @@ TEST_CASE("Una IP que falla varias veces seguidas queda bloqueada") {
     CHECK(se_cierra(canal, 5s));
   }
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::bloqueada) == 1; }));
-  CHECK(ventrik::cliente::conectar(servidor.direccion(), servidor.huella()).estado ==
+  CHECK(entrar(servidor.direccion(), servidor.huella()).estado ==
         EstadoConexion::cortada);
   CHECK(servidor.cuantos(Evento::rechazo_bloqueada) == 1);
 }
@@ -474,7 +426,7 @@ TEST_CASE("Un programa demasiado viejo recibe a qué versión actualizar") {
   ServidorDePrueba servidor;
   ventrik::cliente::OpcionesConexion opciones;
   opciones.hola.programa = {0, 0, 9};
-  const auto resultado = ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), opciones);
+  const auto resultado = entrar(servidor.direccion(), servidor.huella(), opciones);
   CHECK(resultado.estado == EstadoConexion::programa_viejo);
   CHECK(resultado.version_pedida == ventrik::kPrimeraVersionDelProtocolo[0]);
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::rechazo_saludo) == 1; }));
@@ -485,7 +437,7 @@ TEST_CASE("Un servidor demasiado viejo se avisa como tal") {
   ventrik::cliente::OpcionesConexion opciones;
   opciones.hola.protocolo_minimo = ventrik::kProtocoloMaximo + 1;
   opciones.hola.protocolo_maximo = ventrik::kProtocoloMaximo + 1;
-  CHECK(ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), opciones).estado ==
+  CHECK(entrar(servidor.direccion(), servidor.huella(), opciones).estado ==
         EstadoConexion::servidor_viejo);
 }
 
@@ -497,7 +449,7 @@ TEST_CASE("Varios programas se conectan a la vez") {
   std::vector<std::thread> hilos;
   for (auto& conectado : conectados) {
     hilos.emplace_back([&servidor, &conectado] {
-      conectado = ventrik::cliente::conectar(servidor.direccion(), servidor.huella()).estado ==
+      conectado = entrar(servidor.direccion(), servidor.huella()).estado ==
                   EstadoConexion::conectado;
     });
   }
@@ -518,6 +470,87 @@ TEST_CASE("Sin servidor, el programa avisa que no responde") {
   }
   ventrik::cliente::OpcionesConexion opciones;
   opciones.tiempo_para_conectar = 3s;
-  CHECK(ventrik::cliente::conectar(cerrado, identidad_nueva().huella(), opciones).estado ==
+  CHECK(entrar(cerrado, identidad_nueva().huella(), opciones).estado ==
         EstadoConexion::sin_respuesta);
+}
+
+TEST_CASE("Un envío TLS a medias se reintenta con el mismo largo aunque lleguen más datos") {
+  auto identidad = identidad_nueva();
+  const auto escucha = ventrik::red::escuchar(ventrik::red::Direccion{kLocal, 0});
+  REQUIRE(escucha.valido());
+  ventrik::red::Socket lado_programa(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+  const int chico = 4096;
+  REQUIRE(setsockopt(static_cast<SOCKET>(lado_programa.get()), SOL_SOCKET, SO_RCVBUF,
+                     reinterpret_cast<const char*>(&chico), sizeof(chico)) == 0);
+  sockaddr_in destino = {};
+  destino.sin_family = AF_INET;
+  destino.sin_port = htons(ventrik::red::direccion_local(escucha)->puerto);
+  destino.sin_addr.s_addr = htonl(kLocal);
+  REQUIRE(connect(static_cast<SOCKET>(lado_programa.get()), reinterpret_cast<const sockaddr*>(&destino),
+                  sizeof(destino)) == 0);
+  u_long sin_trabarse = 1;
+  REQUIRE(ioctlsocket(static_cast<SOCKET>(lado_programa.get()), FIONBIO, &sin_trabarse) == 0);
+  bool fallo = false;
+  decltype(ventrik::red::aceptar(escucha, fallo)) aceptada;
+  REQUIRE(esperar_que([&] { return (aceptada = ventrik::red::aceptar(escucha, fallo)).has_value(); }));
+  auto config_servidor = ConfigTls::para_servidor(identidad);
+  auto config_programa = ConfigTls::para_programa();
+  REQUIRE(config_servidor);
+  REQUIRE(config_programa);
+  ventrik::cifrado::SesionTls servidor(*config_servidor, aceptada->first.get());
+  ventrik::cifrado::SesionTls programa(*config_programa, lado_programa.get());
+  programa.exigir_huella(identidad.huella());
+  bool servidor_listo = false;
+  bool programa_listo = false;
+  REQUIRE(esperar_que([&] {
+    servidor_listo = servidor_listo || servidor.apreton() == ventrik::cifrado::Paso::listo;
+    programa_listo = programa_listo || programa.apreton() == ventrik::cifrado::Paso::listo;
+    return servidor_listo && programa_listo;
+  }));
+
+  std::vector<std::uint8_t> salida;
+  std::size_t enviado = 0;
+  std::size_t producido = 0;
+  const auto producir = [&](std::size_t cuanto) {
+    for (std::size_t i = 0; i < cuanto; ++i) {
+      salida.push_back(static_cast<std::uint8_t>(producido++ % 251));
+    }
+  };
+  const auto enviar = [&] {
+    while (enviado < salida.size()) {
+      std::size_t escritos = 0;
+      const auto paso =
+          servidor.escribir(gsl::span<const std::uint8_t>(salida).subspan(enviado), escritos);
+      if (paso != ventrik::cifrado::Paso::listo) {
+        REQUIRE(paso == ventrik::cifrado::Paso::esperar_escritura);
+        return false;
+      }
+      enviado += escritos;
+    }
+    return true;
+  };
+  do {
+    producir(3000);
+    REQUIRE(producido < 64 * 1024 * 1024);
+  } while (enviar());
+  producir(40000);
+
+  std::size_t recibidos = 0;
+  std::array<std::uint8_t, 4096> recibido{};
+  const auto hasta = std::chrono::steady_clock::now() + 10s;
+  bool iguales = true;
+  while (iguales && recibidos < producido && std::chrono::steady_clock::now() < hasta) {
+    enviar();
+    std::size_t leidos = 0;
+    if (programa.leer(recibido, leidos) != ventrik::cifrado::Paso::listo) {
+      std::this_thread::sleep_for(1ms);
+      continue;
+    }
+    for (std::size_t i = 0; i < leidos && iguales; ++i) {
+      iguales = recibido[i] == static_cast<std::uint8_t>((recibidos + i) % 251);
+    }
+    recibidos += leidos;
+  }
+  CHECK(iguales);
+  CHECK(recibidos == producido);
 }
