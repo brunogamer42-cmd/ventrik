@@ -15,7 +15,7 @@ Principios:
 - **Gratis y propio.** El servidor lo hostea quien quiera, sin pagar y sin un límite artificial de usuarios.
 - **Seguro.** Todo viaja cifrado entre cada programa y el servidor.
 
-Lo que no hace en la primera versión: video, compartir pantalla, app para celular, bots, búsqueda de GIFs en servicios externos, grabación de la voz ni overlay dentro de los juegos (ver "Viabilidad como programa gratuito").
+Lo que no hace en la primera versión: video de cámara, compartir pantalla, app para celular, bots, búsqueda de GIFs en servicios externos, grabación de la voz ni overlay dentro de los juegos (ver "Viabilidad como programa gratuito"). Compartir pantalla llega después, en la etapa 12 (ver "Compartir pantalla").
 
 ## Cómo funciona
 
@@ -60,7 +60,7 @@ Organización de la ventana:
 
 - **Arriba:** el servidor, los botones (micrófono, audio, servidores, perfil, personalizar para los administradores, ajustes, desconectar), el selector de modo y el estado de la tecla para hablar.
 - **Izquierda:** la lista de canales en dos grupos, "Canales de texto" arriba y "Canales de voz" abajo (ver "Canales de voz y de texto"). Los de voz muestran las personas adentro y su estado: habla, micrófono apagado, audio apagado, ausente o no molestar (sin sonidos de aviso), y se pliegan. La lista se desplaza con su propia barra; abajo queda fijo tu audio: medidor, cómo transmitís (tecla o voz, con su sensibilidad) y volúmenes.
-- **Derecha:** el chat del canal de voz donde estás o del canal de texto que elegiste, con los archivos.
+- **Derecha:** el chat del canal de voz donde estás o del canal de texto que elegiste, con los archivos. Desde la etapa 12, ahí también se mira una pantalla compartida.
 - **Abajo:** la barra de estado con la conexión, el ping, el cifrado y la verificación del servidor.
 
 |  | Modo Rendimiento | Modo Visual |
@@ -93,7 +93,7 @@ El programa abre en **Inicio**: no hay lista de amigos, porque Ventrik se organi
 | Inicio (en los dos modos) | Tus servidores con su estado (en línea, cuántos hay, ping, tu último canal, solicitudes pendientes, tu servidor apagado), entrar con invitación, tu estado, el aviso de copia de tu identidad y el botón Reportar. En Visual suma el encabezado y el icono animados de cada servidor y tu tarjeta |
 | Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil |
 | Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados. En Visual, al elegir un servidor se ven su fondo e icono animados |
-| Hostear un servidor | Configuración, seguridad, calidad de voz, archivos y antivirus, invitaciones, red y puertos, capacidad y respaldo de la identidad del servidor |
+| Hostear un servidor | Asistente de 7 pasos (nombre y acceso, conexión, capacidad y voz, seguridad, chat y archivos, pantallas y varias PCs, revisar e iniciar) y la pantalla final Invitar gente (ver "Hostear: asistente por pasos") |
 | Ajustes | General (con el idioma), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas) |
 | Audio y micrófono | Dispositivos, cómo transmitís (tecla o voz) con medidor y prueba, limpieza de la voz, consumo de la voz, volúmenes y bajar otros programas cuando alguien habla (desde Windows 7) |
 | Enviar archivo con contraseña | Pide la contraseña, analiza el comprimido con ClamAV en tu PC y lo envía; la contraseña no sale de tu PC |
@@ -101,6 +101,7 @@ El programa abre en **Inicio**: no hay lista de amigos, porque Ventrik se organi
 | Perfil y Personalizar servidor | Lo del modo Visual, incluida la tarjeta de perfil |
 | Editor de efectos | Capas, vista previa ampliada y en tamaño real, límites y código para compartir, para el marco del avatar y el de la tarjeta |
 | Notificaciones | Mensajes nuevos y conexión cortada mientras Ventrik no está al frente: las de Windows 10 y 11 en la versión moderna, una ventana propia en la clásica (ver "Notificaciones") |
+| Compartir pantalla (etapa 12) | Elegir qué compartir (pantalla, ventana o una parte), la resolución, los cuadros y el cursor, con el lugar que hay hoy en el servidor; mirar en el lugar del chat (ver "Compartir pantalla") |
 
 ### Notificaciones
 
@@ -112,6 +113,25 @@ Avisan de lo que pasa mientras Ventrik no está al frente o está minimizado. Nu
 - **Windows 10 y 11 (versión moderna):** las notificaciones del sistema, las que salen abajo a la derecha y quedan en el Centro de actividades, con el nombre y el ícono de Ventrik. Se cargan con GetProcAddress; si no están, se usa la ventana propia.
 - **Versión clásica (XP a 8.1 y Windows 10 de 32 bits):** una ventana propia, chica, abajo a la derecha, parecida a la de Windows 10 y con el aspecto de Ventrik (docs/aspecto.md). No le quita el foco a lo que estés haciendo, se cierra sola a los pocos segundos y se dibuja sin Direct3D, para no gastar en la netbook.
 - **Privacidad:** Windows guarda sus notificaciones en un archivo propio, fuera de Ventrik y sin cifrar. Por eso, en Ajustes → Avisos se puede elegir que digan solo el canal y la cantidad, sin quién ni el texto.
+
+### Hostear: asistente por pasos
+
+Hostear un servidor es un asistente de 7 pasos y una pantalla final. Capturas: docs/pantallas/Hostear-1.png a Hostear-8.png, una por paso; el paso 4 tiene además Hostear-4-opciones.png, y el 6 va en Hostear-6-pantallas.png y Hostear-6-varias-pcs.png.
+
+1. **Nombre y acceso.**
+2. **Conexión:** puerto, placa de red, IPs, UPnP, probar desde internet y relay (ver "Red y puertos al hostear").
+3. **Capacidad y voz:** subida, voces a la vez, máximo de usuarios, tablas de cuántos entran y calidad.
+4. **Seguridad:** el nivel, con las opciones sueltas plegadas en "Qué incluye y cada opción por separado", y la identidad del servidor.
+5. **Chat y archivos.**
+6. **Pantallas y varias PCs:** opcional y en desarrollo (ver "Compartir pantalla"). "Varias PCs", un servidor sostenido entre varias PCs, todavía no está en este documento.
+7. **Revisar e iniciar:** un resumen con "Cambiar" en cada paso, las opciones al iniciar y un aviso si no se exportó la identidad del servidor.
+
+Después de iniciar, **Invitar gente** muestra el estado del servidor y las invitaciones; la primera invitación se crea sola al iniciar.
+
+- **La lista de pasos va a la izquierda,** siempre visible, con el valor elegido debajo de cada uno. Se puede saltar a cualquier paso.
+- **Abajo:** Atrás · "Dejar el resto como recomendado y revisar" · "Siguiente: <paso>". Nada se aplica hasta "Iniciar servidor".
+- **"Probar desde internet" funciona antes de iniciar:** abre el puerto un momento.
+- **Con el servidor ya creado,** "Configuración del servidor" muestra los mismos pasos como pestañas, sin Siguiente, y cada cambio se guarda solo.
 
 ## Voz
 
@@ -180,6 +200,43 @@ Con una tecla aparte, hablás a una persona, a un grupo o a otro canal sin mover
 - Quien recibe un susurro lo escucha marcado, con el nombre de quien habla y un sonido distinto.
 - El servidor decide quién puede susurrar a quién (permiso por rol y canal) y le aplica el tope de voces y la calidad dinámica igual que al resto.
 - Gasta lo mismo que hablar: el servidor reenvía la voz solo a los destinatarios.
+
+## Compartir pantalla (en desarrollo, etapa 12)
+
+Llega en la etapa 12, con el programa ya completo. Desde antes, lo que ya se hace se arma de la forma que después sirve, para sumarla sin rehacer nada (ver "Preparación desde ahora"). Requisito del dueño: tiene que andar también en XP, aunque cueste más hacerlo. Capturas: docs/pantallas/PantallaCompartida.png (mirando), PantallaCompartida-dialogo.png (qué compartir) y Hostear-6-pantallas.png.
+
+- **Cómo se ve:** quien comparte aparece con "EN VIVO" en la lista de canales. Quien toca "Mirar" ve la pantalla en el lugar del chat, con quién la comparte, en qué calidad sale y en cuál le llega, y los botones Compartir la tuya, Pantalla completa y Dejar de mirar. "Volver al chat" vuelve al chat del canal.
+- **Formatos de video:**
+  - Base para todos: VP8 con libvpx, comprimido por el procesador. Es libre de regalías (concesión de patentes de Google) y con licencia BSD, compatible con la GPL versión 3. Todo Ventrik lo trae, así cualquiera mira lo que comparte cualquiera, incluido XP. Hay que comprobar que ande en la versión clásica.
+  - Copia de mejor calidad, opcional: H.264 comprimido por la placa de video con Media Foundation, para quienes pueden descomprimirla (desde Windows 7).
+  - A quien mira desde XP le llega la copia VP8, de hasta 480p.
+- **Captura:** con la duplicación de escritorio de DXGI desde Windows 8, y con GDI en XP y 7. Solo se comprime si la pantalla cambió, comparando por bloques; el cursor viaja aparte.
+- **Qué se elige:** pantalla completa, una ventana o una parte; la resolución, de la original a 480p; 15, 30 o 60 cuadros por segundo; y si se ve el cursor. En XP, o sin una placa que comprima, el programa baja solo a lo que aguante el procesador.
+- **Red del host:**
+  - el servidor reenvía sin recomprimir, y solo a quien tocó "Mirar";
+  - si nadie la tiene a la vista, se deja de enviar y de comprimir;
+  - cuadros en capas, para bajar de 60 a 30 cuadros sin recomprimir;
+  - una copia chica para poca conexión, PC débil, ventana chica o XP;
+  - imágenes completas solo cuando entra alguien o se pierden datos, y de a pedazos;
+  - ajuste a la conexión de cada uno.
+- **La voz manda:** las pantallas usan solo lo que sobra de la voz, medido y con margen. Si no entra ni la copia chica, la persona espera su lugar.
+- **Hostear (paso 6):** subida para pantallas "lo que sobra de la voz" (predeterminado), con tope fijo o apagada; 1 transmisión por canal y 2 por servidor por defecto; quién puede compartir; cuántos entran en cada calidad; y un repetidor opcional, un relay que recibe una sola copia y la multiplica.
+- **Nunca de persona a persona:** dejaría a la vista la IP de cada uno.
+- **Seguridad:** el descompresor va en el proceso de medios, con fuzzing, versión fija y actualización rápida: libvpx tuvo el CVE-2023-5217, usado en ataques reales. En XP hay más riesgo porque no tiene ASLR, así que Ajustes trae "No mirar pantallas en esta PC".
+- **Medición, como en la etapa 1:** la HP 2133 compartiendo y mirando, y una PC moderna en 1080p y 1440p a 60 cuadros.
+- **Pendiente de decidir:** compartir el sonido de la PC (en XP no hay una forma simple de capturarlo).
+
+### Preparación desde ahora
+
+Sin código que todavía no se use: solo la forma correcta de lo que ya se hace.
+
+- **Paquete de medios (paso 2.4, segunda parte):** lo que va por DTLS lleva un tipo de flujo (voz; los demás quedan reservados) y un número de flujo. El servidor reenvía según el tipo y descarta los tipos que no conoce. La voz sale primero.
+- **Funciones del protocolo:** un bit reservado para "pantalla", todavía sin comportamiento.
+- **Etapa 8:** la subida del servidor se reparte en un solo lugar y por prioridades: primero la voz, después lo demás. Las pantallas se suman después como lo de menor prioridad.
+- **Etapa 9:** el permiso "Compartir pantalla" figura en la lista de permisos, apagado y marcado "en desarrollo".
+- **Etapa 10:** el proceso aparte para imágenes se arma como un "proceso de medios", para sumarle después el descompresor de video.
+- **Interfaz:** en el chat de voz, el botón "Compartir pantalla" aparece apagado con "Pronto" (paso 2.5). En Hostear, el paso 6 muestra "Pantallas compartidas" apagado con "En desarrollo". Los textos van en lang/.
+- **libvpx** no se agrega a third_party/ hasta la etapa 12.
 
 ## Chat y archivos
 
@@ -307,7 +364,7 @@ Cada persona puede armar sus propios marcos del avatar y de la tarjeta en un edi
 | Sticker | 512 KB |
 | GIF en el chat | 8 MB |
 
-El servidor recodifica cada imagen al recibirla: la lleva a un tamaño fijo, limita los cuadros por segundo y la duración, y guarda una versión quieta. Lo hace en un proceso aparte, sin permisos, por seguridad.
+El servidor recodifica cada imagen al recibirla: la lleva a un tamaño fijo, limita los cuadros por segundo y la duración, y guarda una versión quieta. Lo hace en un proceso aparte, sin permisos, por seguridad: el "proceso de medios", que en la etapa 12 suma el descompresor de video.
 
 ## Seguridad y cifrado
 
@@ -338,7 +395,7 @@ El mínimo del programa es TLS 1.3 o DTLS 1.2, con AES-GCM o ChaCha20. Sin ese m
 - **Se ata a la conexión:** el servidor sabe de quién es cada sesión de voz por la clave, y además exige que el UDP llegue desde la misma IP que la conexión TCP. Así decide quién habla según la conexión, y el paquete no dice quién es.
 - **Se renueva cada hora:** el servidor manda una identificación nueva; la vieja deja de servir para conectar.
 - **Antes de gastar nada:** el servidor solo atiende UDP de una IP que tiene una conexión presentada, pide una cookie antes del saludo (así nadie lo usa para atacar a otros), tiene tope de saludos a medio hacer por IP y en total, tope de paquetes por persona y descarta los repetidos.
-- **Formato de la voz, dentro de DTLS:** `u16 tipo` y el cuerpo. El programa manda `VozSubida` (número de paquete de 16 bits y hasta 400 bytes de Opus); el servidor reenvía `VozBajada` (quién habla, que lo pone el servidor, número y Opus) a los demás del mismo canal. `Ping` y `Pong` cada 5 segundos mantienen abierto el camino (NAT) y miden la conexión.
+- **Formato de los medios, dentro de DTLS:** `u16 tipo` y el cuerpo. Los paquetes de medios llevan el tipo de flujo (voz; los demás quedan reservados para compartir pantalla) y el número de flujo. El servidor reenvía según el tipo, descarta los tipos que no conoce y manda primero la voz. El programa manda `VozSubida` (número de paquete de 16 bits y hasta 400 bytes de Opus); el servidor reenvía `VozBajada` (quién habla, que lo pone el servidor, número y Opus) a los demás del mismo canal. `Ping` y `Pong` cada 5 segundos mantienen abierto el camino (NAT) y miden la conexión.
 - **Límites conocidos de la regla de la IP:** casas con dos salidas a internet, algunos CGNAT y servidores con varias placas de red pueden quedarse sin voz. Se revisan con el relay (etapa 6).
 
 La invitación lleva la huella del servidor. Si al conectar no coincide, el programa avisa y no se conecta; conviene pasar la huella por otro medio, como WhatsApp o en persona.
@@ -501,7 +558,7 @@ El panel de hosting muestra todo lo necesario para abrir el servidor a mano, y d
 - **IP pública:** el panel la muestra, igual que cualquier página de "cuál es mi IP".
 - **Abrir el puerto:** en el módem se reenvía el 7700 TCP y UDP a la IP local; el panel da la indicación exacta y, si el módem lo permite, lo intenta solo con UPnP. Conviene reservar la IP local en el módem para que no cambie. Con dos routers en cadena, hay que reenviarlo en los dos.
 - **Firewall de Windows:** el servidor crea la regla para su puerto; pide permiso de administrador una sola vez.
-- **Probar desde internet:** un servicio externo (el directorio o el relay) intenta conectarse a la IP pública y al puerto, y dice si responde. Es la única forma segura de saber que funciona. Si el directorio y el relay están apagados, la prueba no está disponible, pero el servidor anda igual.
+- **Probar desde internet:** un servicio externo (el directorio o el relay) intenta conectarse a la IP pública y al puerto, y dice si responde. Es la única forma segura de saber que funciona, y anda antes de iniciar el servidor: el programa abre el puerto un momento para la prueba. Si el directorio y el relay están apagados, la prueba no está disponible, pero el servidor anda igual.
 - **Si la prueba falla con todo bien configurado:** probablemente el proveedor usa CGNAT. La IP que muestran las páginas está compartida con otros clientes y el reenvío del módem no llega. Ahí sirven IPv6, pedirle una IP propia al proveedor, una red privada virtual o el relay.
 - **Lista pública:** no necesita otro puerto abierto. El servidor se anota hacia afuera y el directorio comprueba el puerto del servidor.
 
@@ -551,6 +608,8 @@ Un baneo bloquea la identidad del usuario y la huella de su equipo; bloquear la 
 - Invitaciones de un solo uso, con vencimiento.
 - Aprobación de usuarios nuevos, o un período de prueba sin poder hablar ni subir archivos.
 - Límite de ingresos por minuto.
+
+El permiso "Compartir pantalla" figura en la lista de permisos desde la etapa 9, apagado y marcado "en desarrollo" hasta la etapa 12.
 
 Límite honesto: la huella se puede falsificar con un programa modificado. Frena al usuario común, no al que se lo propone.
 
@@ -628,6 +687,7 @@ Cada voz se envía una vez por cada persona que la escucha. Como la cantidad de 
 - **Chat con modo lento:** en canales grandes, el admin puede limitar cada cuánto escribe cada persona.
 - **Lista de personas liviana:** el programa dibuja solo las filas visibles, y el servidor manda los cambios, no la lista entera.
 - **Reconexiones escalonadas:** si el servidor se reinicia, los programas vuelven a entrar con una espera al azar, para no llegar los 512 juntos.
+- **La subida se reparte en un solo lugar,** por prioridades: primero la voz, después lo demás. Las pantallas compartidas (etapa 12) se suman como lo de menor prioridad.
 - **Varios núcleos:** cada canal va a un hilo, así los canales llenos se reparten entre núcleos; en un canal muy grande, el envío a sus oyentes también se reparte entre varios hilos.
 - **Capacidad estimada:** al hostear, el dueño hace una prueba de velocidad (por ejemplo en speedtest.net) y anota la subida. El panel calcula cuántas personas aguanta en calidad Alta, Media y Mínima: personas ≈ subida × 0,85 ÷ (tope de voces × kbps por oyente) + 1, en el peor caso de todos hablando a la vez. Con 30 Mbps y tope de 4 da 107 personas en Alta, 213 en Media y 376 en Mínima. El máximo "Automático" usa ese número.
 
@@ -652,6 +712,7 @@ El programa y el servidor se escriben en C++17 nativo para Windows, con bibliote
 | Cifrado | Mbed TLS | TLS 1.3 y DTLS 1.2 dentro del programa, sin depender del cifrado viejo de XP. En la versión clásica, los números aleatorios salen de RtlGenRandom |
 | Contraseñas | Argon2 (implementación de referencia) | Argon2id para guardar y derivar contraseñas; Mbed TLS no lo trae |
 | Imágenes del modo Visual | stb\_image (GIF) y libwebp | Livianas y sin dependencias. No se aceptan PNG animados, porque stb\_image solo lee su primer cuadro |
+| Compartir pantalla (etapa 12) | VP8 con libvpx en todos los equipos; H.264 por la placa de video con Media Foundation, opcional (desde Windows 7) | VP8 es libre de regalías, BSD y compatible con la GPLv3, y anda en XP. libvpx entra a third_party/ recién en la etapa 12 |
 | Base de datos del servidor | SQLite | Un archivo; no hace falta instalar un motor aparte |
 | Abrir puertos | miniupnpc | UPnP, solo si el dueño lo activa |
 | Memoria segura | Microsoft GSL | gsl::span y otras ayudas para no leer fuera de los límites |
@@ -682,7 +743,7 @@ Reglas para que se entiendan:
 - **Texto siempre en UTF-8**; Windows usa UTF-16 por dentro y la conversión se hace al entrar y al salir.
 - **Mismo cifrado:** la versión clásica solo cambia de dónde saca los números aleatorios. Mbed TLS usa BCryptGenRandom, que no existe en XP, y ahí se reemplaza por RtlGenRandom ([repositorio oficial de Mbed TLS](https://github.com/Mbed-TLS/mbedtls)). Sin ese cambio, el programa no abre en XP.
 - **Voz en Opus**, un estándar que cualquier decodificador entiende.
-- **Al conectarse**, cada programa informa su versión del protocolo y qué funciones tiene. Si a la clásica le falta algo, el servidor se adapta, por ejemplo mandando la imagen quieta.
+- **Al conectarse**, cada programa informa su versión del protocolo y qué funciones tiene. Si a la clásica le falta algo, el servidor se adapta, por ejemplo mandando la imagen quieta. Las funciones son bits; uno queda reservado para "pantalla" (etapa 12), todavía sin comportamiento.
 - **El saludo no cambia nunca de formato:** así cualquier versión, por vieja o nueva que sea, entiende a cualquier otra lo suficiente para decirle que tiene que actualizar.
 - **Mensajes con tope:** cada mensaje mide como máximo 64 KiB; lo más grande, como los archivos, viaja en pedazos. Así la memoria que puede ocupar cada conexión también tiene techo.
 - **Versión mínima:** el servidor rechaza programas demasiado viejos con un aviso para actualizar, como [hace Zoom desde 2022](https://www.theregister.com/2022/10/31/zoom_minimum_client_update/).
@@ -730,6 +791,7 @@ Para que Ventrik sea gratis y siga funcionando sin una empresa detrás, no puede
 ### Lo que queda afuera de la primera versión
 
 - **Grabación:** cualquiera puede grabar con otro programa y eso no se puede impedir. Si algún día el programa graba, la regla ya queda fijada: todos ven un indicador mientras alguien graba con Ventrik, y el servidor puede prohibirlo.
+- **Compartir pantalla:** llega en la etapa 12, con el programa ya completo. El protocolo, la subida del servidor, los permisos y el proceso de medios se arman desde antes para sumarla sin rehacer nada (ver "Compartir pantalla").
 - **Overlay dentro de los juegos:** se mete en el dibujo de cada juego, choca con lo liviano, los anti-trampas lo pueden marcar y es muy difícil en XP. A lo sumo, más adelante y solo en la versión moderna.
 
 ## Riesgos y límites conocidos
@@ -742,6 +804,7 @@ El riesgo más importante es de confianza: quien controla el servidor puede leer
 | Windows XP y 7 sin parches | La PC queda expuesta a ataques del sistema, y XP no tiene ASLR ni CFG, que dificultan aprovechar errores de memoria | Usar el relay en lugar de abrir puertos; versión moderna para Windows 10 y 11 |
 | CGNAT | Nadie de afuera entra directo | Relay, IP pública, IPv6 o red privada virtual |
 | Velocidad de subida del host | Pone el límite real de usuarios | Tope de voces por canal, modo canal grande, calidad dinámica y capacidad estimada al hostear |
+| Compartir pantalla en XP (etapa 12) | Comprimir video gasta mucho procesador, y XP no tiene ASLR para frenar un video armado para atacar | Copia VP8 de hasta 480p, el programa baja solo lo que no aguanta, el descompresor en el proceso de medios y "No mirar pantallas en esta PC" |
 | Costo del relay | Si el uso crece, el relay oficial puede costar más de lo que entra por donaciones | Límite de 16 personas por servidor, relays de la comunidad y propios |
 | Antivirus en XP | Depende de una adaptación no oficial de ClamAV; si deja de actualizarse, XP se queda sin base nueva cuando su rama ya no pueda bajarla (la 1.4, después de agosto de 2028) | Probarla en XP real; si se corta, en XP se aplica "Si no se puede analizar" |
 | Pérdida de la clave del servidor | Las invitaciones dejan de servir y los usuarios ven el aviso de huella cambiada | Respaldo de la identidad del servidor |
@@ -755,7 +818,7 @@ Cuenta de la subida del host: tope de voces × (personas − 1) × kbps por oyen
 
 ## Plan de trabajo
 
-El desarrollo va en once etapas, y la primera es una prueba chica de voz para medir demora y consumo antes de construir el resto. Las dos versiones (moderna y clásica) se compilan y prueban desde el principio.
+El desarrollo va en doce etapas, y la primera es una prueba chica de voz para medir demora y consumo antes de construir el resto. Las dos versiones (moderna y clásica) se compilan y prueban desde el principio.
 
 1. **Prueba de voz:** voz entre dos PCs en red local, con tecla para hablar. Se mide demora y consumo, también en la netbook.
 2. **Base:** servidor, canales de voz y de texto, chat, cifrado con TLS 1.3 y DTLS 1.2, permisos básicos verificados en el servidor y panel de diagnóstico.
@@ -764,10 +827,11 @@ El desarrollo va en once etapas, y la primera es una prueba chica de voz para me
 5. **Archivos y antivirus:** subida, descarga, reanudación, prioridad de la voz, ClamAV en el servidor, base de virus compartida por el servidor y envío de comprimidos con contraseña.
 6. **Red:** panel de red y puertos (placa, puertos, UPnP opcional y prueba desde internet), búsqueda en la red local, relay (el oficial y agregar otros) e invitaciones.
 7. **Lista pública:** directorio (y agregar otros directorios), búsqueda por nombre, IP o región, su seguridad, el buzón de reportes y el botón Reportar, sin captura todavía.
-8. **Servidores grandes:** tope de voces, calidad dinámica, capacidad estimada, canal escenario, modo canal grande, chat lento y reconexiones escalonadas.
-9. **Moderación:** roles, permisos por rol y canal (también para susurrar), baneos y barreras de entrada.
-10. **Modo Visual:** perfiles, tarjeta con fondo animado, efecto por fuera y animación al abrirse, Inicio en modo Visual, personalización del servidor (icono animado, fondo del chat y color del tema en los detalles), marcos de avatar, editor de efectos con su código para compartir, GIFs, stickers y la captura en los reportes, que usa el mismo proceso aparte para imágenes.
+8. **Servidores grandes:** tope de voces, calidad dinámica, capacidad estimada, canal escenario, modo canal grande, chat lento, reconexiones escalonadas y la subida del servidor repartida en un solo lugar, por prioridades.
+9. **Moderación:** roles, permisos por rol y canal (también para susurrar, y "Compartir pantalla" apagado hasta la etapa 12), baneos y barreras de entrada.
+10. **Modo Visual:** perfiles, tarjeta con fondo animado, efecto por fuera y animación al abrirse, Inicio en modo Visual, personalización del servidor (icono animado, fondo del chat y color del tema en los detalles), marcos de avatar, editor de efectos con su código para compartir, GIFs, stickers y la captura en los reportes, que usa el mismo proceso aparte para imágenes, armado como "proceso de medios".
 11. **Cierre:** modo servidor limitado, idiomas, el resto de Ajustes, instaladores firmados y pruebas largas.
+12. **Compartir pantalla:** VP8 en todos los equipos, incluido XP, con captura, reenvío y topes; después, la copia H.264 por la placa de video y los cuadros en capas.
 
 **Cómo se prueba cada versión:**
 
@@ -788,6 +852,7 @@ Estas decisiones quedan abiertas; ninguna frena la primera etapa.
 - [ ] Límites definitivos del modo servidor limitado y del relay oficial, después de probar.
 - [ ] Mensajes privados entre usuarios (todavía no diseñados) y, si se suman, cifrado de punta a punta opcional para que el servidor no los pueda leer.
 - [ ] Si en el futuro se agregan grabación, búsqueda de GIFs, overlay o app para celular.
+- [ ] Compartir el sonido junto con la pantalla (etapa 12; en XP no hay una forma simple de capturarlo).
 
 Ya decidido: código abierto con licencia GPL versión 3 (ver "Viabilidad como programa gratuito").
 
@@ -820,7 +885,7 @@ Ya decidido: código abierto con licencia GPL versión 3 (ver "Viabilidad como p
 | Llave de seguridad | Un dispositivo USB (como una YubiKey) que guarda una clave secreta que nunca sale de él |
 | Núcleo | Cada parte del procesador que puede trabajar por su cuenta |
 | Overlay | Lo que dibujan algunos programas de voz encima de un juego, por ejemplo quién está hablando |
-| Proceso aparte sin permisos | Una parte del servidor o del programa separada del resto y sin acceso al sistema. Si falla, no arrastra al resto |
+| Proceso aparte sin permisos | Una parte del servidor o del programa separada del resto y sin acceso al sistema. Si falla, no arrastra al resto. En Ventrik, el de las imágenes es el "proceso de medios", que en la etapa 12 también descomprime video |
 | Protocolo | El formato exacto de cada mensaje entre el programa y el servidor |
 | RAM | La memoria de trabajo de la PC |
 | Relay | Un intermediario que reenvía los datos cifrados sin poder leerlos |
