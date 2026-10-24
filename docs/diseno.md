@@ -15,7 +15,7 @@ Principios:
 - **Gratis y propio.** El servidor lo hostea quien quiera, sin pagar y sin un límite artificial de usuarios.
 - **Seguro.** Todo viaja cifrado entre cada programa y el servidor.
 
-Lo que no hace en la primera versión: video de cámara, compartir pantalla, app para celular, bots, búsqueda de GIFs en servicios externos, grabación de la voz ni overlay dentro de los juegos (ver "Viabilidad como programa gratuito"). Compartir pantalla llega después, en la etapa 12 (ver "Compartir pantalla").
+Lo que no hace en la primera versión: video de cámara, compartir pantalla, app para celular, bots, búsqueda de GIFs en servicios externos, grabación de la voz ni overlay dentro de los juegos (ver "Viabilidad como programa gratuito"). Compartir pantalla llega después, en la etapa 12 (ver "Compartir pantalla"), y los amigos con chats y llamadas directas, en la etapa 14 (ver "Amigos y llamadas directas").
 
 ## Cómo funciona
 
@@ -86,7 +86,7 @@ Aspecto, tomado de la imagen de referencia del autor: grafito azulado con acento
 
 ### Pantallas
 
-El programa abre en **Inicio**: no hay lista de amigos, porque Ventrik se organiza por servidores.
+El programa abre en **Inicio**. Ventrik se organiza por servidores; desde la etapa 14, Inicio suma arriba las pestañas "Servidores | Amigos" (ver "Amigos y llamadas directas").
 
 | Pantalla | Qué tiene |
 | --- | --- |
@@ -94,7 +94,8 @@ El programa abre en **Inicio**: no hay lista de amigos, porque Ventrik se organi
 | Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil |
 | Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados. En Visual, al elegir un servidor se ven su fondo e icono animados |
 | Hostear un servidor | Asistente de 7 pasos (nombre y acceso, conexión, capacidad y voz, seguridad, chat y archivos, pantallas y varias PCs, revisar e iniciar) y la pantalla final Invitar gente (ver "Hostear: asistente por pasos") |
-| Ajustes | General (con el idioma), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas) |
+| Ajustes | General (con el idioma), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) aparecen desactivadas y marcadas "EN DESARROLLO" |
+| Amigos (etapa 14) | Solicitudes, grupos y amigos; chat de a dos y de grupo; agregar amigo; llamada entrante; llamada grupal con personas, chat y cómo viaja; recuperar desde Google Drive (ver "Amigos y llamadas directas") |
 | Audio y micrófono | Dispositivos, cómo transmitís (tecla o voz) con medidor y prueba, limpieza de la voz, consumo de la voz, volúmenes y bajar otros programas cuando alguien habla (desde Windows 7) |
 | Enviar archivo con contraseña | Pide la contraseña, analiza el comprimido con ClamAV en tu PC y lo envía; la contraseña no sale de tu PC |
 | Reportar un error o sugerir | Error o idea, datos técnicos que se pueden ver antes de enviar, captura opcional y contacto opcional |
@@ -221,7 +222,7 @@ Llega en la etapa 12, con el programa ya completo. Desde antes, lo que ya se hac
   - ajuste a la conexión de cada uno.
 - **La voz manda:** las pantallas usan solo lo que sobra de la voz, medido y con margen. Si no entra ni la copia chica, la persona espera su lugar.
 - **Hostear (paso 6):** subida para pantallas "lo que sobra de la voz" (predeterminado), con tope fijo o apagada; 1 transmisión por canal y 2 por servidor por defecto; quién puede compartir; cuántos entran en cada calidad; y un repetidor opcional, un relay que recibe una sola copia y la multiplica.
-- **Nunca de persona a persona:** dejaría a la vista la IP de cada uno.
+- **Nunca de persona a persona:** dejaría a la vista la IP de cada uno. Entre amigos, en las llamadas directas de la etapa 14, sí se va directo, con aviso y la opción "Siempre por el relay".
 - **Seguridad:** el descompresor va en el proceso de medios, con fuzzing, versión fija y actualización rápida: libvpx tuvo el CVE-2023-5217, usado en ataques reales. En XP hay más riesgo porque no tiene ASLR, así que Ajustes trae "No mirar pantallas en esta PC".
 - **Medición, como en la etapa 1:** la HP 2133 compartiendo y mirando, y una PC moderna en 1080p y 1440p a 60 cuadros.
 - **Pendiente de decidir:** compartir el sonido de la PC (en XP no hay una forma simple de capturarlo).
@@ -615,6 +616,182 @@ Límite honesto: la huella se puede falsificar con un programa modificado. Frena
 
 Nota legal, que no reemplaza a un abogado: los identificadores de equipo pueden considerarse datos personales (Ley 25.326 en Argentina, RGPD en Europa). Los códigos distintos por servidor reducen ese riesgo, pero cada servidor debería explicarlo en su política.
 
+## Amigos y llamadas directas (etapa 14)
+
+Además de los servidores, cada usuario puede tener una lista de amigos y hablar con ellos de PC a PC, sin servidor: chat de a dos y en grupo, llamadas de voz de a dos y grupales, pantalla compartida y archivos. No hay base de datos central ni buscador de gente: a alguien se lo agrega con su ID. Todo se guarda en una base local en cada PC, y el servicio del programa hace copias en Google Drive.
+
+| Captura (docs/pantallas) | Qué muestra |
+| --- | --- |
+| Amigos.png | Pestaña "Amigos" de Inicio: solicitudes, grupos y amigos a la izquierda, chat de a dos al medio, detalles a la derecha, y tu ID abajo a la izquierda |
+| Amigos-sin-conexion.png | Chat con un amigo desconectado: mensajes y archivo "Esperando a que Rulo se conecte" |
+| Amigos-grupo.png | Chat de grupo: aviso de llamada en curso con "Unirme", miembros y roles, archivo bajando en partes de varios miembros, mensajes recibidos de otro miembro |
+| Amigos-agregar.png | Diálogo "Agregar amigo": ID o código corto, mensaje opcional, tu ID y tu código corto |
+| Amigos-llamada-entrante.png | Aviso de llamada entrante: aceptar te silencia en el servidor donde estás |
+| LlamadaGrupal.png | Llamada grupal: pantalla compartida y personas, con el rol de cada PC |
+| LlamadaGrupal-chat.png | Chat de la llamada, con los avisos del sistema |
+| LlamadaGrupal-como-viaja.png | Árbol de la pantalla compartida y explicación de la voz |
+| Recuperar-1.png a Recuperar-3.png | Recuperar desde Google Drive: código de Google, contraseña de copias y resultado |
+| Ajustes.png | Las secciones "Amigos y privacidad" y "Copias de seguridad", con sus entradas en el menú |
+
+Inicio suma arriba las pestañas "Servidores | Amigos", con la cantidad de solicitudes. Las dos secciones de Ajustes aparecen desactivadas y marcadas "EN DESARROLLO" hasta la etapa 14, como "Prestar esta PC".
+
+### ID y solicitudes
+
+- **El ID es la identidad que ya tiene cada usuario** (Ajustes → Seguridad). Lleva:
+  - la llave pública completa, no la huella corta, para que nadie pueda hacerse pasar por otro;
+  - una parte antispam que se puede cambiar;
+  - un dígito de control.
+
+  Se muestra como VK1-XXXX-… y se comparte copiando y pegando.
+- **Código corto opcional:** un código como K7Q2-9XPL, de un solo uso, que vence en 24 horas. Lo resuelve el directorio, igual que los enlaces cortos de invitación.
+- **"Cambiar la parte antispam":** el ID viejo deja de recibir solicitudes, y los amigos actuales no se enteran.
+- **Solicitudes:**
+  - agregar a alguien pide que el otro acepte;
+  - cada solicitud tiene Aceptar, Rechazar y Bloquear;
+  - hay un límite de solicitudes por remitente y por hora;
+  - en Ajustes se elige de quién se aceptan: de quien tenga tu ID, o solo con un código corto que creaste.
+- **Bloquear:** rechaza solicitudes, mensajes y llamadas de esa persona. La lista de bloqueados está en Ajustes.
+
+### Encontrar a un amigo, sin servidor central
+
+- **Red repartida (DHT tipo Kademlia):** cada programa guarda una parte de la red.
+- **Cómo entrar a la red,** en este orden:
+  1. las PCs que ya conocía;
+  2. la red local;
+  3. el directorio y el relay de Ventrik, que hacen de puerta de entrada.
+
+  Si el directorio está apagado, los que ya estaban adentro se siguen encontrando. La barra de abajo de Amigos dice por dónde entró.
+- **Solo los amigos saben si estás conectado y tu dirección:**
+  - cada par de amigos busca al otro en un lugar de la red que solo ellos dos pueden calcular: sale de un secreto compartido y cambia cada día;
+  - lo que se publica ahí va cifrado para ese amigo y firmado;
+  - un extraño que conoce tu ID solo puede dejarte una solicitud en la red. La buscás vos, y no ve tu IP.
+- **Ping:** el programa le hace ping a cada amigo para saber si está conectado, y solo contesta pings de amigos aceptados.
+- **"Quién ve si estás conectado":** todos mis amigos, solo los que elija, o nadie (aparecer desconectado).
+
+### Conexión directa
+
+- **Camino directo:** se abre el agujero en el módem desde los dos lados a la vez (UDP hole punching), coordinado por la red o por un amigo en común.
+- **Si no se puede** (por ejemplo, con CGNAT):
+  1. pasa por otro participante que sí pueda;
+  2. si no hay ninguno, por el relay.
+
+  El relay no puede leer nada, porque todo va cifrado de punta a punta.
+- **IP:** una conexión directa le muestra tu IP a ese amigo. Se avisa en la cabecera del chat y en los detalles. Es la diferencia con los servidores, donde nada va de persona a persona.
+- **"Siempre por el relay":** opción para no mostrarla, con más demora.
+
+### Cifrado
+
+- **De punta a punta, siempre:** no hay servidor que deba leer nada.
+- **Protocolo:** uno estándar ya probado, no uno inventado. Propuesta: MLS (RFC 9420) para todo. Un chat de a dos es un grupo de 2, y cada PC de una persona es un miembro aparte.
+- **La clave cambia** cuando alguien entra, sale o lo sacan. Si se roba una clave, no sirve para leer lo anterior.
+- **Antes de la etapa:** verificar qué implementación de MLS compila para XP. Como cualquier biblioteca nueva, entra a third_party/ preguntándole antes al dueño.
+
+### Chats
+
+- **Mensajes a un amigo desconectado:**
+  - quedan en la PC de quien envía, marcados "Esperando a que X se conecte";
+  - salen solos cuando los dos están conectados a la vez;
+  - un archivo pendiente se puede cancelar.
+- **Grupos:**
+  - **Qué es:** el grupo es fijo, con miembros, nombre y chat; la llamada es aparte.
+  - **Administración:** el que lo crea es administrador y puede nombrar a otros. "Quién puede sumar gente": solo los admins o cualquier miembro.
+  - **Mensajes que faltan:** el miembro que vuelve los recibe de cualquier otro miembro conectado, con un aviso "Recibiste N mensajes… (te los pasó X)". Los mensajes van firmados, con id y fecha, y se juntan sin duplicar.
+  - **Sin tope** de miembros.
+- **Archivos:**
+  - van en partes, como torrent: cada uno comparte las partes que ya tiene;
+  - el adjunto muestra de quién está bajando;
+  - el ClamAV del que recibe lo analiza antes de abrirlo.
+
+### Llamadas
+
+- **Ciclo de la llamada:**
+  - se crea al llamar y se destruye al cortar;
+  - el chat de la llamada queda guardado en el chat de a dos o del grupo;
+  - en el grupo, el aviso "Llamada en curso" tiene "Unirme".
+- **Cada participante es un nodo temporal,** con el mismo algoritmo de reparto de la etapa 13 (varias PCs, todavía sin diseñar en este documento): subida, demora, pérdida, procesador y estabilidad.
+- **Quién coordina:** el de mejor conexión. Si se va, toma su lugar el siguiente, y la barra de abajo lo dice.
+- **Voz:**
+  - va directa de cada uno a todos;
+  - si a alguien no le alcanza la subida, su voz sale por un participante con buena subida que la reenvía, con un solo salto y dentro de la demora máxima;
+  - se escuchan como mucho las 4 voces más fuertes.
+- **Pantalla:**
+  - **reparto en árbol:** el que comparte manda pocas copias y otros participantes las reenvían. Cada copia lleva su versión chica (480p) para las PCs lentas;
+  - **si se va uno que reenviaba,** su rama pasa a otra PC en segundos, y la voz no se entera;
+  - **"Dejar de mirar"** libera la bajada y, si esa PC reenviaba, le pasa su parte a otra;
+  - depende de la etapa 12.
+- **Sin tope de participantes:** el límite real es la subida que suman todos. Solo reenvían video las PCs con buena subida y procesador. Una netbook con XP recibe la versión chica y no reenvía.
+- **Panel de la llamada:**
+  - **Personas:** el rol de cada uno: comparte, coordina, reenvía a N, detrás de CGNAT, poca subida, Windows XP.
+  - **Chat:** el de la llamada.
+  - **Cómo viaja:** el árbol de la pantalla.
+- **Barra de abajo:** cantidad de personas, cifrado, tu subida usada y quién coordinaría si se va el actual.
+- **Llamada entrante:**
+  - aparece un aviso con Aceptar y Rechazar;
+  - si estás en un canal de voz de un servidor, al aceptar ahí quedás en silencio y sordo, con el estado "En una llamada", hasta cortar;
+  - en Ajustes se puede elegir que no avise.
+
+### Base local y copias en Google Drive
+
+- **Base local:** cada PC tiene su base (amigos, grupos, chats y adjuntos), que se actualiza a medida que llega información.
+- **El servicio de Windows hace las copias,** aunque Ventrik esté cerrado:
+  - **Cuándo:** todos los días a la hora elegida (00:00, 04:00 o 12:00). Si la PC estaba apagada, al prenderla.
+  - **Cómo se toma la copia:** una foto coherente sin frenar la base, por ejemplo con la copia en caliente de SQLite.
+  - **Qué se sube:** una copia completa por semana y, en el medio, solo los cambios.
+  - **Cuánto se guarda:** 2, 4 u 8 semanas (por defecto, 4).
+  - **Adjuntos:** solo el texto, hasta 2 GB (por defecto), hasta 10 GB, o todos. Cada adjunto se sube una sola vez, por su huella, aunque aparezca en varias copias. Lo que pasa el tope queda como texto, "archivo no guardado en la copia".
+  - **Cifrado:** todo se cifra antes de subir, con una clave que sale de la contraseña de copias (Argon2id). Google no puede leerlo.
+- **La copia lleva también la identidad,** cifrada con esa contraseña. Así, para recuperar todo alcanza con la cuenta de Google y la contraseña de copias.
+  - Se exige una contraseña larga.
+  - Se avisa que, si se pierde, la copia no se puede abrir.
+  - El archivo de identidad de siempre sigue existiendo.
+  - Si la identidad vive en una llave de seguridad, nunca sale de la llave y la copia no la puede llevar: se recupera con la llave o con la de repuesto (ver "Contraseñas, identidad y llaves de seguridad").
+- **Permiso en Drive:** solo `drive.file`, con una carpeta visible "Ventrik" que el usuario puede ver y borrar. Para Google es un permiso "no sensible", así que alcanza con la verificación básica de la app.
+- **Iniciar sesión en Google** (Recuperar-1.png):
+  - se usa el flujo para dispositivos con entrada limitada, que admite `drive.file`: el usuario entra a la dirección que da Google (hoy google.com/device) desde el celular o desde otra PC, y escribe el código;
+  - el programa pregunta solo si ya se autorizó, sin que haga falta tocar nada. "Comprobar ahora" es opcional;
+  - el código vence a los 30 minutos;
+  - en Windows 10 y 11 también está "Usar el navegador de esta PC". En XP, solo el código, porque XP no tiene un navegador que funcione con Google;
+  - Ventrik trae su propia biblioteca de TLS. Para hablar con Google, además, verifica el certificado contra una lista de autoridades que trae el programa, porque la de XP está vieja.
+- **Recuperar** (Recuperar-1 a 3):
+  - **Dónde aparece:** al abrir Ventrik por primera vez ("Empezar de cero" o "Recuperar desde Google Drive") y en Ajustes → Copias de seguridad.
+  - **Pasos:** iniciar sesión en Google, elegir la copia, poner la contraseña. Probar una contraseña equivocada no rompe nada.
+  - **Qué vuelve:** la identidad, los amigos, los grupos, los mensajes, los adjuntos, los servidores guardados y los ajustes.
+  - **Lo que pasó después de la copia:** el programa se lo pide a cada amigo y grupo. A los que estén desconectados, cuando se conecten.
+- **Ajustes → "Copias de seguridad"** (Ajustes.png):
+  - cuenta vinculada y Desvincular;
+  - hora, adjuntos y semanas;
+  - última copia, última completa y espacio usado en Drive;
+  - "Hacer una copia ahora", "Recuperar desde Google Drive" y "Cambiar la contraseña de copias".
+
+### Ajustes → "Amigos y privacidad"
+
+- Tu ID, con "Copiar" y "Cambiar la parte antispam".
+- Quién ve si estás conectado.
+- Conexión con tus amigos: "Directa cuando se pueda (ven tu IP)" o "Siempre por el relay".
+- Solicitudes de amistad: de quien tenga tu ID, o solo con código corto.
+- Llamadas mientras estás en un servidor: avisarme y silenciarme ahí al aceptar, o no avisar.
+- Bloqueados, con "Ver".
+
+### Varias PCs con la misma identidad
+
+Una identidad puede estar en varias PCs, por ejemplo la de escritorio y la netbook. Cada PC es un miembro aparte en MLS, y el historial se sincroniza entre ellas cuando están conectadas a la vez.
+
+### Windows XP
+
+- **Todo funciona en XP:** UDP, DHT, MLS (si se verifica la implementación) y TLS propio para Drive.
+- **Se mezclan PCs clásicas y modernas:** en las llamadas y los chats directos no hay problema. La regla "modernas con modernas" es solo para los nodos de un servidor.
+
+### Orden y pruebas
+
+Primero, amigos, solicitudes, chat de a dos, llamadas de voz de a dos, Ajustes → Amigos y privacidad, copias en Drive y Recuperar, que no dependen de las etapas 12 y 13. Después, grupos, llamadas grupales con reparto (usa el algoritmo de la etapa 13) y pantalla en llamadas (usa la etapa 12).
+
+- **Conexión:** dos PCs detrás de módems distintos, y una con CGNAT, que tiene que ir por un participante o por el relay; con el directorio apagado, los que ya estaban en la red se siguen encontrando.
+- **Privacidad:** un extraño con tu ID no puede saber si estás conectado ni ver tu IP.
+- **Mensajes:** un mensaje y un archivo a un amigo desconectado llegan cuando los dos se conectan; en un grupo, el que vuelve recibe lo que se perdió, sin duplicados.
+- **Llamadas:** en una llamada grupal se van el que coordina y uno que reenvía pantalla, y la voz no se corta y la pantalla vuelve en segundos; alguien sale de un grupo y no puede leer lo nuevo.
+- **Copias:** formatear y recuperar desde Drive en Windows 10 y en XP (con el código); una contraseña equivocada falla sin romper nada; un adjunto que aparece en varias copias se sube una sola vez.
+- **Fuzzing:** de los mensajes entre PCs y de la red DHT.
+
 ## Rendimiento
 
 En modo Rendimiento, el programa apunta a usar como máximo 50 MB de RAM y casi nada de procesador cuando nadie habla. Son metas propuestas, para comprobar midiendo cada versión.
@@ -791,6 +968,7 @@ Para que Ventrik sea gratis y siga funcionando sin una empresa detrás, no puede
 ### Lo que queda afuera de la primera versión
 
 - **Grabación:** cualquiera puede grabar con otro programa y eso no se puede impedir. Si algún día el programa graba, la regla ya queda fijada: todos ven un indicador mientras alguien graba con Ventrik, y el servidor puede prohibirlo.
+- **Amigos, chats y llamadas directas:** llegan en la etapa 14, sin servidor y cifrados de punta a punta (ver "Amigos y llamadas directas").
 - **Compartir pantalla:** llega en la etapa 12, con el programa ya completo. El protocolo, la subida del servidor, los permisos y el proceso de medios se arman desde antes para sumarla sin rehacer nada (ver "Compartir pantalla").
 - **Overlay dentro de los juegos:** se mete en el dibujo de cada juego, choca con lo liviano, los anti-trampas lo pueden marcar y es muy difícil en XP. A lo sumo, más adelante y solo en la versión moderna.
 
@@ -818,7 +996,7 @@ Cuenta de la subida del host: tope de voces × (personas − 1) × kbps por oyen
 
 ## Plan de trabajo
 
-El desarrollo va en doce etapas, y la primera es una prueba chica de voz para medir demora y consumo antes de construir el resto. Las dos versiones (moderna y clásica) se compilan y prueban desde el principio.
+El desarrollo va en catorce etapas, y la primera es una prueba chica de voz para medir demora y consumo antes de construir el resto. Las dos versiones (moderna y clásica) se compilan y prueban desde el principio.
 
 1. **Prueba de voz:** voz entre dos PCs en red local, con tecla para hablar. Se mide demora y consumo, también en la netbook.
 2. **Base:** servidor, canales de voz y de texto, chat, cifrado con TLS 1.3 y DTLS 1.2, permisos básicos verificados en el servidor y panel de diagnóstico.
@@ -832,6 +1010,8 @@ El desarrollo va en doce etapas, y la primera es una prueba chica de voz para me
 10. **Modo Visual:** perfiles, tarjeta con fondo animado, efecto por fuera y animación al abrirse, Inicio en modo Visual, personalización del servidor (icono animado, fondo del chat y color del tema en los detalles), marcos de avatar, editor de efectos con su código para compartir, GIFs, stickers y la captura en los reportes, que usa el mismo proceso aparte para imágenes, armado como "proceso de medios".
 11. **Cierre:** modo servidor limitado, idiomas, el resto de Ajustes, instaladores firmados y pruebas largas.
 12. **Compartir pantalla:** VP8 en todos los equipos, incluido XP, con captura, reenvío y topes; después, la copia H.264 por la placa de video y los cuadros en capas.
+13. **Varias PCs:** un servidor sostenido entre varias PCs (todavía sin diseñar en este documento).
+14. **Amigos y llamadas directas:** amigos, chats y llamadas de PC a PC sin servidor, cifrados de punta a punta con MLS, y copias en Google Drive.
 
 **Cómo se prueba cada versión:**
 
@@ -850,7 +1030,8 @@ Estas decisiones quedan abiertas; ninguna frena la primera etapa.
 - [ ] Puertos predeterminados (7700, 7701 y 7702 por ahora).
 - [ ] Quién opera el relay oficial y con qué cuenta de donaciones (el directorio oficial lo hostea el creador del proyecto).
 - [ ] Límites definitivos del modo servidor limitado y del relay oficial, después de probar.
-- [ ] Mensajes privados entre usuarios (todavía no diseñados) y, si se suman, cifrado de punta a punta opcional para que el servidor no los pueda leer.
+- [ ] Mensajes privados dentro de un servidor. Entre amigos ya están diseñados, sin servidor y cifrados de punta a punta (etapa 14, ver "Amigos y llamadas directas").
+- [ ] Qué implementación de MLS usar para la etapa 14: tiene que compilar para XP.
 - [ ] Si en el futuro se agregan grabación, búsqueda de GIFs, overlay o app para celular.
 - [ ] Compartir el sonido junto con la pantalla (etapa 12; en XP no hay una forma simple de capturarlo).
 
@@ -871,6 +1052,7 @@ Ya decidido: código abierto con licencia GPL versión 3 (ver "Viabilidad como p
 | Cliente o programa | Lo que instala y usa cada persona para conectarse |
 | Códec | Programa que comprime la voz para que viaje usando poca conexión. Ventrik usa Opus |
 | Código abierto | Programa cuyo código es público: cualquiera puede verlo, compilarlo y mejorarlo |
+| DHT | Red repartida entre los mismos programas, sin servidor central: cada uno guarda una parte. Ventrik la usa para que los amigos se encuentren (etapa 14) |
 | Demora o latencia | El tiempo entre que alguien habla y vos lo escuchás |
 | Direct3D 9 | La parte de Windows que dibuja con la placa de video. Existe desde XP |
 | DPAPI | Función de Windows que cifra datos atados a tu usuario de Windows. Existe desde XP |
@@ -883,6 +1065,7 @@ Ya decidido: código abierto con licencia GPL versión 3 (ver "Viabilidad como p
 | IP pública | La dirección con la que tu conexión se ve desde internet |
 | kbps | Kilobits por segundo: cuánta conexión se usa |
 | Llave de seguridad | Un dispositivo USB (como una YubiKey) que guarda una clave secreta que nunca sale de él |
+| MLS | Protocolo estándar (RFC 9420) para chats y llamadas cifrados de punta a punta en grupo. La clave cambia cuando alguien entra o sale |
 | Núcleo | Cada parte del procesador que puede trabajar por su cuenta |
 | Overlay | Lo que dibujan algunos programas de voz encima de un juego, por ejemplo quién está hablando |
 | Proceso aparte sin permisos | Una parte del servidor o del programa separada del resto y sin acceso al sistema. Si falla, no arrastra al resto. En Ventrik, el de las imágenes es el "proceso de medios", que en la etapa 12 también descomprime video |
