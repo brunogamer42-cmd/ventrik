@@ -35,11 +35,13 @@ enum class TipoMensaje : std::uint16_t {
   negado = 40,
   pong = 41,
   clave_voz = 42,
-  voz_subida = 50,
-  voz_bajada = 51,
+  medio_subida = 50,
+  medio_bajada = 51,
 };
 
 using Funciones = std::uint64_t;
+
+constexpr Funciones kFuncionPantalla = 1;
 
 constexpr std::size_t kMaximoCuerpoSaludo = 64;
 

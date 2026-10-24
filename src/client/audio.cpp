@@ -16,6 +16,7 @@ constexpr unsigned kPeriodoMs = 10;
 constexpr unsigned kPedazosDeEntrada = 8;
 constexpr unsigned kPedazosAdelantados = 3;
 constexpr std::size_t kLugaresDeSalida = 64;
+constexpr std::ptrdiff_t kMaximoEnEspera = 12;
 
 bool es_windows_xp() {
   OSVERSIONINFOEXW pedido = {};
@@ -166,12 +167,15 @@ void Audio::atender() {
       Pedazo& llego = pedazos_entrada_[siguiente_entrada_];
       const std::size_t grabadas = std::min<std::size_t>(
           llego.cabecera.dwBytesRecorded / sizeof(std::int16_t), llego.muestras.size());
-      if (!algo_sonando()) {
+      const auto en_espera = std::count_if(pedazos_salida_.begin(), pedazos_salida_.end(),
+                                           [](const Pedazo& pedazo) { return en_cola(pedazo.cabecera); });
+      if (en_espera == 0) {
         for (unsigned i = 1; i < kPedazosAdelantados; ++i) {
           escribir_silencio();
         }
       }
-      Pedazo* sale = libre_para_salida();
+      espera_de_salida_ms_ = static_cast<std::uint32_t>(en_espera) * kPeriodoMs;
+      Pedazo* sale = en_espera < kMaximoEnEspera ? libre_para_salida() : nullptr;
       procesar_(datos_, gsl::span<const std::int16_t>(llego.muestras).first(grabadas),
                 sale != nullptr ? gsl::span<std::int16_t>(sale->muestras)
                                 : gsl::span<std::int16_t>(borrador_));
@@ -189,11 +193,6 @@ Audio::Pedazo* Audio::libre_para_salida() {
   const auto libre = std::find_if(pedazos_salida_.begin(), pedazos_salida_.end(),
                                   [](const Pedazo& pedazo) { return !en_cola(pedazo.cabecera); });
   return libre == pedazos_salida_.end() ? nullptr : &*libre;
-}
-
-bool Audio::algo_sonando() const {
-  return std::any_of(pedazos_salida_.begin(), pedazos_salida_.end(),
-                     [](const Pedazo& pedazo) { return en_cola(pedazo.cabecera); });
 }
 
 void Audio::escribir(Pedazo& pedazo) {

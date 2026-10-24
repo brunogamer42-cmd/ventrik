@@ -26,6 +26,7 @@ class Audio {
 
   bool abrir(unsigned frecuencia, Procesar procesar, void* datos);
   void cerrar();
+  std::uint32_t espera_de_salida_ms() const { return espera_de_salida_ms_.load(std::memory_order_relaxed); }
 
  private:
   struct Pedazo {
@@ -37,7 +38,6 @@ class Audio {
   static unsigned __stdcall hilo(void* yo);
   void atender();
   Pedazo* libre_para_salida();
-  bool algo_sonando() const;
   void escribir(Pedazo& pedazo);
   void escribir_silencio();
   static void desde_miniaudio(ma_device* dispositivo, void* salida, const void* entrada,
@@ -56,6 +56,7 @@ class Audio {
   std::vector<std::int16_t> borrador_;
   std::size_t siguiente_entrada_ = 0;
   std::atomic<bool> seguir_{false};
+  std::atomic<std::uint32_t> espera_de_salida_ms_{0};
 };
 
 }

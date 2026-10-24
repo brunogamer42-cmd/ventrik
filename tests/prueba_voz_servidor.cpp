@@ -88,8 +88,8 @@ struct Programa {
     while (sesion_->leer(leido, largo) == Paso::listo) {
       const auto marco = separar_datagrama(gsl::span<const std::uint8_t>(leido).first(largo));
       REQUIRE(marco);
-      if (const auto voz = leer_mensaje<VozBajada>(marco->cuerpo)) {
-        recibidas.push_back(*voz);
+      if (const auto bajada = leer_mensaje<MedioBajada>(marco->cuerpo)) {
+        recibidas.push_back(*bajada);
       } else if (const auto pong = leer_mensaje<Pong>(marco->cuerpo)) {
         pongs.push_back(pong->marca);
       }
@@ -100,6 +100,10 @@ struct Programa {
   void mandar(const Mensaje& mensaje) {
     std::vector<std::uint8_t> datagrama;
     REQUIRE(armar_datagrama(mensaje, datagrama));
+    mandar_crudo(datagrama);
+  }
+
+  void mandar_crudo(const std::vector<std::uint8_t>& datagrama) {
     std::size_t escritos = 0;
     REQUIRE(sesion_->escribir(datagrama, escritos) == Paso::listo);
   }
@@ -110,7 +114,7 @@ struct Programa {
   ventrik::cifrado::EnviarDatagrama enviar_;
   std::unique_ptr<SesionTls> sesion_;
   bool listo = false;
-  std::vector<VozBajada> recibidas;
+  std::vector<MedioBajada> recibidas;
   std::vector<std::uint64_t> pongs;
 };
 
@@ -147,6 +151,8 @@ void hasta_pendiente(Banco& banco, Programa& programa) {
 }
 
 const std::vector<std::uint8_t> kOpus = {1, 2, 3};
+
+MedioSubida voz(std::uint16_t numero) { return MedioSubida{{TipoFlujo::voz, 0, numero, kOpus}}; }
 }
 
 TEST_CASE("El servidor ata la voz a la conexión y la reenvía solo a los demás del canal") {
@@ -158,24 +164,24 @@ TEST_CASE("El servidor ata la voz a la conexión y la reenvía solo a los demás
   bombear(banco, {&a, &b, &c});
   std::sort(banco.atadas.begin(), banco.atadas.end());
   REQUIRE(banco.atadas == std::vector<std::uint32_t>{1, 2, 3});
-  a.mandar(VozSubida{7, kOpus});
+  a.mandar(voz(7));
   a.mandar(Ping{55});
   bombear(banco, {&a, &b, &c});
   REQUIRE(b.recibidas.size() == 1);
-  CHECK(b.recibidas[0].hablante == 1);
-  CHECK(b.recibidas[0].numero == 7);
-  CHECK(b.recibidas[0].opus == kOpus);
+  CHECK(b.recibidas[0].origen == 1);
+  CHECK(b.recibidas[0].medio.numero == 7);
+  CHECK(b.recibidas[0].medio.datos == kOpus);
   CHECK(a.recibidas.empty());
   CHECK(c.recibidas.empty());
   CHECK(a.pongs == std::vector<std::uint64_t>{55});
   banco.voz.mover(3, 1);
   banco.voz.baja(2);
   CHECK_FALSE(banco.voz.tiene_voz(2));
-  a.mandar(VozSubida{8, kOpus});
+  a.mandar(voz(8));
   bombear(banco, {&a, &b, &c});
   CHECK(b.recibidas.size() == 1);
   REQUIRE(c.recibidas.size() == 1);
-  CHECK(c.recibidas[0].hablante == 1);
+  CHECK(c.recibidas[0].origen == 1);
 }
 
 TEST_CASE("Una IP sin conexión no recibe respuesta y otra IP no puede usar una clave ajena") {
@@ -213,7 +219,7 @@ TEST_CASE("Hay tope de paquetes de voz por persona") {
   Programa b(banco, {0x0A000002, 5000}, alta(banco, 2, 0x0A000002, 1));
   bombear(banco, {&a, &b});
   for (std::uint16_t numero = 0; numero < 100; ++numero) {
-    a.mandar(VozSubida{numero, kOpus});
+    a.mandar(voz(numero));
   }
   bombear(banco, {&a, &b});
   CHECK(b.recibidas.size() == 25);
@@ -277,7 +283,24 @@ TEST_CASE("Un saludo falso desde la dirección de alguien no le corta la voz") {
     banco.voz.recibir(a.propia, falso, banco.ahora);
     CHECK(banco.voz.tiene_voz(1));
   }
-  a.mandar(VozSubida{1, kOpus});
+  a.mandar(voz(1));
   bombear(banco, {&a, &b});
   CHECK(b.recibidas.size() == 1);
+}
+
+TEST_CASE("Un medio de un tipo o flujo que el servidor no conoce se descarta sin cortar la voz") {
+  Banco banco;
+  Programa a(banco, {0x0A000001, 5000}, alta(banco, 1, 0x0A000001, 1));
+  Programa b(banco, {0x0A000002, 5000}, alta(banco, 2, 0x0A000002, 1));
+  bombear(banco, {&a, &b});
+  REQUIRE(banco.voz.tiene_voz(1));
+  a.mandar_crudo({50, 0, 2, 0, 1, 0, 1, 0, 5});
+  a.mandar_crudo({50, 0, 1, 7, 1, 0, 1, 0, 5});
+  bombear(banco, {&a, &b});
+  CHECK(b.recibidas.empty());
+  CHECK(banco.voz.tiene_voz(1));
+  a.mandar(voz(2));
+  bombear(banco, {&a, &b});
+  REQUIRE(b.recibidas.size() == 1);
+  CHECK(b.recibidas[0].medio.numero == 2);
 }

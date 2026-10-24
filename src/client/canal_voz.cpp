@@ -62,9 +62,9 @@ void CanalVoz::atender(Reloj::time_point ahora) {
   }
   leer(ahora);
   while (lista_ && puente_.subida.sacar(paquete)) {
-    enviar(protocolo::VozSubida{
-        paquete.numero, std::vector<std::uint8_t>(paquete.opus.begin(),
-                                                  paquete.opus.begin() + paquete.largo)});
+    enviar(protocolo::MedioSubida{
+        {protocolo::TipoFlujo::voz, 0, paquete.numero,
+         std::vector<std::uint8_t>(paquete.opus.begin(), paquete.opus.begin() + paquete.largo)}});
   }
   if (lista_ && ahora >= proximo_ping_) {
     enviar(protocolo::Ping{milisegundos(ahora)});
@@ -128,14 +128,14 @@ void CanalVoz::recibir(gsl::span<const std::uint8_t> registro, Reloj::time_point
   ultimo_dato_ = ahora;
   const auto marco = protocolo::separar_datagrama(registro);
   if (marco) {
-    if (marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::voz_bajada)) {
-      if (const auto voz = protocolo::leer_mensaje<protocolo::VozBajada>(marco->cuerpo)) {
-        contar(*voz);
+    if (marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::medio_bajada)) {
+      if (const auto bajada = protocolo::leer_mensaje<protocolo::MedioBajada>(marco->cuerpo)) {
+        contar(*bajada);
         PaqueteVoz paquete;
-        paquete.hablante = voz->hablante;
-        paquete.numero = voz->numero;
-        paquete.largo = static_cast<std::uint16_t>(voz->opus.size());
-        std::copy(voz->opus.begin(), voz->opus.end(), paquete.opus.begin());
+        paquete.hablante = bajada->origen;
+        paquete.numero = bajada->medio.numero;
+        paquete.largo = static_cast<std::uint16_t>(bajada->medio.datos.size());
+        std::copy(bajada->medio.datos.begin(), bajada->medio.datos.end(), paquete.opus.begin());
         puente_.bajada.poner(paquete);
       }
     } else if (marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::pong)) {
@@ -149,10 +149,10 @@ void CanalVoz::recibir(gsl::span<const std::uint8_t> registro, Reloj::time_point
   }
 }
 
-void CanalVoz::contar(const protocolo::VozBajada& voz) {
-  const auto anterior = siguiente_.find(voz.hablante);
+void CanalVoz::contar(const protocolo::MedioBajada& bajada) {
+  const auto anterior = siguiente_.find(bajada.origen);
   if (anterior != siguiente_.end()) {
-    const auto salto = static_cast<std::int16_t>(voz.numero - anterior->second);
+    const auto salto = static_cast<std::int16_t>(bajada.medio.numero - anterior->second);
     if (salto < 0) {
       return;
     }
@@ -161,7 +161,7 @@ void CanalVoz::contar(const protocolo::VozBajada& voz) {
     }
   }
   ++puente_.recibidos;
-  siguiente_[voz.hablante] = static_cast<std::uint16_t>(voz.numero + 1);
+  siguiente_[bajada.origen] = static_cast<std::uint16_t>(bajada.medio.numero + 1);
 }
 
 }

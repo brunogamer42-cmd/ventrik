@@ -111,9 +111,9 @@ std::string hora_local(std::uint64_t hora_ms, std::string sin_hora) {
 
 class Charla {
  public:
-  Charla(const Consola& consola, Sesion& sesion, PuenteVoz& puente, MotorVoz& motor,
+  Charla(const Consola& consola, Sesion& sesion, PuenteVoz& puente, MotorVoz& motor, const Audio& audio,
          std::uint16_t puerto)
-      : consola_(consola), sesion_(sesion), puente_(puente), motor_(motor), puerto_(puerto) {}
+      : consola_(consola), sesion_(sesion), puente_(puente), motor_(motor), audio_(audio), puerto_(puerto) {}
 
   void revisar_voz() {
     const auto estado = puente_.estado.load();
@@ -167,7 +167,8 @@ class Charla {
                      {ping_ ? std::to_string(*ping_) : consola_.texto_de(Clave::consola_sin_ping),
                       std::to_string(static_cast<int>(medicion.procesador + 0.5)),
                       std::to_string(medicion.ram_bytes / (1024 * 1024)),
-                      std::to_string(total == 0 ? 0 : perdidos * 100 / total)});
+                      std::to_string(total == 0 ? 0 : perdidos * 100 / total),
+                      std::to_string(audio_.espera_de_salida_ms())});
     } else if (comando == "/hablar") {
       motor_.transmitir(!motor_.transmitiendo());
       consola_.decir(motor_.transmitiendo() ? Clave::consola_hablando_vos : Clave::consola_callado);
@@ -373,6 +374,7 @@ class Charla {
   Sesion& sesion_;
   PuenteVoz& puente_;
   MotorVoz& motor_;
+  const Audio& audio_;
   std::uint16_t puerto_;
   Diagnostico diagnostico_;
   EstadoVoz anunciado_ = EstadoVoz::sin_clave;
@@ -442,7 +444,7 @@ int abrir_consola(Idioma idioma, int cantidad, wchar_t** argumentos) {
   OpcionesSesion opciones;
   opciones.voz = puente;
   Sesion sesion(*direccion, *huella, quien, opciones);
-  Charla charla(consola, sesion, *puente, motor, direccion->puerto);
+  Charla charla(consola, sesion, *puente, motor, audio, direccion->puerto);
   while (!charla.terminada()) {
     for (const Novedad& novedad : sesion.esperar_novedades(100ms)) {
       charla.mostrar(novedad);

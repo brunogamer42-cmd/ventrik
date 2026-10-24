@@ -174,10 +174,10 @@ void Voz::atender(Persona& persona, gsl::span<const std::uint8_t> datagrama, Ins
     if (!marco) {
       continue;
     }
-    if (marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::voz_subida)) {
-      const auto voz = protocolo::leer_mensaje<protocolo::VozSubida>(marco->cuerpo);
-      if (voz && persona.paquetes.tomar(ahora)) {
-        reenviar(persona, *voz);
+    if (marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::medio_subida)) {
+      const auto subida = protocolo::leer_mensaje<protocolo::MedioSubida>(marco->cuerpo);
+      if (subida && persona.paquetes.tomar(ahora)) {
+        reenviar(persona, subida->medio);
       }
       return;
     } else if (marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::ping)) {
@@ -190,10 +190,9 @@ void Voz::atender(Persona& persona, gsl::span<const std::uint8_t> datagrama, Ins
   }
 }
 
-void Voz::reenviar(const Persona& hablante, const protocolo::VozSubida& voz) {
+void Voz::reenviar(const Persona& hablante, const protocolo::Medio& medio) {
   std::vector<std::uint8_t> datagrama;
-  if (!protocolo::armar_datagrama(protocolo::VozBajada{hablante.id, voz.numero, voz.opus},
-                                  datagrama)) {
+  if (!protocolo::armar_datagrama(protocolo::MedioBajada{hablante.id, medio}, datagrama)) {
     return;
   }
   for (auto& oyente : personas_) {

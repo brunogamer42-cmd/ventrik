@@ -32,7 +32,7 @@ class CanalVoz {
   void empezar(Reloj::time_point ahora);
   void fallar(Reloj::time_point ahora);
   void leer(Reloj::time_point ahora);
-  void contar(const protocolo::VozBajada& voz);
+  void contar(const protocolo::MedioBajada& bajada);
 
   red::Direccion servidor_;
   PuenteVoz& puente_;

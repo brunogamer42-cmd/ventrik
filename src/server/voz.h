@@ -83,7 +83,7 @@ class Voz {
   gsl::span<const std::uint8_t> elegir(cifrado::SesionTls& sesion,
                                        gsl::span<const std::uint8_t> identidad);
   void atender(Persona& persona, gsl::span<const std::uint8_t> datagrama, Instante ahora);
-  void reenviar(const Persona& hablante, const protocolo::VozSubida& voz);
+  void reenviar(const Persona& hablante, const protocolo::Medio& medio);
   void escribir(cifrado::SesionTls& sesion, const std::vector<std::uint8_t>& datagrama);
   std::optional<std::uint32_t> saludar(gsl::span<const std::uint8_t> datagrama,
                                        const red::Direccion& origen, Instante ahora);

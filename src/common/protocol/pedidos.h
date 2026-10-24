@@ -176,17 +176,24 @@ struct ClaveVoz {
   std::array<std::uint8_t, 16> identidad{};
 };
 
-struct VozSubida {
-  static constexpr TipoMensaje kTipo = TipoMensaje::voz_subida;
+enum class TipoFlujo : std::uint8_t { voz = 1 };
+
+struct Medio {
+  TipoFlujo tipo = TipoFlujo::voz;
+  std::uint8_t flujo = 0;
   std::uint16_t numero = 0;
-  std::vector<std::uint8_t> opus;
+  std::vector<std::uint8_t> datos;
 };
 
-struct VozBajada {
-  static constexpr TipoMensaje kTipo = TipoMensaje::voz_bajada;
-  std::uint32_t hablante = 0;
-  std::uint16_t numero = 0;
-  std::vector<std::uint8_t> opus;
+struct MedioSubida {
+  static constexpr TipoMensaje kTipo = TipoMensaje::medio_subida;
+  Medio medio;
+};
+
+struct MedioBajada {
+  static constexpr TipoMensaje kTipo = TipoMensaje::medio_bajada;
+  std::uint32_t origen = 0;
+  Medio medio;
 };
 
 #define VENTRIK_MENSAJE(Tipo)                     \
@@ -214,8 +221,8 @@ VENTRIK_MENSAJE(Negado)
 VENTRIK_MENSAJE(Ping)
 VENTRIK_MENSAJE(Pong)
 VENTRIK_MENSAJE(ClaveVoz)
-VENTRIK_MENSAJE(VozSubida)
-VENTRIK_MENSAJE(VozBajada)
+VENTRIK_MENSAJE(MedioSubida)
+VENTRIK_MENSAJE(MedioBajada)
 
 #undef VENTRIK_MENSAJE
 

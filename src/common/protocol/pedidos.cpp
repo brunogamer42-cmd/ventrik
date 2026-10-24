@@ -85,23 +85,33 @@ void leer_usuario(Lector& lector, UsuarioInfo& usuario) {
   usuario.canal = lector.leer_u32();
 }
 
-void escribir_opus(Escritor& escritor, const std::vector<std::uint8_t>& opus) {
-  if (opus.empty() || opus.size() > kMaximoOpus) {
+bool medio_valido(TipoFlujo tipo, std::uint8_t flujo, std::size_t largo) {
+  return tipo == TipoFlujo::voz && flujo == 0 && largo > 0 && largo <= kMaximoOpus;
+}
+
+void escribir_medio(Escritor& escritor, const Medio& medio) {
+  if (!medio_valido(medio.tipo, medio.flujo, medio.datos.size())) {
     escritor.marcar_error();
     return;
   }
-  escritor.escribir_u16(static_cast<std::uint16_t>(opus.size()));
-  escritor.escribir_bytes(opus);
+  escritor.escribir_u8(static_cast<std::uint8_t>(medio.tipo));
+  escritor.escribir_u8(medio.flujo);
+  escritor.escribir_u16(medio.numero);
+  escritor.escribir_u16(static_cast<std::uint16_t>(medio.datos.size()));
+  escritor.escribir_bytes(medio.datos);
 }
 
-void leer_opus(Lector& lector, std::vector<std::uint8_t>& opus) {
+void leer_medio(Lector& lector, Medio& medio) {
+  medio.tipo = static_cast<TipoFlujo>(lector.leer_u8());
+  medio.flujo = lector.leer_u8();
+  medio.numero = lector.leer_u16();
   const std::size_t largo = lector.leer_u16();
-  if (largo == 0 || largo > kMaximoOpus) {
+  if (!medio_valido(medio.tipo, medio.flujo, largo)) {
     lector.marcar_error();
     return;
   }
   const auto bytes = lector.leer_bytes(largo);
-  opus.assign(bytes.begin(), bytes.end());
+  medio.datos.assign(bytes.begin(), bytes.end());
 }
 
 bool es_pedido(std::uint16_t tipo) {
@@ -360,26 +370,18 @@ void leer(Lector& lector, ClaveVoz& mensaje) {
   std::copy(identidad.begin(), identidad.end(), mensaje.identidad.begin());
 }
 
-void escribir(Escritor& escritor, const VozSubida& mensaje) {
-  escritor.escribir_u16(mensaje.numero);
-  escribir_opus(escritor, mensaje.opus);
+void escribir(Escritor& escritor, const MedioSubida& mensaje) { escribir_medio(escritor, mensaje.medio); }
+
+void leer(Lector& lector, MedioSubida& mensaje) { leer_medio(lector, mensaje.medio); }
+
+void escribir(Escritor& escritor, const MedioBajada& mensaje) {
+  escritor.escribir_u32(mensaje.origen);
+  escribir_medio(escritor, mensaje.medio);
 }
 
-void leer(Lector& lector, VozSubida& mensaje) {
-  mensaje.numero = lector.leer_u16();
-  leer_opus(lector, mensaje.opus);
-}
-
-void escribir(Escritor& escritor, const VozBajada& mensaje) {
-  escritor.escribir_u32(mensaje.hablante);
-  escritor.escribir_u16(mensaje.numero);
-  escribir_opus(escritor, mensaje.opus);
-}
-
-void leer(Lector& lector, VozBajada& mensaje) {
-  mensaje.hablante = lector.leer_u32();
-  mensaje.numero = lector.leer_u16();
-  leer_opus(lector, mensaje.opus);
+void leer(Lector& lector, MedioBajada& mensaje) {
+  mensaje.origen = lector.leer_u32();
+  leer_medio(lector, mensaje.medio);
 }
 
 std::optional<Marco> separar_datagrama(gsl::span<const std::uint8_t> datos) {

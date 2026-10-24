@@ -554,3 +554,9 @@ TEST_CASE("Un envío TLS a medias se reintenta con el mismo largo aunque lleguen
   CHECK(iguales);
   CHECK(recibidos == producido);
 }
+
+TEST_CASE("El bit de pantalla queda reservado: ni el programa ni el servidor lo anuncian todavía") {
+  CHECK(ventrik::protocolo::kFuncionPantalla == 1);
+  CHECK((ventrik::cliente::OpcionesConexion{}.hola.funciones & ventrik::protocolo::kFuncionPantalla) == 0);
+  CHECK((ventrik::servidor::Opciones{}.protocolo.funciones & ventrik::protocolo::kFuncionPantalla) == 0);
+}
