@@ -8,6 +8,7 @@
 #include <variant>
 
 #include "client/audio.h"
+#include "client/diagnostico.h"
 #include "client/guardados.h"
 #include "client/horas.h"
 #include "client/motor_voz.h"
@@ -49,6 +50,21 @@ class Programa {
       poner(pantalla_.codigo, entrada.size() == 4 ? entrada[3] : std::string());
       entrar_con_formulario();
     }
+  }
+
+  ~Programa() { cerrar(); }
+
+  void cerrar() {
+    if (auto* guardado = sala_ ? cliente::buscar_guardado(guardados_, pendiente_.direccion) : nullptr) {
+      guardado->leidos = sala_->leidos();
+      guardar();
+    }
+    sesion_.reset();
+    sala_.reset();
+    vigia_.reset();
+    audio_.reset();
+    motor_.reset();
+    puente_.reset();
   }
 
   void atender() {
@@ -161,8 +177,10 @@ class Programa {
       terminar(cliente::explicar(pantalla_.idioma, intento));
       return;
     }
-    const protocolo::Presentado& presentado = *intento.presentado;
-    sala_ = std::make_unique<cliente::Sala>(presentado);
+    const auto* guardado = cliente::buscar_guardado(guardados_, pendiente_.direccion);
+    sala_ = std::make_unique<cliente::Sala>(*intento.presentado, guardado != nullptr && guardado->huella == pendiente_.huella
+                                                                     ? guardado->leidos
+                                                                     : std::vector<cliente::Leido>{});
     const auto* canal = sala_->canal(sala_->tu_canal());
     pendiente_.canal = sala_->tu_canal();
     pendiente_.nombre_canal = canal != nullptr ? canal->nombre : std::string();
@@ -216,18 +234,12 @@ class Programa {
                                  static_cast<std::uint32_t>(recibidos - recibidos_)});
     perdidos_ = perdidos;
     recibidos_ = recibidos;
+    const cliente::Medicion medicion = diagnostico_.medir();
+    servidor_.diagnostico = {puente_->estado == cliente::EstadoVoz::lista, puente_->ping_ms, medicion.procesador,
+                             medicion.ram_bytes, motor_->espera_ms(), motor_->recortes(), audio_->espera_de_salida_ms()};
     if (servidor_.grafico.size() > kMuestrasDelGrafico) {
       servidor_.grafico.pop_front();
     }
-  }
-
-  void cerrar() {
-    sesion_.reset();
-    sala_.reset();
-    vigia_.reset();
-    audio_.reset();
-    motor_.reset();
-    puente_.reset();
   }
 
   void terminar(std::string mensaje) {
@@ -261,6 +273,7 @@ class Programa {
   std::uint64_t perdidos_ = 0;
   std::uint64_t recibidos_ = 0;
   Reloj::time_point proxima_muestra_{};
+  cliente::Diagnostico diagnostico_;
   std::shared_ptr<cliente::PuenteVoz> puente_;
   std::unique_ptr<cliente::MotorVoz> motor_;
   std::unique_ptr<cliente::Audio> audio_;
@@ -282,6 +295,7 @@ int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar,
     return 3;
   }
   Programa programa(idioma, ventana.hwnd(), ventana.logo(), entrar);
+  ventana.al_terminar_la_sesion([&programa] { programa.cerrar(); });
   return ventana.correr([&programa] { programa.atender(); }, [&programa] { programa.cuadro(); });
 }
 

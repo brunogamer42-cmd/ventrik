@@ -9,6 +9,7 @@
 
 #include "client/guardados.h"
 #include "client/horas.h"
+#include "client/ui/inicio.h"
 #include "common/utf.h"
 
 namespace ventrik::ui {
@@ -84,6 +85,7 @@ class Dibujo {
     lateral();
     chat();
     estado();
+    dialogo();
     return std::move(pedido_);
   }
 
@@ -96,19 +98,46 @@ class Dibujo {
     std::move(ordenes.begin(), ordenes.end(), std::back_inserter(pedido_.ordenes));
   }
 
-  void apagado(const char* id, std::string_view etiqueta, Estilo estilo, ImVec2 tamano, Icono icono,
-               std::string_view aviso) const {
+  template <typename Dibujar>
+  void apagado(std::string_view aviso, Dibujar dibujar) const {
     ImGui::BeginDisabled();
-    boton(id, etiqueta, estilo, tamano, icono);
+    dibujar();
     ImGui::EndDisabled();
     cartel(aviso);
   }
 
-  float escribir_en(float x, float medio, std::string_view texto, ImU32 color, Letra letra = Letra::normal,
-                    float tamano = medida::letra) const {
-    const ImVec2 tamano_texto = medir(texto, letra, tamano);
-    escribir(ImVec2(x, medio - tamano_texto.y / 2), texto, color, letra, tamano);
-    return x + tamano_texto.x;
+  void abrir(Dialogo cual, std::uint32_t canal, std::string_view nombre, bool solo_admins) {
+    pantalla_.dialogo = cual;
+    pantalla_.abrir_dialogo = true;
+    pantalla_.canal_dialogo = canal;
+    poner(pantalla_.nombre_dialogo, nombre);
+    pantalla_.marca_dialogo = solo_admins ? 1 : 0;
+    pantalla_.error_dialogo.clear();
+  }
+
+  void menu_de_canal(const protocolo::CanalInfo& canal) {
+    if (!sala_.dueno() || !ImGui::BeginPopupContextItem("##menu")) {
+      return;
+    }
+    if (ImGui::Selectable(std::string(t(Clave::servidor_menu_cambiar)).c_str())) {
+      abrir(Dialogo::cambiar, canal.id, canal.nombre, canal.solo_admins);
+    }
+    if (canal.id != protocolo::kCanalGeneral &&
+        ImGui::Selectable(std::string(t(Clave::servidor_menu_borrar)).c_str())) {
+      abrir(Dialogo::borrar, canal.id, canal.nombre, false);
+    }
+    ImGui::EndPopup();
+  }
+
+  std::string perdida(Clave clave) const {
+    std::uint64_t perdidos = 0;
+    std::uint64_t recibidos = 0;
+    for (const Muestra& muestra : pantalla_.grafico) {
+      perdidos += muestra.perdidos;
+      recibidos += muestra.recibidos;
+    }
+    const std::uint64_t por_mil = perdidos + recibidos == 0 ? 0 : perdidos * 1000 / (perdidos + recibidos);
+    return con_datos(t(clave), {std::to_string(por_mil / 10), std::to_string(por_mil % 10)});
   }
 
   std::string personas(std::uint32_t canal) const {
@@ -182,9 +211,9 @@ class Dibujo {
           cartel(t(cual.clave));
         }
       } else {
-        apagado(cual.id, etiqueta, Estilo::biselado, tamano, cual.icono,
-                solo_iconos ? con_datos(t(Clave::servidor_boton_y_etapa), {t(cual.clave), llega_en(cual.etapa)})
-                            : llega_en(cual.etapa));
+        apagado(solo_iconos ? con_datos(t(Clave::servidor_boton_y_etapa), {t(cual.clave), llega_en(cual.etapa)})
+                            : llega_en(cual.etapa),
+                [&] { boton(cual.id, etiqueta, Estilo::biselado, tamano, cual.icono); });
       }
       desde += ancho + px(4);
     }
@@ -204,12 +233,10 @@ class Dibujo {
     escribir_en(derecha - px(12) - medir(conectados, Letra::normal, medida::letra_chica).x, arriba + px(25), conectados,
                 color::apagado, Letra::normal, medida::letra_chica);
     ImGui::SetCursorScreenPos(ImVec2(px(10), arriba + px(46)));
-    ImGui::BeginDisabled();
-    campo("##buscar", t(Clave::servidor_buscar_usuario), pantalla_.buscar, ImVec2(derecha - px(21), px(34)),
-          Icono::lupa, 0, color::pozo);
-    ImGui::EndDisabled();
-    cartel(t(Clave::servidor_pronto));
-
+    apagado(t(Clave::servidor_pronto), [&] {
+      campo("##buscar", t(Clave::servidor_buscar_usuario), pantalla_.buscar, ImVec2(derecha - px(21), px(34)),
+            Icono::lupa, 0, color::pozo);
+    });
     const float lista = arriba + px(90);
     const float audio = abajo - px(9 + kAltoTuAudio);
     ImGui::SetCursorScreenPos(ImVec2(0, lista));
@@ -237,23 +264,20 @@ class Dibujo {
   void canales() {
     const ImVec2 origen = ImGui::GetCursorScreenPos();
     const float ancho = ImGui::GetContentRegionAvail().x;
-    float y = grupo(origen.x, origen.y, ancho, t(Clave::servidor_canales_texto), "##mas_texto");
+    float y = grupo(origen.x, origen.y, ancho, t(Clave::servidor_canales_texto), "##mas_texto", Dialogo::crear_texto);
     for (const auto& canal : sala_.canales()) {
       if (canal.tipo == TipoCanal::texto) {
         y = fila_texto(origen.x, y, ancho, canal);
       }
     }
-    y = grupo(origen.x, y + px(7), ancho, t(Clave::servidor_canales_voz), "##mas_voz");
+    y = grupo(origen.x, y + px(7), ancho, t(Clave::servidor_canales_voz), "##mas_voz", Dialogo::crear_voz);
     for (const auto& canal : sala_.canales()) {
       if (canal.tipo != TipoCanal::voz) {
         continue;
       }
       y = fila_voz(origen.x, y, ancho, canal);
-      if (pantalla_.plegados.count(canal.id) != 0) {
-        continue;
-      }
       for (const auto& par : sala_.usuarios()) {
-        if (par.second.canal == canal.id) {
+        if (par.second.canal == canal.id && pantalla_.plegados.count(canal.id) == 0) {
           y = fila_persona(origen.x, y, ancho, par.second);
         }
       }
@@ -262,7 +286,7 @@ class Dibujo {
     ImGui::Dummy(ImVec2(1, px(4)));
   }
 
-  float grupo(float x, float y, float ancho, std::string_view etiqueta, const char* id) const {
+  float grupo(float x, float y, float ancho, std::string_view etiqueta, const char* id, Dialogo crear) {
     const float alto = px(kAltoGrupo);
     const float medio = y + px(15);
     if (visible(y, alto)) {
@@ -273,13 +297,14 @@ class Dibujo {
         const ImVec2 desde(x + ancho - px(11) - px(medida::boton_mas), medio - px(medida::boton_mas) / 2);
         const ImVec2 hasta(desde.x + px(medida::boton_mas), desde.y + px(medida::boton_mas));
         ImGui::SetCursorScreenPos(desde);
-        ImGui::BeginDisabled();
-        ImGui::InvisibleButton(id, ImVec2(hasta.x - desde.x, hasta.y - desde.y));
-        punteado(dibujo, desde, hasta, tono(color::apagado));
+        if (ImGui::InvisibleButton(id, ImVec2(hasta.x - desde.x, hasta.y - desde.y), ImGuiButtonFlags_EnableNav)) {
+          abrir(crear, 0, "", false);
+        }
+        const bool encima = ImGui::IsItemHovered();
+        punteado(dibujo, desde, hasta, tono(encima ? color::texto : color::apagado));
         dibujar_icono(dibujo, Icono::mas, ImVec2((desde.x + hasta.x) / 2, (desde.y + hasta.y) / 2), px(9),
-                      tono(color::texto2));
-        ImGui::EndDisabled();
-        cartel(t(Clave::servidor_pronto));
+                      tono(encima ? color::texto : color::texto2));
+        cartel(t(crear == Dialogo::crear_texto ? Clave::servidor_nuevo_texto : Clave::servidor_nuevo_voz));
       }
     }
     return y + alto;
@@ -300,6 +325,7 @@ class Dibujo {
       pantalla_.enfocar_mensaje = true;
     }
     const bool encima = ImGui::IsItemHovered();
+    menu_de_canal(canal);
     ImGui::PopID();
     const bool elegido = sala_.mirando() == canal.id;
     if (elegido || encima) {
@@ -319,9 +345,8 @@ class Dibujo {
       dibujar_icono(dibujo, Icono::candado, ImVec2(derecha - px(6), medio), px(12), tono(color::apagado));
       derecha -= px(20);
     }
-    const Letra letra = nuevos > 0 ? Letra::fuerte : Letra::normal;
-    escribir_cortado(ImVec2(x + px(40), medio - medir(canal.nombre, letra, medida::letra).y / 2),
-                     derecha - x - px(40), canal.nombre, nuevos > 0 || elegido ? color::texto : color::texto2, letra);
+    escribir_en(x + px(40), medio, canal.nombre, nuevos > 0 || elegido ? color::texto : color::texto2,
+                nuevos > 0 ? Letra::fuerte : Letra::normal, medida::letra, derecha - x - px(40));
     return y + alto;
   }
 
@@ -337,12 +362,9 @@ class Dibujo {
     const float flecha = px(26);
     ImGui::PushID(static_cast<int>(canal.id));
     ImGui::SetCursorScreenPos(desde);
-    if (ImGui::InvisibleButton("##plegar", ImVec2(flecha, alto), ImGuiButtonFlags_EnableNav)) {
-      if (plegado) {
-        pantalla_.plegados.erase(canal.id);
-      } else {
-        pantalla_.plegados.insert(canal.id);
-      }
+    if (ImGui::InvisibleButton("##plegar", ImVec2(flecha, alto), ImGuiButtonFlags_EnableNav) &&
+        pantalla_.plegados.erase(canal.id) == 0) {
+      pantalla_.plegados.insert(canal.id);
     }
     bool encima = ImGui::IsItemHovered();
     ImGui::SetCursorScreenPos(ImVec2(desde.x + flecha, desde.y));
@@ -350,6 +372,7 @@ class Dibujo {
       agregar(sala_.elegir_voz(canal.id));
     }
     encima = encima || ImGui::IsItemHovered();
+    menu_de_canal(canal);
     ImGui::PopID();
     const bool aca = canal.id == sala_.tu_canal();
     if (aca) {
@@ -369,8 +392,7 @@ class Dibujo {
       derecha -= px(7) + medir(estas, Letra::normal, medida::letra).x;
       escribir_en(derecha, medio, estas, color::texto2);
     }
-    escribir_cortado(ImVec2(x + px(40), medio - medir(canal.nombre, Letra::fuerte, medida::letra).y / 2),
-                     derecha - x - px(48), canal.nombre, color::texto, Letra::fuerte);
+    escribir_en(x + px(40), medio, canal.nombre, color::texto, Letra::fuerte, medida::letra, derecha - x - px(48));
     return y + alto;
   }
 
@@ -392,23 +414,21 @@ class Dibujo {
       dibujar_icono(dibujo, Icono::voz, ImVec2(derecha - px(8), medio), px(14), tono(color_voz));
     }
     const std::string_view nombre = yo ? t(Clave::servidor_vos) : std::string_view(usuario.nombre);
-    escribir_cortado(ImVec2(x + px(74), medio - medir(nombre, Letra::normal, medida::letra).y / 2),
-                     derecha - x - px(94), nombre, color::texto2);
+    escribir_en(x + px(74), medio, nombre, color::texto2, Letra::normal, medida::letra, derecha - x - px(94));
     return y + alto;
   }
 
   void deslizador(const char* id, ImVec2 desde, float ancho, float valor) const {
     ImDrawList& dibujo = *ImGui::GetWindowDrawList();
     ImGui::SetCursorScreenPos(ImVec2(desde.x, desde.y - px(8)));
-    ImGui::BeginDisabled();
-    ImGui::InvisibleButton(id, ImVec2(ancho, px(16)));
     const float corte = desde.x + ancho * valor;
-    dibujo.AddRectFilled(ImVec2(desde.x, desde.y - px(3)), ImVec2(corte, desde.y + px(3)), tono(color::claro), px(3));
-    dibujo.AddRectFilled(ImVec2(corte, desde.y - px(3)), ImVec2(desde.x + ancho, desde.y + px(3)), tono(color::linea),
-                         px(3));
-    dibujo.AddCircleFilled(ImVec2(corte, desde.y), px(7), tono(color::claro));
-    ImGui::EndDisabled();
-    cartel(llega_en("3"));
+    apagado(llega_en("3"), [&] {
+      ImGui::InvisibleButton(id, ImVec2(ancho, px(16)));
+      dibujo.AddRectFilled(ImVec2(desde.x, desde.y - px(3)), ImVec2(corte, desde.y + px(3)), tono(color::claro), px(3));
+      dibujo.AddRectFilled(ImVec2(corte, desde.y - px(3)), ImVec2(desde.x + ancho, desde.y + px(3)),
+                           tono(color::linea), px(3));
+      dibujo.AddCircleFilled(ImVec2(corte, desde.y), px(7), tono(color::claro));
+    });
   }
 
   void tu_audio(ImVec2 desde, ImVec2 hasta) {
@@ -488,14 +508,12 @@ class Dibujo {
     }
     const float boton_panel = hasta.x - px(40);
     const float fin_subtitulo = es_texto ? boton_panel : boton_panel - px(220);
-    escribir_cortado(ImVec2(x, medio - medir(subtitulo, Letra::normal, medida::letra).y / 2), fin_subtitulo - x - px(8),
-                     subtitulo, color::apagado);
+    escribir_en(x, medio, subtitulo, color::apagado, Letra::normal, medida::letra, fin_subtitulo - x - px(8));
     ImGui::SetCursorScreenPos(ImVec2(boton_panel, medio - px(14)));
-    ImGui::BeginDisabled();
-    ImGui::InvisibleButton("##panel", ImVec2(px(28), px(28)));
-    dibujar_icono(dibujo, Icono::panel, ImVec2(boton_panel + px(14), medio), px(15), tono(color::texto2));
-    ImGui::EndDisabled();
-    cartel(t(Clave::servidor_pronto));
+    apagado(t(Clave::servidor_pronto), [&] {
+      ImGui::InvisibleButton("##panel", ImVec2(px(28), px(28)));
+      dibujar_icono(dibujo, Icono::panel, ImVec2(boton_panel + px(14), medio), px(15), tono(color::texto2));
+    });
     if (!es_texto) {
       compartir(ImVec2(boton_panel - px(8), medio));
     }
@@ -510,14 +528,13 @@ class Dibujo {
     const ImVec2 desde(derecha.x - ancho, derecha.y - px(14));
     const ImVec2 hasta(derecha.x, derecha.y + px(14));
     ImGui::SetCursorScreenPos(desde);
-    ImGui::BeginDisabled();
-    ImGui::InvisibleButton("##compartir", ImVec2(ancho, hasta.y - desde.y));
-    dibujo.AddRectFilled(desde, hasta, tono(color::chip), px(4));
-    dibujar_icono(dibujo, Icono::pantalla, ImVec2(desde.x + px(16 + 7), derecha.y), px(15), tono(color::texto2));
-    const float x = escribir_en(desde.x + px(16 + 15 + 8), derecha.y, etiqueta, color::texto2) + px(8);
-    chip(ImVec2(x, derecha.y - medir(pronto, Letra::negrita, medida::letra_mini).y / 2 - px(2)), pronto);
-    ImGui::EndDisabled();
-    cartel(llega_en("12"));
+    apagado(llega_en("12"), [&] {
+      ImGui::InvisibleButton("##compartir", ImVec2(ancho, hasta.y - desde.y));
+      dibujo.AddRectFilled(desde, hasta, tono(color::chip), px(4));
+      dibujar_icono(dibujo, Icono::pantalla, ImVec2(desde.x + px(16 + 7), derecha.y), px(15), tono(color::texto2));
+      const float x = escribir_en(desde.x + px(16 + 15 + 8), derecha.y, etiqueta, color::texto2) + px(8);
+      chip(ImVec2(x, derecha.y - medir(pronto, Letra::negrita, medida::letra_mini).y / 2 - px(2)), pronto);
+    });
   }
 
   std::string dia(std::uint64_t hora_ms) const {
@@ -594,7 +611,7 @@ class Dibujo {
     const bool puede = sala_.puede_escribir();
     const float alto = px(medida::alto_campo_chat);
     ImGui::SetCursorScreenPos(ImVec2(izquierda + px(14), y));
-    apagado("##clip", "", Estilo::contorneado, ImVec2(px(38), alto), Icono::clip, llega_en("5"));
+    apagado(llega_en("5"), [&] { boton("##clip", "", Estilo::contorneado, ImVec2(px(38), alto), Icono::clip); });
     const float enviar_ancho = px(44);
     const float campo_desde = izquierda + px(60);
     const float campo_hasta = ancho_ - px(14) - enviar_ancho - px(8);
@@ -629,9 +646,8 @@ class Dibujo {
     const std::string_view pronto = t(Clave::servidor_chip_pronto);
     chip(ImVec2(izquierda + px(14), nota - medir(pronto, Letra::negrita, medida::letra_mini).y / 2 - px(2)), pronto);
     const float x = izquierda + px(22) + ancho_chip(pronto);
-    const std::string_view nota_gifs = t(Clave::servidor_nota_gifs);
-    escribir_cortado(ImVec2(x, nota - medir(nota_gifs, Letra::normal, medida::letra_chica).y / 2), ancho_ - px(14) - x,
-                     nota_gifs, color::apagado, Letra::normal, medida::letra_chica);
+    escribir_en(x, nota, t(Clave::servidor_nota_gifs), color::apagado, Letra::normal, medida::letra_chica,
+                ancho_ - px(14) - x);
   }
 
   void estado() {
@@ -647,18 +663,14 @@ class Dibujo {
                                           : std::string(t(Clave::servidor_sin_ping));
     x = escribir_en(x, medio, ping, color::texto2) + px(8);
     grafico(ImVec2(x, medio - px(7)));
-    x += px(64 + 8);
-    std::uint64_t perdidos = 0;
-    std::uint64_t recibidos = 0;
-    for (const Muestra& muestra : pantalla_.grafico) {
-      perdidos += muestra.perdidos;
-      recibidos += muestra.recibidos;
+    ImGui::SetCursorScreenPos(ImVec2(x - px(4), arriba));
+    if (ImGui::InvisibleButton("##grafico", ImVec2(px(72), px(medida::alto_estado)), ImGuiButtonFlags_EnableNav)) {
+      ImGui::OpenPopup("##diagnostico");
     }
-    const std::uint64_t por_mil = perdidos + recibidos == 0 ? 0 : perdidos * 1000 / (perdidos + recibidos);
-    x = escribir_en(x, medio,
-                    con_datos(t(Clave::servidor_perdidos), {std::to_string(por_mil / 10), std::to_string(por_mil % 10)}),
-                    color::apagado) +
-        px(24);
+    cartel(t(Clave::servidor_ver_diagnostico));
+    diagnostico(ImVec2(x, arriba - px(6)));
+    x += px(64 + 8);
+    x = escribir_en(x, medio, perdida(Clave::servidor_perdidos), color::apagado) + px(24);
     dibujar_icono(dibujo, Icono::candado, ImVec2(x + px(6), medio), px(13), tono(color::texto2));
     x = escribir_en(x + px(18), medio, t(Clave::servidor_cifrado), color::texto2) + px(24);
     escribir_en(x, medio,
@@ -670,6 +682,143 @@ class Dibujo {
     const float huella_x = ancho_ - px(12) - medir(huella, Letra::normal, medida::letra).x;
     escribir_en(huella_x, medio, huella, color::texto2);
     dibujar_icono(dibujo, Icono::verificado, ImVec2(huella_x - px(13), medio), px(14), tono(color::verde));
+  }
+
+  void diagnostico(ImVec2 abajo_izquierda) const {
+    ImGui::SetNextWindowPos(abajo_izquierda, ImGuiCond_Always, ImVec2(0, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(px(16), px(12)));
+    if (!ImGui::BeginPopup("##diagnostico")) {
+      ImGui::PopStyleVar();
+      return;
+    }
+    const DatosDiagnostico& datos = pantalla_.diagnostico;
+    {
+      const ConLetra letra(Letra::titulo, medida::letra_bloque);
+      ImGui::TextUnformatted(std::string(t(Clave::servidor_diag_titulo)).c_str());
+    }
+    for (const std::string& linea : {
+             sala_.ping() ? con_datos(t(Clave::servidor_diag_ping), {std::to_string(*sala_.ping())})
+                          : std::string(t(Clave::servidor_sin_ping)),
+             datos.voz_lista ? con_datos(t(Clave::servidor_diag_ping_voz), {std::to_string(datos.ping_voz)})
+                             : std::string(t(Clave::servidor_diag_ping_voz_sin)),
+             con_datos(t(Clave::servidor_diag_procesador), {std::to_string(static_cast<int>(datos.procesador + 0.5))}),
+             con_datos(t(Clave::servidor_diag_ram), {std::to_string(datos.ram_bytes / (1024 * 1024))}),
+             perdida(Clave::servidor_diag_perdida),
+             con_datos(t(Clave::servidor_diag_colchon), {std::to_string(datos.colchon_ms)}),
+             con_datos(t(Clave::servidor_diag_recortes), {std::to_string(datos.recortes)}),
+             con_datos(t(Clave::servidor_diag_salida), {std::to_string(datos.salida_ms)})}) {
+      ImGui::TextUnformatted(linea.c_str());
+    }
+    ImGui::EndPopup();
+    ImGui::PopStyleVar();
+  }
+
+  void dialogo() {
+    if (pantalla_.dialogo == Dialogo::ninguno) {
+      return;
+    }
+    if (pantalla_.abrir_dialogo) {
+      ImGui::OpenPopup("##dialogo");
+      pantalla_.abrir_dialogo = false;
+    }
+    const Dialogo cual = pantalla_.dialogo;
+    const auto* canal = sala_.canal(pantalla_.canal_dialogo);
+    const bool de_canal = cual == Dialogo::cambiar || cual == Dialogo::borrar;
+    const bool con_nombre = cual != Dialogo::borrar;
+    const bool con_marca = cual == Dialogo::crear_texto ||
+                           (cual == Dialogo::cambiar && canal != nullptr && canal->tipo == TipoCanal::texto);
+    const float ancho = px(380);
+    const float alto = px(64) + (con_nombre ? px(46) : px(40)) + (con_marca ? px(48) : 0) +
+                       (pantalla_.error_dialogo.empty() ? 0 : px(22)) + px(56);
+    ImGui::SetNextWindowPos(ImVec2(ancho_ / 2, alto_ / 2), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(ancho, alto));
+    if (!ImGui::BeginPopupModal("##dialogo", nullptr,
+                                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                    ImGuiWindowFlags_NoScrollbar)) {
+      pantalla_.dialogo = Dialogo::ninguno;
+      return;
+    }
+    if (de_canal && canal == nullptr) {
+      ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+      pantalla_.dialogo = Dialogo::ninguno;
+      return;
+    }
+    const ImVec2 desde = ImGui::GetWindowPos();
+    triangulos(*ImGui::GetWindowDrawList(), desde, ImVec2(desde.x + ancho, desde.y + alto));
+    const float x = desde.x + px(20);
+    const float interior = ancho - px(40);
+    float y = desde.y + px(20);
+    const bool es_texto = canal != nullptr && canal->tipo == TipoCanal::texto;
+    const std::string nombre_canal = canal == nullptr ? std::string() : canal->nombre;
+    const std::string titulo =
+        cual == Dialogo::crear_texto ? std::string(t(Clave::servidor_nuevo_texto))
+        : cual == Dialogo::crear_voz ? std::string(t(Clave::servidor_nuevo_voz))
+        : cual == Dialogo::cambiar
+            ? con_datos(t(es_texto ? Clave::servidor_cambiar_canal_texto : Clave::servidor_cambiar_canal), {nombre_canal})
+            : con_datos(t(es_texto ? Clave::servidor_borrar_canal_texto : Clave::servidor_borrar_canal), {nombre_canal});
+    escribir_cortado(ImVec2(x, y), interior, titulo, color::texto, Letra::titulo, medida::letra_tarjeta);
+    y += px(36);
+    bool confirmar = false;
+    if (con_nombre) {
+      if (ImGui::IsWindowAppearing()) {
+        ImGui::SetKeyboardFocusHere();
+      }
+      ImGui::SetCursorScreenPos(ImVec2(x, y));
+      confirmar = campo("##nombre_canal", t(Clave::servidor_nombre_del_canal), pantalla_.nombre_dialogo,
+                        ImVec2(interior, px(36)), Icono::ninguno, ImGuiInputTextFlags_EnterReturnsTrue, color::pozo);
+      y += px(46);
+    } else {
+      escribir_cortado(ImVec2(x, y), interior,
+                       t(canal->tipo == TipoCanal::texto ? Clave::servidor_borrar_texto : Clave::servidor_borrar_voz),
+                       color::texto2);
+      y += px(40);
+    }
+    if (con_marca) {
+      ImGui::SetCursorScreenPos(ImVec2(x, y));
+      const int tocada =
+          selector_opciones("##marca", {t(Clave::servidor_todos_escriben), t(Clave::servidor_solo_admins_escriben)},
+                            pantalla_.marca_dialogo, ImVec2(interior, px(38)), -1, {});
+      pantalla_.marca_dialogo = tocada >= 0 ? tocada : pantalla_.marca_dialogo;
+      y += px(48);
+    }
+    if (!pantalla_.error_dialogo.empty()) {
+      escribir_cortado(ImVec2(x, y), interior, pantalla_.error_dialogo, color::rojo, Letra::normal, medida::letra_chica);
+      y += px(22);
+    }
+    const std::string_view si = t(cual == Dialogo::borrar    ? Clave::servidor_borrar_si
+                                  : cual == Dialogo::cambiar ? Clave::servidor_guardar
+                                                             : Clave::servidor_crear);
+    const std::string_view no = t(Clave::inicio_cancelar);
+    const float ancho_no = ancho_boton(no, Estilo::contorneado);
+    const float ancho_si = ancho_boton(si, Estilo::principal);
+    ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no, y + px(6)));
+    const bool cancelar = boton("##no", no, Estilo::contorneado, ImVec2(ancho_no, px(medida::alto_principal))) ||
+                          ImGui::IsKeyPressed(ImGuiKey_Escape);
+    ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no - px(10) - ancho_si, y + px(6)));
+    confirmar = boton("##si", si, Estilo::principal, ImVec2(ancho_si, px(medida::alto_principal))) || confirmar;
+    if (cancelar || (confirmar && confirmar_dialogo(canal, con_marca))) {
+      ImGui::CloseCurrentPopup();
+      pantalla_.dialogo = Dialogo::ninguno;
+    }
+    ImGui::EndPopup();
+  }
+
+  bool confirmar_dialogo(const protocolo::CanalInfo* canal, bool con_marca) {
+    const std::string nombre(pantalla_.nombre_dialogo.data());
+    const bool solo_admins = con_marca && pantalla_.marca_dialogo == 1;
+    if (pantalla_.dialogo == Dialogo::borrar) {
+      pedido_.ordenes.emplace_back(protocolo::BorrarCanal{canal->id});
+    } else if (!es_nombre_valido(nombre)) {
+      pantalla_.error_dialogo = t(Clave::conectar_nombre_invalido);
+      return false;
+    } else if (pantalla_.dialogo == Dialogo::cambiar) {
+      pedido_.ordenes.emplace_back(protocolo::CambiarCanal{canal->id, nombre, solo_admins});
+    } else {
+      pedido_.ordenes.emplace_back(
+          protocolo::CrearCanal{nombre, con_marca ? TipoCanal::texto : TipoCanal::voz, solo_admins});
+    }
+    return true;
   }
 
   void grafico(ImVec2 desde) const {

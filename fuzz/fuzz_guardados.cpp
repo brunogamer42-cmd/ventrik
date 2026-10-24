@@ -26,7 +26,13 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     return 0;
   }
   const std::vector<std::uint8_t> armado = ventrik::cliente::armar_guardados(guardados);
-  exigir(armado.size() == largo && std::equal(armado.begin(), armado.end(), entrada.begin()));
+  if (entrada[4] == 1) {
+    ventrik::cliente::Guardados de_nuevo;
+    exigir(ventrik::cliente::leer_guardados(armado, de_nuevo) == ventrik::cliente::LecturaGuardados::leidos &&
+           ventrik::cliente::armar_guardados(de_nuevo) == armado);
+  } else {
+    exigir(armado.size() == largo && std::equal(armado.begin(), armado.end(), entrada.begin()));
+  }
   ventrik::cliente::recordar(guardados, ventrik::cliente::ServidorGuardado{{1, 1}, {}, "x", 0, {}, 0});
   exigir(!ventrik::cliente::armar_guardados(guardados).empty());
   return 0;

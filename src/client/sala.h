@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "client/guardados.h"
 #include "client/sesion.h"
 
 namespace ventrik::cliente {
@@ -26,7 +27,7 @@ struct Chat {
 
 class Sala {
  public:
-  explicit Sala(const protocolo::Presentado& presentado);
+  explicit Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& leidos = {});
 
   std::vector<Orden> empezar();
   std::vector<Orden> aplicar(const Novedad& novedad);
@@ -47,6 +48,7 @@ class Sala {
   bool puede_escribir() const;
   std::optional<std::uint32_t> ping() const { return ping_; }
   const std::optional<protocolo::Negado>& negado() const { return negado_; }
+  std::vector<Leido> leidos() const;
 
  private:
   template <typename Otra>

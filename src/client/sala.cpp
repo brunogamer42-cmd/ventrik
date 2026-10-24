@@ -38,13 +38,23 @@ void recortar(Chat& chat) {
 
 }
 
-Sala::Sala(const protocolo::Presentado& presentado)
+Sala::Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& leidos)
     : tu_id_(presentado.tu_id), dueno_(presentado.dueno), canales_(presentado.canales) {
+  canales_.erase(std::remove_if(canales_.begin(), canales_.end(),
+                                [](const protocolo::CanalInfo& info) { return info.id == 0; }),
+                 canales_.end());
   for (const auto& usuario : presentado.usuarios) {
     usuarios_[usuario.id] = usuario;
   }
-  for (const auto& info : canales_) {
-    leidos_[info.id] = info.contador;
+  if (leidos.empty()) {
+    for (const auto& info : canales_) {
+      leidos_[info.id] = info.contador;
+    }
+  }
+  for (const Leido& leido : leidos) {
+    if (const auto* info = canal(leido.canal)) {
+      leidos_[leido.canal] = std::min(leido.numero, info->contador);
+    }
   }
   const auto yo = usuarios_.find(tu_id_);
   voz_.canal = yo != usuarios_.end() ? yo->second.canal : 0;
@@ -67,6 +77,16 @@ std::uint32_t Sala::nuevos(std::uint32_t id) const {
   const auto leido = leidos_.find(id);
   const std::uint32_t hasta = leido == leidos_.end() ? 0 : leido->second;
   return info != nullptr && info->contador > hasta ? info->contador - hasta : 0;
+}
+
+std::vector<Leido> Sala::leidos() const {
+  std::vector<Leido> lista;
+  for (const auto& [id, numero] : leidos_) {
+    if (lista.size() < kMaximoLeidosPorServidor) {
+      lista.push_back({id, numero});
+    }
+  }
+  return lista;
 }
 
 bool Sala::puede_escribir() const {
@@ -145,7 +165,8 @@ std::vector<Orden> Sala::atender(const protocolo::UsuarioCambioCanal& cambio) {
 }
 
 std::vector<Orden> Sala::atender(const protocolo::CanalCreado& creado) {
-  if (canal(creado.canal.id) == nullptr && canales_.size() < protocolo::kMaximoCanalesEnLista) {
+  if (creado.canal.id != 0 && canal(creado.canal.id) == nullptr &&
+      canales_.size() < protocolo::kMaximoCanalesEnLista) {
     canales_.push_back(creado.canal);
   }
   return {};

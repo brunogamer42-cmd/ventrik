@@ -5,6 +5,7 @@
 
 #include <gsl/gsl>
 
+#include "client/guardados.h"
 #include "client/sala.h"
 #include "common/protocol/bytes.h"
 
@@ -33,6 +34,8 @@ void revisar(const Sala& sala) {
   for (const auto& canal : sala.canales()) {
     exigir(sala.nuevos(canal.id) <= canal.contador);
   }
+  ventrik::cliente::ServidorGuardado guardado{{1, 1}, {}, "x", 0, {}, 0, sala.leidos()};
+  exigir(!ventrik::cliente::armar_guardados(ventrik::cliente::Guardados{0, "", {guardado}}).empty());
 }
 
 }
@@ -45,7 +48,11 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   presentado.canales = {{1, "General"}, {2, "charla", TipoCanal::texto, false, 3},
                         {3, "anuncios", TipoCanal::texto, true, 0}, {4, "Juegos"}};
   presentado.usuarios = {{1, "Ana", 1}, {2, "Beto", 4}};
-  Sala sala(presentado);
+  std::vector<ventrik::cliente::Leido> leidos;
+  if (presentado.dueno) {
+    leidos = {{1, lector.leer_u8()}, {2, lector.leer_u16()}, {7, lector.leer_u8()}};
+  }
+  Sala sala(presentado, leidos);
   sala.empezar();
   while (lector.ok() && lector.restante() >= 5) {
     const std::uint8_t que = lector.leer_u8();

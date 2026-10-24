@@ -68,6 +68,7 @@ BufferVoz::Salida BufferVoz::sacar(PaqueteVoz& paquete) {
     return Salida::nada;
   }
   if (cantidad_ > espera_ + kMargen) {
+    ++recortes_;
     for (std::size_t i = 0; i < kLugares && cantidad_ > espera_; ++i, ++siguiente_) {
       Lugar& viejo = lugares_[siguiente_ % kLugares];
       if (viejo.ocupado && viejo.paquete.numero == siguiente_) {
@@ -79,6 +80,7 @@ BufferVoz::Salida BufferVoz::sacar(PaqueteVoz& paquete) {
   Lugar& lugar = lugares_[siguiente_ % kLugares];
   ultimo_ = siguiente_++;
   hay_ultimo_ = true;
+  paquete.numero = ultimo_;
   if (!lugar.ocupado || lugar.paquete.numero != ultimo_) {
     return Salida::perdido;
   }

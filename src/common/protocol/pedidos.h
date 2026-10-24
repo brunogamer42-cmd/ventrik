@@ -20,6 +20,8 @@ constexpr std::size_t kMaximoMensajesEnHistorial = 256;
 constexpr std::size_t kMaximoOpus = 400;
 constexpr std::size_t kMaximoDatagrama = 2048;
 constexpr std::size_t kMaximoCuerpoPresentacion = 128;
+constexpr std::uint32_t kCanalGeneral = 1;
+constexpr std::size_t kMaximoCanales = 60;
 
 struct Presentarse {
   static constexpr TipoMensaje kTipo = TipoMensaje::presentarse;

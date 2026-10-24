@@ -170,6 +170,17 @@ void escribir_cortado(ImVec2 donde, float ancho, std::string_view texto, ImU32 c
   ImGui::PopStyleColor();
 }
 
+float escribir_en(float x, float medio, std::string_view texto, ImU32 color, Letra letra, float tamano, float ancho) {
+  const ImVec2 tamano_texto = medir(texto, letra, tamano);
+  const ImVec2 donde(x, medio - tamano_texto.y / 2);
+  if (ancho > 0) {
+    escribir_cortado(donde, ancho, texto, color, letra, tamano);
+    return x + std::min(ancho, tamano_texto.x);
+  }
+  escribir(donde, texto, color, letra, tamano);
+  return x + tamano_texto.x;
+}
+
 float escribir_espaciado(ImVec2 donde, std::string_view texto, ImU32 color, Letra letra, float tamano,
                          float espacio) {
   const char* resto = principio(texto);

@@ -22,6 +22,7 @@ class Ventana {
   HWND hwnd() const { return ventana_; }
   ImTextureID logo() const;
   int correr(const std::function<void()>& atender, const std::function<void()>& dibujar);
+  void al_terminar_la_sesion(std::function<void()> terminar) { al_terminar_ = std::move(terminar); }
 
  private:
   struct Grafica;
@@ -39,6 +40,7 @@ class Ventana {
   bool perdido_ = false;
   UINT ancho_nuevo_ = 0;
   UINT alto_nuevo_ = 0;
+  std::function<void()> al_terminar_;
 };
 
 }

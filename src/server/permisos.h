@@ -10,7 +10,7 @@
 #include "common/protocol/pedidos.h"
 
 namespace ventrik::servidor {
-constexpr std::size_t kMaximoCanales = 60;
+using protocolo::kMaximoCanales;
 
 struct Canal {
   std::uint32_t id = 0;

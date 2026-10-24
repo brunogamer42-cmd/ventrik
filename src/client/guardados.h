@@ -8,12 +8,20 @@
 #include <gsl/gsl>
 
 #include "common/cifrado/huella.h"
+#include "common/protocol/pedidos.h"
 #include "common/red/red.h"
 
 namespace ventrik::cliente {
 constexpr std::size_t kMaximoServidoresGuardados = 32;
-constexpr std::size_t kMaximoArchivoGuardados = 16384;
+constexpr std::size_t kMaximoArchivoGuardados = 32768;
+constexpr std::size_t kMaximoLeidosPorServidor = 64;
+static_assert(kMaximoLeidosPorServidor >= protocolo::kMaximoCanales);
 constexpr std::uint8_t kTeclaHablarPorDefecto = 0xA4;
+
+struct Leido {
+  std::uint32_t canal = 0;
+  std::uint32_t numero = 0;
+};
 
 struct ServidorGuardado {
   red::Direccion direccion;
@@ -22,6 +30,7 @@ struct ServidorGuardado {
   std::uint32_t canal = 0;
   std::string nombre_canal;
   std::uint64_t ultima_vez_ms = 0;
+  std::vector<Leido> leidos;
 };
 
 struct Guardados {
@@ -36,6 +45,7 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
 std::vector<std::uint8_t> armar_guardados(const Guardados& guardados);
 bool es_tecla_valida(std::uint8_t tecla);
 std::uint8_t tecla_para_hablar(std::uint8_t guardada);
+ServidorGuardado* buscar_guardado(Guardados& guardados, const red::Direccion& direccion);
 bool recordar(Guardados& guardados, ServidorGuardado servidor);
 
 LecturaGuardados cargar_guardados(Guardados& guardados);

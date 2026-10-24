@@ -46,6 +46,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   ventrik::cliente::CanalVoz canal(ventrik::red::Direccion{}, puente);
   bool hay_anterior = false;
   std::uint16_t anterior = 0;
+  bool hay_ultimo = false;
+  std::uint16_t ultimo = 0;
   std::array<std::int16_t, 480> sonido{};
   std::array<std::int16_t, 480> salida{};
   while (entrada.size() >= 5) {
@@ -65,9 +67,17 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
                      sonido.begin(), [](std::uint8_t valor) { return static_cast<std::int16_t>(valor << 7); });
       motor.procesar(sonido, salida);
     } else {
+      if (hay_ultimo && static_cast<std::int16_t>(static_cast<std::uint16_t>(paquete.numero - ultimo)) <= -64) {
+        hay_anterior = false;
+      }
       buffer.llegar(paquete);
       PaqueteVoz sacado;
-      if (buffer.sacar(sacado) == BufferVoz::Salida::paquete) {
+      const auto resultado = buffer.sacar(sacado);
+      if (resultado != BufferVoz::Salida::nada) {
+        hay_ultimo = true;
+        ultimo = sacado.numero;
+      }
+      if (resultado == BufferVoz::Salida::paquete) {
         exigir(sacado.largo > 0 && sacado.largo <= sacado.opus.size());
         exigir(!hay_anterior || sacado.numero != anterior);
         hay_anterior = true;
@@ -77,6 +87,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       if ((entrada[4] & 2) != 0) {
         buffer.reiniciar();
         hay_anterior = false;
+        hay_ultimo = false;
       }
     }
     entrada = entrada.subspan(5 + cuanto);

@@ -33,6 +33,18 @@ struct Alturas {
   std::vector<bool> nuevo_dia;
 };
 
+enum class Dialogo { ninguno, crear_texto, crear_voz, cambiar, borrar };
+
+struct DatosDiagnostico {
+  bool voz_lista = false;
+  std::uint32_t ping_voz = 0;
+  double procesador = 0;
+  std::uint64_t ram_bytes = 0;
+  std::uint32_t colchon_ms = 0;
+  std::uint32_t recortes = 0;
+  std::uint32_t salida_ms = 0;
+};
+
 struct PantallaServidor {
   Idioma idioma{};
   ImTextureID logo{};
@@ -50,6 +62,13 @@ struct PantallaServidor {
   std::set<std::uint32_t> plegados;
   bool enfocar_mensaje = false;
   Alturas alturas;
+  DatosDiagnostico diagnostico;
+  Dialogo dialogo = Dialogo::ninguno;
+  bool abrir_dialogo = false;
+  std::uint32_t canal_dialogo = 0;
+  Campo nombre_dialogo{};
+  int marca_dialogo = 0;
+  std::string error_dialogo;
 };
 
 struct PedidoServidor {

@@ -7,11 +7,13 @@
 #include <doctest/doctest.h>
 
 #include "client/guardados.h"
+#include "common/protocol/bytes.h"
 
 using ventrik::cliente::armar_guardados;
 using ventrik::cliente::Guardados;
 using ventrik::cliente::leer_guardados;
 using ventrik::cliente::LecturaGuardados;
+using ventrik::cliente::Leido;
 using ventrik::cliente::ServidorGuardado;
 
 namespace {
@@ -32,6 +34,7 @@ Guardados ejemplo() {
   guardados.nombre = "Tano";
   guardados.servidores = {servidor(0xC0A80099), servidor(0x0A000001, 9000, "Ñandú")};
   guardados.servidores[1].nombre_canal.clear();
+  guardados.servidores[0].leidos = {{1, 14}, {3, 0}, {9, 4000000000u}};
   return guardados;
 }
 
@@ -81,7 +84,7 @@ TEST_CASE("el archivo de servidores rechaza lo que no armó Ventrik") {
   marca[0] ^= 1;
   CHECK(leer_sin_tocar(marca) == LecturaGuardados::danados);
   auto version = bien;
-  version[4] = 2;
+  version[4] = 3;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::version_nueva);
   version[4] = 0;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::danados);
@@ -119,6 +122,15 @@ TEST_CASE("no se arma un archivo de servidores con datos inválidos") {
     CHECK(armar_guardados(guardados).empty());
   };
   sin_armar([](Guardados& g) { g.nombre = " Tano"; });
+  sin_armar([](Guardados& g) { g.servidores[0].leidos = {{3, 1}, {1, 1}}; });
+  sin_armar([](Guardados& g) { g.servidores[0].leidos = {{1, 1}, {1, 2}}; });
+  sin_armar([](Guardados& g) { g.servidores[0].leidos = {{0, 1}}; });
+  sin_armar([](Guardados& g) {
+    g.servidores[0].leidos.clear();
+    for (std::uint32_t canal = 1; canal <= 65; ++canal) {
+      g.servidores[0].leidos.push_back({canal, 0});
+    }
+  });
   sin_armar([](Guardados& g) { g.tecla_hablar = 0x1B; });
   sin_armar([](Guardados& g) { g.servidores[0].direccion.puerto = 0; });
   sin_armar([](Guardados& g) { g.servidores[0].direccion.ipv4 = 0; });
@@ -149,6 +161,88 @@ TEST_CASE("el archivo de servidores no se lee con más de 32") {
   bytes.resize(bytes.size() - (ultimo.size() - 10));
   Guardados leidos;
   CHECK(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
+}
+
+TEST_CASE("una lista de la versión 1 se lee con sus servidores y sin lo leído") {
+  ventrik::protocolo::Escritor escritor;
+  escritor.escribir_u32(0x52504B56);
+  escritor.escribir_u16(1);
+  escritor.escribir_u8(0xA4);
+  escritor.escribir_texto("Tano", 64);
+  escritor.escribir_u8(1);
+  const ServidorGuardado viejo = servidor(0xC0A80099);
+  escritor.escribir_u32(viejo.direccion.ipv4);
+  escritor.escribir_u16(viejo.direccion.puerto);
+  escritor.escribir_bytes(viejo.huella);
+  escritor.escribir_texto(viejo.nombre, 64);
+  escritor.escribir_u32(viejo.canal);
+  escritor.escribir_texto(viejo.nombre_canal, 64);
+  escritor.escribir_u64(viejo.ultima_vez_ms);
+  Guardados leidos;
+  REQUIRE(leer_guardados(escritor.datos(), leidos) == LecturaGuardados::leidos);
+  REQUIRE(leidos.servidores.size() == 1);
+  CHECK(leidos.servidores[0].nombre == "Tano");
+  CHECK(leidos.servidores[0].leidos.empty());
+  const auto nuevo = armar_guardados(leidos);
+  REQUIRE(nuevo.size() == escritor.datos().size() + 1);
+  CHECK(nuevo[4] == 2);
+  auto con_leidos = escritor.datos();
+  con_leidos.push_back(0);
+  CHECK(leer_sin_tocar(con_leidos) == LecturaGuardados::danados);
+}
+
+TEST_CASE("lo leído se guarda por servidor, con canal distinto de 0, en orden y hasta 64") {
+  const auto bien = armar_guardados(ejemplo());
+  Guardados leidos;
+  REQUIRE(leer_guardados(bien, leidos) == LecturaGuardados::leidos);
+  REQUIRE(leidos.servidores[0].leidos.size() == 3);
+  CHECK(leidos.servidores[0].leidos[2].numero == 4000000000u);
+  CHECK(leidos.servidores[1].leidos.empty());
+  const std::vector<std::uint8_t> patron = {3, 1, 0, 0, 0};
+  const auto primero = std::search(bien.begin(), bien.end(), patron.begin(), patron.end());
+  REQUIRE(primero != bien.end());
+  auto en_cero = bien;
+  en_cero[static_cast<std::size_t>(primero - bien.begin()) + 1] = 0;
+  CHECK(leer_sin_tocar(en_cero) == LecturaGuardados::danados);
+}
+
+TEST_CASE("se aceptan 64 leídos por servidor y la lista más grande entra en el archivo") {
+  std::string largo;
+  for (int i = 0; i < 32; ++i) {
+    largo += "ñ";
+  }
+  Guardados grande;
+  grande.nombre = largo;
+  for (std::uint32_t ip = 1; ip <= 32; ++ip) {
+    auto uno = servidor(ip, 7700, largo);
+    uno.nombre_canal = largo;
+    for (std::uint32_t canal = 1; canal <= ventrik::cliente::kMaximoLeidosPorServidor; ++canal) {
+      uno.leidos.push_back({canal, canal * 1000});
+    }
+    grande.servidores.push_back(uno);
+  }
+  const auto bytes = armar_guardados(grande);
+  REQUIRE_FALSE(bytes.empty());
+  CHECK(bytes.size() <= ventrik::cliente::kMaximoArchivoGuardados);
+  Guardados leidos;
+  REQUIRE(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
+  CHECK(armar_guardados(leidos) == bytes);
+}
+
+TEST_CASE("recordar conserva lo leído del mismo servidor, salvo que cambie la huella") {
+  Guardados guardados = ejemplo();
+  ventrik::cliente::recordar(guardados, servidor(0xC0A80099, 7700, "Otro"));
+  REQUIRE(guardados.servidores.front().nombre == "Otro");
+  CHECK(guardados.servidores.front().leidos.size() == 3);
+  auto con_leidos = servidor(0xC0A80099);
+  con_leidos.leidos = {{2, 5}};
+  ventrik::cliente::recordar(guardados, con_leidos);
+  REQUIRE(guardados.servidores.front().leidos.size() == 1);
+  CHECK(guardados.servidores.front().leidos[0].canal == 2);
+  auto reinstalado = servidor(0xC0A80099);
+  reinstalado.huella.fill(0xCD);
+  ventrik::cliente::recordar(guardados, reinstalado);
+  CHECK(guardados.servidores.front().leidos.empty());
 }
 
 TEST_CASE("recordar pone el servidor adelante, lo actualiza y guarda hasta 32") {

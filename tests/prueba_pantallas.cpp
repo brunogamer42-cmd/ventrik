@@ -35,7 +35,17 @@ class SinPantalla {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = tamano_;
     io.AddMousePosEvent(mouse.x, mouse.y);
-    io.AddMouseButtonEvent(0, clic);
+    io.AddMouseButtonEvent(boton_, clic);
+    io.AddInputCharactersUTF8(texto_.c_str());
+    texto_.clear();
+    if (soltar_ != ImGuiKey_None) {
+      io.AddKeyEvent(soltar_, false);
+    }
+    soltar_ = tecla_;
+    if (tecla_ != ImGuiKey_None) {
+      io.AddKeyEvent(tecla_, true);
+    }
+    tecla_ = ImGuiKey_None;
     ImGui::NewFrame();
     CHECK(ImGui::GetCurrentContext()->DebugDrawIdConflictsId == 0);
     ui::pantalla_completa(dibujar);
@@ -57,9 +67,16 @@ class SinPantalla {
   }
 
   ImVec2 tamano() const { return tamano_; }
+  void teclear(std::string texto) { texto_ = std::move(texto); }
+  void apretar(ImGuiKey tecla) { tecla_ = tecla; }
+  void usar_boton(int boton) { boton_ = boton; }
 
  private:
   ImVec2 tamano_;
+  std::string texto_;
+  ImGuiKey tecla_ = ImGuiKey_None;
+  ImGuiKey soltar_ = ImGuiKey_None;
+  int boton_ = 0;
 };
 
 Guardados muchos() {
@@ -254,4 +271,170 @@ TEST_CASE("El nombre de la tecla para hablar sale de los textos o de Windows") {
   CHECK(ui::nombre_tecla(espanol, 0xA4) == "Alt izq.");
   CHECK(ui::nombre_tecla(espanol, 0x05) == "Botón 4 del mouse");
   CHECK_FALSE(ui::nombre_tecla(espanol, 'V').empty());
+}
+
+namespace {
+bool hay_ventana_emergente() { return ImGui::GetCurrentContext()->OpenPopupStack.Size > 0; }
+
+template <typename Orden>
+std::vector<Orden> ordenes_de(const std::vector<ui::PedidoServidor>& pedidos) {
+  std::vector<Orden> encontradas;
+  for (const auto& pedido : pedidos) {
+    for (const auto& orden : pedido.ordenes) {
+      if (const auto* cual = std::get_if<Orden>(&orden)) {
+        encontradas.push_back(*cual);
+      }
+    }
+  }
+  return encontradas;
+}
+
+}
+
+TEST_CASE("El dueño crea un canal de texto con el + y el invitado no tiene +") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  const ImVec2 mas(264, 165);
+  sin_pantalla.cuadro(pantalla, sala, mas);
+  sin_pantalla.cuadro(pantalla, sala, mas, true);
+  sin_pantalla.cuadro(pantalla, sala, mas);
+  CHECK(pantalla.dialogo == ui::Dialogo::crear_texto);
+  std::vector<ui::PedidoServidor> pedidos;
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  sin_pantalla.teclear("Novedades");
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  const auto creados = ordenes_de<CrearCanal>(pedidos);
+  REQUIRE(creados.size() == 1);
+  CHECK(creados[0].nombre == "Novedades");
+  CHECK(creados[0].tipo == TipoCanal::texto);
+  CHECK_FALSE(creados[0].solo_admins);
+  CHECK(pantalla.dialogo == ui::Dialogo::ninguno);
+
+  auto invitado = sala_llena(false, 4, 3, 5);
+  auto otra = pantalla_servidor();
+  sin_pantalla.cuadro(otra, invitado, mas);
+  sin_pantalla.cuadro(otra, invitado, mas, true);
+  sin_pantalla.cuadro(otra, invitado, mas);
+  CHECK(otra.dialogo == ui::Dialogo::ninguno);
+}
+
+TEST_CASE("Con un nombre inválido el cuadro avisa y no manda nada") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  pantalla.dialogo = ui::Dialogo::crear_voz;
+  pantalla.abrir_dialogo = true;
+  std::vector<ui::PedidoServidor> pedidos;
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  sin_pantalla.teclear(" ");
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  CHECK(ordenes_de<CrearCanal>(pedidos).empty());
+  CHECK(pantalla.dialogo == ui::Dialogo::crear_voz);
+  CHECK_FALSE(pantalla.error_dialogo.empty());
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  CHECK(pantalla.dialogo == ui::Dialogo::ninguno);
+}
+
+TEST_CASE("El clic derecho del dueño abre el menú, y cambiar o borrar mandan su orden") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  const ImVec2 fila(100, 192);
+  sin_pantalla.usar_boton(1);
+  sin_pantalla.cuadro(pantalla, sala, fila);
+  sin_pantalla.cuadro(pantalla, sala, fila, true);
+  sin_pantalla.cuadro(pantalla, sala, fila);
+  CHECK(hay_ventana_emergente());
+  sin_pantalla.usar_boton(0);
+  const ImVec2 cambiar(130, 207);
+  sin_pantalla.cuadro(pantalla, sala, cambiar);
+  sin_pantalla.cuadro(pantalla, sala, cambiar, true);
+  sin_pantalla.cuadro(pantalla, sala, cambiar);
+  CHECK(pantalla.dialogo == ui::Dialogo::cambiar);
+  CHECK(pantalla.canal_dialogo == 2);
+  CHECK(std::string(pantalla.nombre_dialogo.data()) == sala.canal(2)->nombre);
+  std::vector<ui::PedidoServidor> pedidos;
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  const auto cambiados = ordenes_de<CambiarCanal>(pedidos);
+  REQUIRE(cambiados.size() == 1);
+  CHECK(cambiados[0].canal == 2);
+
+  pantalla.dialogo = ui::Dialogo::borrar;
+  pantalla.canal_dialogo = 3;
+  pantalla.abrir_dialogo = true;
+  pedidos.clear();
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+  CHECK(ordenes_de<BorrarCanal>(pedidos).empty());
+  pantalla.dialogo = ui::Dialogo::borrar;
+  pantalla.abrir_dialogo = true;
+  for (float x = 520; x < 880 && pantalla.dialogo == ui::Dialogo::borrar; x += 8) {
+    const ImVec2 boton(x, 425);
+    pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, boton));
+    pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, boton, true));
+    pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, boton));
+  }
+  const auto borrados = ordenes_de<BorrarCanal>(pedidos);
+  REQUIRE(borrados.size() == 1);
+  CHECK(borrados[0].canal == 3);
+}
+
+TEST_CASE("El gráfico de la barra de estado abre el diagnóstico") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(false, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  pantalla.diagnostico = {true, 12, 3.6, 70 * 1024 * 1024, 40, 7, 0};
+  bool abierto = false;
+  for (float x = 150; x < 700 && !abierto; x += 16) {
+    const ImVec2 donde(x, 756);
+    sin_pantalla.cuadro(pantalla, sala, donde);
+    sin_pantalla.cuadro(pantalla, sala, donde, true);
+    sin_pantalla.cuadro(pantalla, sala, donde);
+    abierto = hay_ventana_emergente();
+  }
+  CHECK(abierto);
+  for (int i = 0; i < 3; ++i) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  }
+}
+
+TEST_CASE("Si borran el canal mientras su cuadro está abierto, el cuadro se cierra; el invitado no tiene menú") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  pantalla.dialogo = ui::Dialogo::cambiar;
+  pantalla.canal_dialogo = 2;
+  pantalla.abrir_dialogo = true;
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  CHECK(hay_ventana_emergente());
+  sala.aplicar(CanalBorrado{2, 1});
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  CHECK(pantalla.dialogo == ui::Dialogo::ninguno);
+  CHECK_FALSE(hay_ventana_emergente());
+
+  auto invitado = sala_llena(false, 4, 3, 5);
+  auto otra = pantalla_servidor();
+  const ImVec2 fila(100, 192);
+  sin_pantalla.usar_boton(1);
+  sin_pantalla.cuadro(otra, invitado, fila);
+  sin_pantalla.cuadro(otra, invitado, fila, true);
+  sin_pantalla.cuadro(otra, invitado, fila);
+  CHECK_FALSE(hay_ventana_emergente());
 }

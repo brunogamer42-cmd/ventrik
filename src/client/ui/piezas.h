@@ -66,6 +66,8 @@ void escribir(ImVec2 donde, std::string_view texto, ImU32 color, Letra letra = L
               float tamano = medida::letra);
 void escribir_cortado(ImVec2 donde, float ancho, std::string_view texto, ImU32 color,
                       Letra letra = Letra::normal, float tamano = medida::letra);
+float escribir_en(float x, float medio, std::string_view texto, ImU32 color, Letra letra = Letra::normal,
+                  float tamano = medida::letra, float ancho = 0);
 float escribir_espaciado(ImVec2 donde, std::string_view texto, ImU32 color, Letra letra, float tamano,
                          float espacio);
 void escribir_parrafo(std::string_view texto, ImU32 color, float ancho,

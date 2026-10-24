@@ -70,8 +70,7 @@ class Dibujo {
     triangulos(dibujo, ImVec2(0, 0), ImVec2(ancho_, alto));
     emblema(ImVec2(px(kMargen), px(13)), px(42), pantalla_.logo);
     const std::string_view programa = t(Clave::titulo_ventana);
-    escribir(ImVec2(px(73), (alto - medir(programa, Letra::titulo, medida::letra_servidor).y) / 2), programa,
-             color::texto, Letra::titulo, medida::letra_servidor);
+    escribir_en(px(73), alto / 2, programa, color::texto, Letra::titulo, medida::letra_servidor);
 
     float x = ancho_ - px(kMargen);
     const float y = (alto - px(medida::alto_biselado)) / 2;
@@ -82,8 +81,7 @@ class Dibujo {
       boton("##yo", "", Estilo::biselado, ImVec2(ancho_chip, px(medida::alto_biselado)));
       avatar(ImVec2(x + px(10), y + 1), px(medida::alto_biselado) - 2, iniciales(guardados_.nombre),
              color::avatar_propio, color::texto, medida::letra_chica);
-      escribir(ImVec2(x + px(54), y + (px(medida::alto_biselado) - medir("", Letra::fuerte, medida::letra).y) / 2),
-               guardados_.nombre, color::texto, Letra::fuerte);
+      escribir_en(x + px(54), y + px(medida::alto_biselado) / 2, guardados_.nombre, color::texto, Letra::fuerte);
       x -= px(8);
     }
     for (const auto& [clave, icono, etapa, id] :
@@ -316,13 +314,12 @@ class Dibujo {
     dibujo.AddRectFilled(ImVec2(0, arriba), ImVec2(ancho_, alto_), tono(color::panel));
     dibujo.AddRectFilled(ImVec2(0, arriba), ImVec2(ancho_, arriba + 1), tono(color::linea));
     const std::string version = con_datos(t(Clave::inicio_version), {a_texto(kVersionPrograma)});
-    const float y = arriba + (px(kAltoPie) - medir(version, Letra::normal, medida::letra_chica).y) / 2;
-    escribir(ImVec2(px(kMargen), y), version, color::apagado, Letra::normal, medida::letra_chica);
-    escribir(ImVec2(px(kMargen + 20) + medir(version, Letra::normal, medida::letra_chica).x, y),
-             t(Clave::inicio_pie_modo), color::apagado, Letra::normal, medida::letra_chica);
+    const float medio = arriba + px(kAltoPie) / 2;
+    const float x = escribir_en(px(kMargen), medio, version, color::apagado, Letra::normal, medida::letra_chica);
+    escribir_en(x + px(20), medio, t(Clave::inicio_pie_modo), color::apagado, Letra::normal, medida::letra_chica);
     if (!pantalla_.aviso.empty()) {
-      escribir(ImVec2(ancho_ - px(kMargen) - medir(pantalla_.aviso, Letra::normal, medida::letra_chica).x, y),
-               pantalla_.aviso, color::amarillo, Letra::normal, medida::letra_chica);
+      escribir_en(ancho_ - px(kMargen) - medir(pantalla_.aviso, Letra::normal, medida::letra_chica).x, medio,
+                  pantalla_.aviso, color::amarillo, Letra::normal, medida::letra_chica);
     }
   }
 

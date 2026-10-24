@@ -297,6 +297,11 @@ LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LP
             std::min(minimo.bottom - minimo.top, monitor.rcWork.bottom - monitor.rcWork.top)};
       }
       return 0;
+    case WM_ENDSESSION:
+      if (yo != nullptr && wparam != FALSE && yo->al_terminar_) {
+        yo->al_terminar_();
+      }
+      return 0;
     case WM_DESTROY:
       PostQuitMessage(0);
       return 0;

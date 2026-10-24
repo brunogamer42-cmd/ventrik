@@ -6,7 +6,6 @@
 #include <windows.h>
 #include <shellapi.h>
 
-#include "client/consola.h"
 #include "client/ui/programa.h"
 #include "common/proceso.h"
 #include "common/textos.h"
@@ -38,10 +37,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int como_mostrar) {
   int cantidad = 0;
   const std::unique_ptr<LPWSTR, LiberarArgumentos> argumentos(
       CommandLineToArgvW(GetCommandLineW(), &cantidad));
-  if (argumentos && cantidad >= 2 && std::wstring_view(argumentos.get()[1]) == L"--consola") {
-    return ventrik::cliente::abrir_consola(idioma, cantidad, argumentos.get());
-  }
-
   std::vector<std::string> entrar;
   if (argumentos && (cantidad == 5 || (cantidad == 7 && std::wstring_view(argumentos.get()[5]) == L"--dueno")) &&
       std::wstring_view(argumentos.get()[1]) == L"--entrar") {

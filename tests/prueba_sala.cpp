@@ -63,6 +63,48 @@ TEST_CASE("La sala arranca con lo presentado, todo leído, y pide el historial d
   CHECK(sala.ping() == 20u);
 }
 
+TEST_CASE("Con lo leído guardado, cada canal sigue desde donde quedó y uno nuevo arranca sin leer") {
+  Sala sala(presentado(), {{1, 0}, {3, 2}, {4, 99}, {7, 5}});
+  CHECK(sala.nuevos(3) == 3);
+  CHECK(sala.nuevos(4) == 0);
+  CHECK(sala.nuevos(2) == 0);
+  sala.aplicar(MensajesNuevos{{{2, 6}, {4, 3}}});
+  CHECK(sala.nuevos(2) == 6);
+  CHECK(sala.nuevos(4) == 1);
+  const auto leidos = sala.leidos();
+  REQUIRE(leidos.size() == 3);
+  CHECK(leidos[0].canal == 1);
+  CHECK(leidos[1].canal == 3);
+  CHECK(leidos[1].numero == 2);
+  CHECK(leidos[2].canal == 4);
+  CHECK(leidos[2].numero == 2);
+  sala.elegir_texto(3);
+  CHECK(sala.leidos()[1].numero == 5);
+}
+
+TEST_CASE("Un canal con número 0 se ignora, así lo leído siempre se puede guardar") {
+  auto con_cero = presentado();
+  con_cero.canales.push_back({0, "cero", TipoCanal::texto, false, 3});
+  Sala sala(con_cero);
+  sala.aplicar(CanalCreado{{0, "otro cero", TipoCanal::texto, false, 1}});
+  CHECK(sala.canal(0) == nullptr);
+  CHECK(sala.canales().size() == 4);
+  for (const auto& leido : sala.leidos()) {
+    CHECK(leido.canal != 0);
+  }
+}
+
+TEST_CASE("Sin nada guardado todo cuenta como leído, y lo leído que se guarda tiene tope") {
+  Sala sala(presentado());
+  CHECK(sala.leidos().size() == 4);
+  CHECK(sala.leidos()[2].numero == 5);
+  for (std::uint32_t id = 10; id < 200; ++id) {
+    sala.aplicar(CanalCreado{{id, "c", TipoCanal::texto, false, 0}});
+    sala.elegir_texto(id);
+  }
+  CHECK(sala.leidos().size() == ventrik::cliente::kMaximoLeidosPorServidor);
+}
+
 TEST_CASE("Las personas entran, salen y se mueven; si te movés vos, se pide el historial del canal nuevo") {
   Sala sala(presentado());
   sala.aplicar(UsuarioEntro{{10, "Dani", 2}});

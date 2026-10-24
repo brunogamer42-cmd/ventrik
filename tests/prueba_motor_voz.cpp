@@ -91,6 +91,7 @@ TEST_CASE("BufferVoz espera dos paquetes y los da en orden") {
   CHECK(sacar_todo(buffer, 1) == std::vector<int>{-2});
   buffer.llegar(paquete(1));
   CHECK(sacar_todo(buffer, 3) == std::vector<int>{0, 1, -2});
+  CHECK(buffer.recortes() == 0);
 }
 
 TEST_CASE("BufferVoz ordena, descarta duplicados y tardíos, y marca los perdidos") {
@@ -140,6 +141,7 @@ TEST_CASE("BufferVoz no junta retraso con las trabas de la red ni con relojes di
     mayor = std::max(mayor, buffer.cantidad());
   }
   CHECK(mayor <= 6);
+  CHECK(buffer.recortes() > 0);
   int sonaron = 0;
   for (int i = 1; i <= 10000; ++i) {
     sonaron += paso(i % 100 == 0 ? 2 : 1) == Salida::paquete ? 1 : 0;

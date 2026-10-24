@@ -20,7 +20,7 @@ struct sqlite3;
 namespace ventrik::servidor {
 enum class Retencion : std::uint8_t { siempre = 0, dias_30 = 1, dias_7 = 2, no_guardar = 3 };
 
-constexpr std::uint32_t kCanalGeneral = 1;
+using protocolo::kCanalGeneral;
 
 class Base {
  public:
