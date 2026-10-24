@@ -1,6 +1,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <windows.h>
 #include <shellapi.h>
@@ -41,5 +42,14 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int como_mostrar) {
     return ventrik::cliente::abrir_consola(idioma, cantidad, argumentos.get());
   }
 
-  return ventrik::ui::abrir_programa(idioma, titulo, como_mostrar);
+  std::vector<std::string> entrar;
+  if (argumentos && (cantidad == 5 || (cantidad == 7 && std::wstring_view(argumentos.get()[5]) == L"--dueno")) &&
+      std::wstring_view(argumentos.get()[1]) == L"--entrar") {
+    for (int i = 2; i < cantidad; ++i) {
+      if (i != 5) {
+        entrar.push_back(ventrik::a_utf8(argumentos.get()[i]));
+      }
+    }
+  }
+  return ventrik::ui::abrir_programa(idioma, titulo, como_mostrar, entrar);
 }

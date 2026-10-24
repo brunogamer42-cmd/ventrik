@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 #include <imgui.h>
@@ -40,6 +41,14 @@ constexpr ImU32 borde_contorneado = rgb(0x5A666A);
 constexpr ImU32 borde_modo = rgb(0x262E31);
 constexpr ImU32 emblema = rgb(0x0E1B26);
 constexpr ImU32 avatar_propio = rgb(0x4B4774);
+constexpr ImU32 tinta_naranja = rgb(0x2A1405);
+constexpr ImU32 campo_chat = rgb(0x222A2D);
+constexpr ImU32 chip = rgb(0x2F393D);
+constexpr ImU32 escuadra_chat = rgb(0x5E6A6E);
+constexpr ImU32 cuadricula = rgb(0xDDE6E6, 11);
+constexpr ImU32 seleccion = rgb(0xFFFFFF, 18);
+constexpr std::array<ImU32, 7> avatares = {rgb(0x4B4774), rgb(0x3B5B51), rgb(0x34555B), rgb(0x6A5A2C),
+                                           rgb(0x3B4766), rgb(0x5E3846), rgb(0x5F4B3C)};
 }
 
 namespace medida {
@@ -67,6 +76,26 @@ constexpr float margen_campo = 12;
 constexpr float triangulo = 9;
 constexpr float icono = 15;
 constexpr float separacion_icono = 7;
+constexpr float letra_bloque = 15;
+constexpr float letra_transmitiendo = 12.5f;
+constexpr float alto_barra = 59;
+constexpr float ancho_lateral = 290;
+constexpr float alto_estado = 24;
+constexpr float fila_voz = 31;
+constexpr float fila_texto = 30;
+constexpr float avatar_lista = 26;
+constexpr float avatar_chat = 28;
+constexpr float alto_tecla = 26;
+constexpr float margen_tecla = 9;
+constexpr float alto_transmitiendo = 28;
+constexpr float corte_transmitiendo = 8;
+constexpr float contador = 18;
+constexpr float barra_lista = 8;
+constexpr float boton_mas = 22;
+constexpr float segmento = 7;
+constexpr float alto_segmento = 9;
+constexpr float entre_segmentos = 2;
+constexpr float alto_campo_chat = 37;
 }
 
 }

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdint>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -93,6 +94,22 @@ TEST_CASE("el archivo de servidores rechaza lo que no armó Ventrik") {
   auto nombre = bien;
   nombre[9] = ' ';
   CHECK(leer_sin_tocar(nombre) == LecturaGuardados::danados);
+  for (const std::uint8_t tecla : std::initializer_list<std::uint8_t>{0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x1B, 0xFF}) {
+    auto con_tecla = bien;
+    con_tecla[6] = tecla;
+    CHECK(leer_sin_tocar(con_tecla) == LecturaGuardados::danados);
+  }
+}
+
+TEST_CASE("la tecla para hablar es Alt izquierdo si no se eligió otra, y no puede ser un clic ni Esc") {
+  for (const std::uint8_t tecla : std::initializer_list<std::uint8_t>{0x00, 0x04, 0x05, 0x06, 0x41, 0xA0, 0xA4, 0xA5, 0xFE}) {
+    CHECK(ventrik::cliente::es_tecla_valida(tecla));
+  }
+  for (const std::uint8_t tecla : std::initializer_list<std::uint8_t>{0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x1B, 0xFF}) {
+    CHECK_FALSE(ventrik::cliente::es_tecla_valida(tecla));
+  }
+  CHECK(ventrik::cliente::tecla_para_hablar(0) == 0xA4);
+  CHECK(ventrik::cliente::tecla_para_hablar(0x05) == 0x05);
 }
 
 TEST_CASE("no se arma un archivo de servidores con datos inválidos") {
@@ -102,6 +119,7 @@ TEST_CASE("no se arma un archivo de servidores con datos inválidos") {
     CHECK(armar_guardados(guardados).empty());
   };
   sin_armar([](Guardados& g) { g.nombre = " Tano"; });
+  sin_armar([](Guardados& g) { g.tecla_hablar = 0x1B; });
   sin_armar([](Guardados& g) { g.servidores[0].direccion.puerto = 0; });
   sin_armar([](Guardados& g) { g.servidores[0].direccion.ipv4 = 0; });
   sin_armar([](Guardados& g) { g.servidores[0].nombre.clear(); });

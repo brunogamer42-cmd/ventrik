@@ -1,13 +1,17 @@
+#include <functional>
 #include <string>
 #include <utility>
+#include <variant>
 
 #include <doctest/doctest.h>
 #include <imgui.h>
 #include <imgui_impl_null.h>
 #include <imgui_internal.h>
 
+#include "client/sala.h"
 #include "client/ui/inicio.h"
 #include "client/ui/piezas.h"
+#include "client/ui/servidor.h"
 
 namespace ui = ventrik::ui;
 using ventrik::cliente::Guardados;
@@ -26,7 +30,7 @@ class SinPantalla {
   SinPantalla(const SinPantalla&) = delete;
   SinPantalla& operator=(const SinPantalla&) = delete;
 
-  ui::Pedido cuadro(ui::PantallaInicio& pantalla, const Guardados& guardados, ImVec2 mouse, bool clic = false) {
+  void cuadro(const std::function<void()>& dibujar, ImVec2 mouse, bool clic) {
     ImGui_ImplNull_NewFrame();
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = tamano_;
@@ -34,10 +38,21 @@ class SinPantalla {
     io.AddMouseButtonEvent(0, clic);
     ImGui::NewFrame();
     CHECK(ImGui::GetCurrentContext()->DebugDrawIdConflictsId == 0);
-    ui::Pedido pedido;
-    ui::pantalla_completa([&] { pedido = ui::dibujar_inicio(pantalla, guardados); });
+    ui::pantalla_completa(dibujar);
     ImGui::Render();
     CHECK(ImGui::GetCurrentContext()->ErrorCountCurrentFrame == 0);
+  }
+
+  ui::Pedido cuadro(ui::PantallaInicio& pantalla, const Guardados& guardados, ImVec2 mouse, bool clic = false) {
+    ui::Pedido pedido;
+    cuadro([&] { pedido = ui::dibujar_inicio(pantalla, guardados); }, mouse, clic);
+    return pedido;
+  }
+
+  ui::PedidoServidor cuadro(ui::PantallaServidor& pantalla, ventrik::cliente::Sala& sala, ImVec2 mouse,
+                            bool clic = false) {
+    ui::PedidoServidor pedido;
+    cuadro([&] { pedido = ui::dibujar_servidor(pantalla, sala); }, mouse, clic);
     return pedido;
   }
 
@@ -96,8 +111,6 @@ TEST_CASE("la pantalla Inicio se dibuja sin errores ni identificadores repetidos
 
   pantalla.intento = {guardados.servidores[0].direccion, false, ui::Fase::conectando, {}};
   recorrer(sin_pantalla, pantalla, guardados);
-  pantalla.intento = {guardados.servidores[2].direccion, true, ui::Fase::conectada, "Conectado como Tano"};
-  recorrer(sin_pantalla, pantalla, guardados);
   pantalla.intento = {guardados.servidores[1].direccion, false, ui::Fase::error, std::string(300, 'x')};
   pantalla.error_formulario = std::string(200, 'y');
   pantalla.aviso = "aviso";
@@ -144,4 +157,101 @@ TEST_CASE("en Inicio, \"Entrar como dueño\" del menú de una tarjeta completa e
   CHECK(std::string(pantalla.nombre.data()) == guardados.servidores[0].nombre);
   CHECK(std::string(pantalla.huella.data()).size() == 64);
   CHECK(pantalla.codigo[0] == '\0');
+}
+
+namespace {
+using namespace ventrik::protocolo;
+
+ventrik::cliente::Sala sala_llena(bool dueno, std::size_t canales, std::size_t personas, std::size_t mensajes) {
+  Presentado presentado;
+  presentado.tu_id = 1;
+  presentado.dueno = dueno;
+  for (std::uint32_t id = 1; id <= canales; ++id) {
+    const bool texto = id % 2 == 0;
+    presentado.canales.push_back({id, (texto ? "texto " : "voz ") + std::to_string(id) + std::string(id == 2 ? 20 : 0, 'x'),
+                                  texto ? TipoCanal::texto : TipoCanal::voz, texto && id % 4 == 0, id * 3});
+  }
+  for (std::uint32_t id = 1; id <= personas; ++id) {
+    presentado.usuarios.push_back({id, "Persona con nombre largo " + std::to_string(id), 1 + (id % 3) * 2});
+  }
+  ventrik::cliente::Sala sala(presentado);
+  sala.empezar();
+  Historial historial{sala.tu_canal(), true, {}};
+  for (std::uint64_t id = mensajes; id >= 1; --id) {
+    historial.mensajes.push_back({id, static_cast<std::uint32_t>(id), "Persona con nombre largo 2",
+                                  1761234567890 + id * 3600000, id % 7 == 0 ? std::string(4000, 'w') : "hola " + std::to_string(id)});
+  }
+  sala.aplicar(historial);
+  sala.aplicar(MensajesNuevos{{{2, 50}, {4, 7}}});
+  return sala;
+}
+
+ui::PantallaServidor pantalla_servidor() {
+  ui::PantallaServidor pantalla;
+  pantalla.direccion = "203.0.113.20:7700";
+  pantalla.hablando = 2;
+  pantalla.transmitiendo = true;
+  pantalla.nivel = 7;
+  for (std::uint32_t i = 0; i < ui::kMuestrasDelGrafico; ++i) {
+    pantalla.grafico.push_back({20 + i % 9, i % 13 == 0 ? 1u : 0u, 50});
+  }
+  return pantalla;
+}
+
+void recorrer(SinPantalla& sin_pantalla, ui::PantallaServidor& pantalla, ventrik::cliente::Sala& sala) {
+  for (float y = 5; y < sin_pantalla.tamano().y; y += 41) {
+    for (float x = 5; x < sin_pantalla.tamano().x; x += 59) {
+      sin_pantalla.cuadro(pantalla, sala, ImVec2(x, y));
+    }
+  }
+}
+
+}
+
+TEST_CASE("La pantalla del servidor se dibuja sin errores a cualquier tamaño, escala y cantidad") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1376, 768)), std::make_pair(1.0f, ImVec2(1200, 700)),
+                                       std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.25f, ImVec2(1720, 960)),
+                                       std::make_pair(1.5f, ImVec2(1650, 960)), std::make_pair(1.0f, ImVec2(2560, 1440))}) {
+    SinPantalla sin_pantalla(escala, tamano);
+    CAPTURE(escala);
+    CAPTURE(tamano.x);
+    for (const bool dueno : {false, true}) {
+      CAPTURE(dueno);
+      auto sala = sala_llena(dueno, 60, 512, 300);
+      auto pantalla = pantalla_servidor();
+      recorrer(sin_pantalla, pantalla, sala);
+      sala.elegir_texto(4);
+      recorrer(sin_pantalla, pantalla, sala);
+    }
+    auto vacia = sala_llena(false, 1, 1, 0);
+    ui::PantallaServidor pantalla;
+    recorrer(sin_pantalla, pantalla, vacia);
+  }
+}
+
+TEST_CASE("Un clic en un canal de texto lo mira y uno en otro canal de voz entra") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(false, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  const auto clic = [&](ImVec2 donde) {
+    sin_pantalla.cuadro(pantalla, sala, donde);
+    sin_pantalla.cuadro(pantalla, sala, donde, true);
+    return sin_pantalla.cuadro(pantalla, sala, donde);
+  };
+  const auto texto = clic(ImVec2(100, 192));
+  REQUIRE(texto.ordenes.size() == 2);
+  CHECK(std::get<MirarCanal>(texto.ordenes[0]).canal == 2);
+  CHECK(sala.mirando() == 2);
+  const auto voz = clic(ImVec2(100, 285));
+  REQUIRE(voz.ordenes.size() == 2);
+  CHECK(std::get<MirarCanal>(voz.ordenes[0]).canal == 0);
+  CHECK(std::get<EntrarACanal>(voz.ordenes[1]).canal == 1);
+}
+
+TEST_CASE("El nombre de la tecla para hablar sale de los textos o de Windows") {
+  const ventrik::Idioma espanol = ventrik::elegir_idioma("es");
+  CHECK(ui::nombre_tecla(espanol, 0) == "Alt izq.");
+  CHECK(ui::nombre_tecla(espanol, 0xA4) == "Alt izq.");
+  CHECK(ui::nombre_tecla(espanol, 0x05) == "Botón 4 del mouse");
+  CHECK_FALSE(ui::nombre_tecla(espanol, 'V').empty());
 }

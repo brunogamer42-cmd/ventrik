@@ -1,6 +1,8 @@
 #include "client/motor_voz.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <vector>
 
 #include <windows.h>
@@ -73,6 +75,11 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     capturadas_ = 0;
     entrada = {};
   }
+  int pico = 0;
+  for (const std::int16_t muestra : entrada) {
+    pico = std::max(pico, std::abs(static_cast<int>(muestra)));
+  }
+  pico_.store(pico, std::memory_order_relaxed);
   while (!entrada.empty()) {
     const auto parte = entrada.first(std::min(entrada.size(), por_paquete_ - capturadas_));
     std::copy(parte.begin(), parte.end(), capturado_.begin() + static_cast<std::ptrdiff_t>(capturadas_));
@@ -89,6 +96,15 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     }
     muestra = reproducir_[reproducidas_++];
   }
+}
+
+int MotorVoz::nivel(int segmentos) const {
+  const int pico = pico_.load(std::memory_order_relaxed);
+  if (pico <= 0) {
+    return 0;
+  }
+  const double decibeles = 20 * std::log10(static_cast<double>(pico) / 32768);
+  return std::clamp(static_cast<int>(std::lround((decibeles + 50) / 50 * segmentos)), 0, segmentos);
 }
 
 void MotorVoz::codificar() {

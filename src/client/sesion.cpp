@@ -56,6 +56,15 @@ std::string explicar(Idioma idioma, const Fin& fin) {
                                                                                : Clave::fin_cortado));
 }
 
+std::string explicar(Idioma idioma, protocolo::MotivoNegado motivo) {
+  constexpr std::array<Clave, 7> kNegados = {Clave::negado_sin_permiso,    Clave::negado_no_existe,
+                                             Clave::negado_texto_invalido, Clave::negado_demasiado_rapido,
+                                             Clave::negado_lleno,          Clave::negado_nombre_en_uso,
+                                             Clave::negado_tipo_de_canal};
+  const auto indice = static_cast<std::size_t>(motivo) - 1;
+  return std::string(texto(idioma, indice < kNegados.size() ? kNegados[indice] : Clave::negado_sin_permiso));
+}
+
 Sesion::Sesion(const red::Direccion& destino, const cifrado::Huella& huella, Presentacion quien,
                OpcionesSesion opciones)
     : destino_(destino),

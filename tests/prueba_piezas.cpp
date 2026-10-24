@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include <doctest/doctest.h>
 
 #include "client/ui/piezas.h"
@@ -48,6 +50,18 @@ TEST_CASE("las formas con esquinas cortadas van en el sentido de las agujas del 
     }
     CHECK(area > 0);
   }
+}
+
+TEST_CASE("el color del avatar sale del nombre y no cambia con las mayúsculas") {
+  CHECK(ui::color_de_avatar("Tano") == ui::color_de_avatar("TANO"));
+  CHECK(ui::color_de_avatar("Tano") == ui::color_de_avatar("Tano"));
+  bool distintos = false;
+  for (const char* nombre : {"Ana", "Beto", "Carla", "Dani", "Eli"}) {
+    const ImU32 color = ui::color_de_avatar(nombre);
+    CHECK(std::find(ui::color::avatares.begin(), ui::color::avatares.end(), color) != ui::color::avatares.end());
+    distintos = distintos || color != ui::color_de_avatar("Tano");
+  }
+  CHECK(distintos);
 }
 
 TEST_CASE("las iniciales salen de las dos primeras palabras") {

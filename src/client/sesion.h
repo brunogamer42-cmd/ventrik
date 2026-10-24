@@ -58,6 +58,7 @@ struct OpcionesSesion {
 
 std::string explicar(Idioma idioma, const IntentoDeConexion& intento);
 std::string explicar(Idioma idioma, const Fin& fin);
+std::string explicar(Idioma idioma, protocolo::MotivoNegado motivo);
 
 class Sesion {
  public:

@@ -3,11 +3,24 @@
 #include "client/ui/piezas.h"
 
 namespace ventrik::ui {
+namespace {
+constexpr float kPi = 3.14159265f;
+}
 
 void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, ImU32 color) {
   const float u = lado / 15;
   const float grosor = std::max(1.0f, 1.4f * u);
   const auto p = [&](float x, float y) { return ImVec2(centro.x + x * u, centro.y + y * u); };
+  const auto arco = [&](float x, float y, float radio, float desde, float hasta) {
+    dibujo.PathArcTo(p(x, y), radio * u, desde, hasta, 16);
+    dibujo.PathStroke(color, 0, grosor);
+  };
+  const auto trazo = [&](std::initializer_list<ImVec2> puntos, bool cerrado) {
+    for (const ImVec2& punto : puntos) {
+      dibujo.PathLineTo(p(punto.x, punto.y));
+    }
+    dibujo.PathStroke(color, cerrado ? ImDrawFlags_Closed : 0, grosor);
+  };
   switch (icono) {
     case Icono::lupa:
       dibujo.AddCircle(p(-1.5f, -1.5f), 5 * u, color, 0, grosor);
@@ -45,6 +58,69 @@ void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, I
         dibujo.AddRect(p(-7, y), p(7, y + 5), color, u, 0, grosor);
         dibujo.AddLine(p(-4.5f, y + 2.5f), p(-1, y + 2.5f), color, grosor);
       }
+      break;
+    case Icono::microfono:
+      dibujo.AddRect(p(-2.5f, -7), p(2.5f, 2), color, 2.5f * u, 0, grosor);
+      arco(0, -1.5f, 5, 0, kPi);
+      dibujo.AddLine(p(0, 3.5f), p(0, 7), color, grosor);
+      break;
+    case Icono::auriculares:
+      arco(0, 1, 6, kPi, 2 * kPi);
+      dibujo.AddRect(p(-7, 1), p(-3.5f, 6.5f), color, u, 0, grosor);
+      dibujo.AddRect(p(3.5f, 1), p(7, 6.5f), color, u, 0, grosor);
+      break;
+    case Icono::persona:
+      dibujo.AddCircle(p(0, -3.5f), 3.2f * u, color, 0, grosor);
+      arco(0, 7, 6, 1.1f * kPi, 1.9f * kPi);
+      break;
+    case Icono::lapiz:
+      trazo({ImVec2(-6, 6), ImVec2(-6, 3), ImVec2(3, -6), ImVec2(6, -3), ImVec2(-3, 6)}, true);
+      break;
+    case Icono::encendido:
+      arco(0, 0.8f, 5.6f, -0.32f * kPi, 1.32f * kPi);
+      dibujo.AddLine(p(0, -6.5f), p(0, -0.5f), color, grosor);
+      break;
+    case Icono::numeral:
+      dibujo.AddLine(p(-1.5f, -6), p(-3, 6), color, grosor);
+      dibujo.AddLine(p(3, -6), p(1.5f, 6), color, grosor);
+      dibujo.AddLine(p(-5.5f, -2), p(5.5f, -2), color, grosor);
+      dibujo.AddLine(p(-6, 2.5f), p(5, 2.5f), color, grosor);
+      break;
+    case Icono::candado:
+      dibujo.AddRect(p(-5, -1), p(5, 6), color, u, 0, grosor);
+      arco(0, -2, 3.3f, kPi, 2 * kPi);
+      dibujo.AddLine(p(-3.3f, -2), p(-3.3f, -1), color, grosor);
+      dibujo.AddLine(p(3.3f, -2), p(3.3f, -1), color, grosor);
+      break;
+    case Icono::flecha_derecha:
+      trazo({ImVec2(-2, -4.5f), ImVec2(2.5f, 0), ImVec2(-2, 4.5f)}, false);
+      break;
+    case Icono::flecha_abajo:
+      trazo({ImVec2(-4.5f, -2), ImVec2(0, 2.5f), ImVec2(4.5f, -2)}, false);
+      break;
+    case Icono::voz:
+      for (const auto& [x, alto] : {std::make_pair(-6.0f, 3.0f), std::make_pair(-3.0f, 6.5f),
+                                    std::make_pair(0.0f, 9.0f), std::make_pair(3.0f, 6.5f),
+                                    std::make_pair(6.0f, 3.0f)}) {
+        dibujo.AddLine(p(x, -alto / 2), p(x, alto / 2), color, std::max(1.0f, 1.8f * u));
+      }
+      break;
+    case Icono::enviar:
+      trazo({ImVec2(-6.5f, -0.5f), ImVec2(6.5f, -6.5f), ImVec2(0.5f, 6.5f), ImVec2(-0.5f, 0.5f)}, true);
+      break;
+    case Icono::clip:
+      dibujo.PathArcTo(p(3, -3), 2.6f * u, -0.75f * kPi, 0.25f * kPi, 8);
+      dibujo.PathArcTo(p(-3, 3), 2.6f * u, 0.25f * kPi, 1.25f * kPi, 8);
+      dibujo.PathStroke(color, ImDrawFlags_Closed, grosor);
+      dibujo.AddLine(p(-1.8f, 1.8f), p(1.8f, -1.8f), color, grosor);
+      break;
+    case Icono::panel:
+      dibujo.AddRect(p(-6.5f, -6), p(6.5f, 6), color, u, 0, grosor);
+      dibujo.AddLine(p(2, -6), p(2, 6), color, grosor);
+      break;
+    case Icono::verificado:
+      dibujo.AddCircle(p(0, 0), 6.5f * u, color, 0, grosor);
+      trazo({ImVec2(-3, 0), ImVec2(-0.8f, 2.5f), ImVec2(3.2f, -2.5f)}, false);
       break;
     case Icono::ninguno:
       break;

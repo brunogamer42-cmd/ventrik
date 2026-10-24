@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+#include "client/horas.h"
 #include "client/ui/piezas.h"
 #include "common/cifrado/huella.h"
 #include "common/texto.h"
@@ -23,23 +24,6 @@ constexpr float kAltoTarjeta = 165;
 constexpr float kEntreTarjetas = 12;
 constexpr float kRelleno = 17;
 constexpr float kAltoBoton = 44;
-
-std::string fecha_local(std::uint64_t milisegundos) {
-  const std::uint64_t desde_1601 = milisegundos * 10000 + 116444736000000000ull;
-  const FILETIME universal = {static_cast<DWORD>(desde_1601), static_cast<DWORD>(desde_1601 >> 32)};
-  FILETIME local = {};
-  SYSTEMTIME partes = {};
-  std::array<wchar_t, 64> fecha{};
-  std::array<wchar_t, 32> hora{};
-  if (!FileTimeToLocalFileTime(&universal, &local) || !FileTimeToSystemTime(&local, &partes) ||
-      GetDateFormatW(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &partes, nullptr, fecha.data(),
-                     static_cast<int>(fecha.size())) == 0 ||
-      GetTimeFormatW(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &partes, nullptr, hora.data(),
-                     static_cast<int>(hora.size())) == 0) {
-    return {};
-  }
-  return a_utf8(std::wstring(fecha.data()) + L" " + hora.data());
-}
 
 class Dibujo {
  public:
@@ -204,16 +188,13 @@ class Dibujo {
     escribir_cortado(ImVec2(x + px(60), desde.y + px(17)), interior - px(60), red::a_texto(servidor.direccion),
                      color::texto, Letra::fuerte, medida::letra_tarjeta);
 
-    const bool es_este = intento.fase != Fase::quieta && intento.direccion == servidor.direccion &&
-                         (!intento.desde_formulario || intento.fase == Fase::conectada);
+    const bool es_este =
+        intento.fase != Fase::quieta && intento.direccion == servidor.direccion && !intento.desde_formulario;
     ImU32 punto = color::apagado;
-    std::string estado = con_datos(t(Clave::inicio_ultima_vez), {fecha_local(servidor.ultima_vez_ms)});
+    std::string estado = con_datos(t(Clave::inicio_ultima_vez), {cliente::fecha_y_hora_local(servidor.ultima_vez_ms)});
     if (es_este && intento.fase == Fase::conectando) {
       punto = color::amarillo;
       estado = std::string(t(Clave::inicio_conectando));
-    } else if (es_este && intento.fase == Fase::conectada) {
-      punto = color::verde;
-      estado = intento.mensaje;
     }
     dibujo.AddRectFilled(ImVec2(x + px(60), desde.y + px(46)), ImVec2(x + px(66), desde.y + px(52)), tono(punto));
     escribir_cortado(ImVec2(x + px(73), desde.y + px(42)), interior - px(73), estado, color::apagado, Letra::normal,
@@ -237,9 +218,7 @@ class Dibujo {
     const bool ocupado = es_este && intento.fase != Fase::error;
     ImGui::SetCursorScreenPos(ImVec2(x, y));
     if (boton("##entrar",
-              t(!ocupado                             ? Clave::inicio_entrar
-                : intento.fase == Fase::conectando ? Clave::inicio_cancelar
-                                                    : Clave::inicio_desconectar),
+              t(ocupado ? Clave::inicio_cancelar : Clave::inicio_entrar),
               Estilo::principal,
               ImVec2(interior - px(kAltoBoton + 8), px(kAltoBoton)))) {
       pedido_ = {ocupado ? Accion::desconectar : Accion::entrar_a_guardado, cual};

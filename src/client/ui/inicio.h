@@ -13,7 +13,7 @@
 #include "common/textos.h"
 
 namespace ventrik::ui {
-enum class Fase { quieta, conectando, conectada, error };
+enum class Fase { quieta, conectando, error };
 
 struct Intento {
   red::Direccion direccion;

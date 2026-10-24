@@ -1,5 +1,6 @@
 #include "client/ui/piezas.h"
 
+#include <algorithm>
 #include <cfloat>
 #include <initializer_list>
 #include <utility>
@@ -8,6 +9,7 @@
 
 #include <imgui_internal.h>
 
+#include "common/texto.h"
 #include "common/utf.h"
 
 namespace ventrik::ui {
@@ -17,6 +19,10 @@ ImFont* fuente(Letra letra) { return ImGui::GetIO().Fonts->Fonts[static_cast<int
 float tamano_real(float tamano) { return px(tamano * medida::em); }
 
 ImDrawList& lienzo() { return *ImGui::GetWindowDrawList(); }
+
+const char* principio(std::string_view texto) { return texto.empty() ? "" : texto.data(); }
+
+const char* final_de(std::string_view texto) { return principio(texto) + texto.size(); }
 
 }
 
@@ -146,13 +152,13 @@ std::string iniciales(std::string_view nombre) {
 }
 
 ImVec2 medir(std::string_view texto, Letra letra, float tamano) {
-  return fuente(letra)->CalcTextSizeA(tamano_real(tamano), FLT_MAX, 0.0f, texto.data(),
-                                      texto.data() + texto.size());
+  return fuente(letra)->CalcTextSizeA(tamano_real(tamano), FLT_MAX, 0.0f, principio(texto),
+                                      final_de(texto));
 }
 
 void escribir(ImVec2 donde, std::string_view texto, ImU32 color, Letra letra, float tamano) {
-  lienzo().AddText(fuente(letra), tamano_real(tamano), donde, tono(color), texto.data(),
-                   texto.data() + texto.size());
+  lienzo().AddText(fuente(letra), tamano_real(tamano), donde, tono(color), principio(texto),
+                   final_de(texto));
 }
 
 void escribir_cortado(ImVec2 donde, float ancho, std::string_view texto, ImU32 color, Letra letra,
@@ -160,21 +166,47 @@ void escribir_cortado(ImVec2 donde, float ancho, std::string_view texto, ImU32 c
   const ConLetra con_letra(letra, tamano);
   ImGui::PushStyleColor(ImGuiCol_Text, color);
   const ImVec2 hasta(donde.x + ancho, donde.y + ImGui::GetFontSize());
-  ImGui::RenderTextEllipsis(&lienzo(), donde, hasta, hasta.x, texto.data(), texto.data() + texto.size(), nullptr);
+  ImGui::RenderTextEllipsis(&lienzo(), donde, hasta, hasta.x, principio(texto), final_de(texto), nullptr);
   ImGui::PopStyleColor();
+}
+
+float escribir_espaciado(ImVec2 donde, std::string_view texto, ImU32 color, Letra letra, float tamano,
+                         float espacio) {
+  const char* resto = principio(texto);
+  const char* fin = final_de(texto);
+  while (resto < fin) {
+    unsigned int letra_suelta = 0;
+    const int largo = ImTextCharFromUtf8(&letra_suelta, resto, fin);
+    const std::string_view una(resto, static_cast<std::size_t>(std::max(largo, 1)));
+    escribir(donde, una, color, letra, tamano);
+    donde.x += medir(una, letra, tamano).x + espacio;
+    resto += una.size();
+  }
+  return donde.x;
+}
+
+float alto_envuelto(std::string_view texto, float ancho, float tamano) {
+  return fuente(Letra::normal)
+      ->CalcTextSizeA(tamano_real(tamano), FLT_MAX, ancho, principio(texto), final_de(texto))
+      .y;
+}
+
+void escribir_envuelto(ImVec2 donde, std::string_view texto, ImU32 color, float ancho, float tamano) {
+  lienzo().AddText(fuente(Letra::normal), tamano_real(tamano), donde, tono(color), principio(texto),
+                   final_de(texto), ancho);
 }
 
 void escribir_parrafo(std::string_view texto, ImU32 color, float ancho, float tamano) {
   const ConLetra letra(Letra::normal, tamano);
   ImGui::PushStyleColor(ImGuiCol_Text, color);
   ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ancho);
-  ImGui::TextUnformatted(texto.data(), texto.data() + texto.size());
+  ImGui::TextUnformatted(principio(texto), final_de(texto));
   ImGui::PopTextWrapPos();
   ImGui::PopStyleColor();
 }
 
 void cartel(std::string_view texto) {
-  ImGui::SetItemTooltip("%.*s", static_cast<int>(texto.size()), texto.data());
+  ImGui::SetItemTooltip("%.*s", static_cast<int>(texto.size()), principio(texto));
 }
 
 void escuadras(ImDrawList& dibujo, ImVec2 desde, ImVec2 hasta, float largo, float grosor, ImU32 color) {
@@ -204,12 +236,26 @@ void panel(ImVec2 desde, ImVec2 hasta) {
 }
 
 void avatar(ImVec2 desde, float lado, std::string_view letras, ImU32 fondo, ImU32 color_letra,
-            float tamano_letra) {
+            float tamano_letra, ImU32 aro) {
   const auto forma = corte_abajo_derecha(desde, ImVec2(desde.x + lado, desde.y + lado), lado * 7 / 26);
   lienzo().AddConvexPolyFilled(forma.data(), static_cast<int>(forma.size()), tono(fondo));
+  if (aro != 0) {
+    const auto borde = corte_abajo_derecha(ImVec2(desde.x + px(1), desde.y + px(1)),
+                                           ImVec2(desde.x + lado - px(1), desde.y + lado - px(1)),
+                                           lado * 7 / 26 - px(1));
+    lienzo().AddPolyline(borde.data(), static_cast<int>(borde.size()), tono(aro), ImDrawFlags_Closed, px(2));
+  }
   const ImVec2 tamano = medir(letras, Letra::fuerte, tamano_letra);
   escribir(ImVec2(desde.x + (lado - tamano.x) / 2, desde.y + (lado - tamano.y) / 2), letras, color_letra,
            Letra::fuerte, tamano_letra);
+}
+
+ImU32 color_de_avatar(std::string_view nombre) {
+  std::uint32_t suma = 2166136261u;
+  for (const wchar_t letra : nombre_para_comparar(nombre)) {
+    suma = (suma ^ static_cast<std::uint32_t>(letra)) * 16777619u;
+  }
+  return color::avatares[suma % color::avatares.size()];
 }
 
 void emblema(ImVec2 desde, float lado, ImTextureID logo) {
@@ -290,7 +336,7 @@ bool boton(const char* id, std::string_view texto, Estilo estilo, ImVec2 tamano,
   return apretado;
 }
 
-bool campo(const char* id, std::string_view pista, Campo& texto, ImVec2 tamano,
+bool campo(const char* id, std::string_view pista, gsl::span<char> texto, ImVec2 tamano,
            Icono icono, ImGuiInputTextFlags opciones, ImU32 relleno) {
   const ImVec2 desde = ImGui::GetCursorScreenPos();
   const ImVec2 hasta(desde.x + tamano.x, desde.y + tamano.y);
@@ -307,7 +353,8 @@ bool campo(const char* id, std::string_view pista, Campo& texto, ImVec2 tamano,
   ImGui::SetCursorScreenPos(ImVec2(desde.x + izquierda, (desde.y + hasta.y - ImGui::GetFontSize()) / 2));
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
   ImGui::SetNextItemWidth(tamano.x - izquierda - px(medida::margen_campo));
-  const bool listo = ImGui::InputTextWithHint(id, std::string(pista).c_str(), texto.data(), texto.size(), opciones);
+  const bool listo = ImGui::InputTextWithHint(id, std::string(pista).c_str(), texto.data(),
+                                               static_cast<std::size_t>(texto.size()), opciones);
   ImGui::PopStyleVar();
   return listo;
 }
@@ -349,6 +396,127 @@ void selector_modo(std::string_view rendimiento, std::string_view visual, std::s
            color::texto2);
   ImGui::EndDisabled();
   cartel(cartel_visual);
+}
+
+int selector_opciones(const char* id, std::initializer_list<std::string_view> opciones, int elegida,
+                      ImVec2 tamano, int apagada, std::string_view cartel_apagada) {
+  ImDrawList& dibujo = lienzo();
+  const ImVec2 desde = ImGui::GetCursorScreenPos();
+  dibujo.AddRectFilled(desde, ImVec2(desde.x + tamano.x, desde.y + tamano.y), tono(color::pozo));
+  dibujo.AddRect(desde, ImVec2(desde.x + tamano.x, desde.y + tamano.y), tono(color::linea));
+  const float margen = px(4);
+  const float ancho = (tamano.x - 2 * margen) / static_cast<float>(opciones.size());
+  const float alto = tamano.y - 2 * margen;
+  int tocada = -1;
+  int cual = 0;
+  ImGui::PushID(id);
+  for (const std::string_view opcion : opciones) {
+    const ImVec2 lugar(desde.x + margen + ancho * static_cast<float>(cual), desde.y + margen);
+    ImGui::SetCursorScreenPos(lugar);
+    ImGui::BeginDisabled(cual == apagada);
+    ImGui::PushID(cual);
+    if (ImGui::InvisibleButton("##opcion", ImVec2(ancho, alto), ImGuiButtonFlags_EnableNav)) {
+      tocada = cual;
+    }
+    ImGui::PopID();
+    const bool es_elegida = cual == elegida;
+    if (es_elegida) {
+      dibujo.AddRectFilled(lugar, ImVec2(lugar.x + ancho, lugar.y + alto), tono(color::claro));
+    }
+    const Letra letra = es_elegida ? Letra::fuerte : Letra::normal;
+    const ImVec2 medida_texto = medir(opcion, letra, medida::letra);
+    escribir(ImVec2(lugar.x + (ancho - medida_texto.x) / 2, lugar.y + (alto - medida_texto.y) / 2), opcion,
+             es_elegida ? color::tinta : color::texto, letra);
+    ImGui::EndDisabled();
+    if (cual == apagada) {
+      cartel(cartel_apagada);
+    }
+    ++cual;
+  }
+  ImGui::PopID();
+  ImGui::SetCursorScreenPos(ImVec2(desde.x, desde.y + tamano.y));
+  return tocada;
+}
+
+float ancho_tecla(std::string_view nombre) {
+  return medir(nombre, Letra::negrita, medida::letra_chica).x + px(2 * medida::margen_tecla);
+}
+
+void tecla(ImVec2 desde, std::string_view nombre, ImU32 relleno) {
+  const ImVec2 hasta(desde.x + ancho_tecla(nombre), desde.y + px(medida::alto_tecla));
+  ImDrawList& dibujo = lienzo();
+  dibujo.AddRectFilled(desde, hasta, tono(relleno), px(2));
+  dibujo.AddRect(desde, hasta, tono(color::linea2), px(2));
+  const ImVec2 tamano = medir(nombre, Letra::negrita, medida::letra_chica);
+  escribir(ImVec2(desde.x + px(medida::margen_tecla), (desde.y + hasta.y - tamano.y) / 2), nombre, color::texto,
+           Letra::negrita, medida::letra_chica);
+}
+
+float ancho_transmitiendo(std::string_view texto) {
+  return medir(texto, Letra::negrita, medida::letra_transmitiendo).x + px(46);
+}
+
+void etiqueta_transmitiendo(ImVec2 desde, float ancho, std::string_view texto, bool transmitiendo) {
+  const ImVec2 hasta(desde.x + ancho, desde.y + px(medida::alto_transmitiendo));
+  const auto forma = cortes_opuestos(desde, hasta, px(medida::corte_transmitiendo), false);
+  ImDrawList& dibujo = lienzo();
+  dibujo.AddConvexPolyFilled(forma.data(), static_cast<int>(forma.size()),
+                             tono(transmitiendo ? color::naranja : color::elevado));
+  const ImU32 tinta = transmitiendo ? color::tinta_naranja : color::apagado;
+  const float lado = px(9);
+  const float medio = (desde.y + hasta.y) / 2;
+  dibujo.AddRectFilled(ImVec2(desde.x + px(15), medio - lado / 2), ImVec2(desde.x + px(15) + lado, medio + lado / 2),
+                       tono(tinta));
+  const ImVec2 tamano = medir(texto, Letra::negrita, medida::letra_transmitiendo);
+  escribir(ImVec2(desde.x + px(32), medio - tamano.y / 2), texto, tinta, Letra::negrita,
+           medida::letra_transmitiendo);
+}
+
+void medidor(ImVec2 desde, int segmentos, int encendidos, ImU32 color) {
+  for (int i = 0; i < segmentos; ++i) {
+    const float x = desde.x + static_cast<float>(i) * px(medida::segmento + medida::entre_segmentos);
+    lienzo().AddRectFilled(ImVec2(x, desde.y), ImVec2(x + px(medida::segmento), desde.y + px(medida::alto_segmento)),
+                           tono(i < encendidos ? color : color::linea));
+  }
+}
+
+float contador_nuevos(ImVec2 derecha, std::uint32_t cantidad) {
+  const std::string numero = std::to_string(cantidad);
+  const ImVec2 tamano = medir(numero, Letra::negrita, medida::letra_chica);
+  const float ancho = std::max(px(medida::contador), tamano.x + px(8));
+  const ImVec2 desde(derecha.x - ancho, derecha.y - px(medida::contador) / 2);
+  lienzo().AddRectFilled(desde, ImVec2(derecha.x, desde.y + px(medida::contador)), tono(color::claro));
+  escribir(ImVec2(desde.x + (ancho - tamano.x) / 2, derecha.y - tamano.y / 2), numero, color::tinta, Letra::negrita,
+           medida::letra_chica);
+  return ancho;
+}
+
+float ancho_chip(std::string_view texto) {
+  return medir(texto, Letra::negrita, medida::letra_mini).x +
+         px(12 + static_cast<float>(texto.size()) * 0.8f);
+}
+
+void chip(ImVec2 desde, std::string_view texto) {
+  const ImVec2 tamano = medir(texto, Letra::negrita, medida::letra_mini);
+  lienzo().AddRectFilled(desde, ImVec2(desde.x + ancho_chip(texto), desde.y + tamano.y + px(4)), tono(color::elevado),
+                         px(2));
+  escribir_espaciado(ImVec2(desde.x + px(6), desde.y + px(2)), texto, color::texto2, Letra::negrita,
+                     medida::letra_mini, px(0.8f));
+}
+
+void marco_cabecera(ImVec2 desde, ImVec2 hasta) {
+  ImDrawList& dibujo = lienzo();
+  const float paso = px(14);
+  const float ancho = hasta.x - desde.x;
+  for (float x = hasta.x - paso; x > desde.x; x -= paso) {
+    const auto alfa = static_cast<std::uint32_t>(11 * (x - desde.x) / ancho);
+    dibujo.AddLine(ImVec2(x, desde.y), ImVec2(x, hasta.y), tono(rgb(0xDDE6E6, alfa)));
+  }
+  for (float y = desde.y + paso; y < hasta.y; y += paso) {
+    dibujo.AddRectFilledMultiColor(ImVec2(desde.x, y), ImVec2(hasta.x, y + 1), tono(rgb(0xDDE6E6, 0)),
+                                   tono(color::cuadricula), tono(color::cuadricula), tono(rgb(0xDDE6E6, 0)));
+  }
+  escuadras(dibujo, desde, hasta, px(medida::escuadra), px(medida::grosor_escuadra), tono(color::escuadra_chat));
 }
 
 }

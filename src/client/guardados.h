@@ -13,6 +13,7 @@
 namespace ventrik::cliente {
 constexpr std::size_t kMaximoServidoresGuardados = 32;
 constexpr std::size_t kMaximoArchivoGuardados = 16384;
+constexpr std::uint8_t kTeclaHablarPorDefecto = 0xA4;
 
 struct ServidorGuardado {
   red::Direccion direccion;
@@ -33,6 +34,8 @@ enum class LecturaGuardados { leidos, danados, version_nueva, error };
 
 LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& guardados);
 std::vector<std::uint8_t> armar_guardados(const Guardados& guardados);
+bool es_tecla_valida(std::uint8_t tecla);
+std::uint8_t tecla_para_hablar(std::uint8_t guardada);
 bool recordar(Guardados& guardados, ServidorGuardado servidor);
 
 LecturaGuardados cargar_guardados(Guardados& guardados);

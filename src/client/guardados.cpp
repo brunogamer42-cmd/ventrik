@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include <windows.h>
+
 #include "common/archivos.h"
 #include "common/protocol/bytes.h"
 #include "common/texto.h"
@@ -28,7 +30,8 @@ bool son_validos(const Guardados& guardados) {
       return false;
     }
   }
-  return servidores.size() <= kMaximoServidoresGuardados && nombre_opcional(guardados.nombre);
+  return servidores.size() <= kMaximoServidoresGuardados && nombre_opcional(guardados.nombre) &&
+         es_tecla_valida(guardados.tecla_hablar);
 }
 
 std::wstring ruta() {
@@ -92,6 +95,15 @@ std::vector<std::uint8_t> armar_guardados(const Guardados& guardados) {
     escritor.escribir_u64(servidor.ultima_vez_ms);
   }
   return escritor.datos();
+}
+
+bool es_tecla_valida(std::uint8_t tecla) {
+  return tecla == 0 || (tecla >= VK_MBUTTON && tecla != VK_ESCAPE && (tecla < VK_SHIFT || tecla > VK_MENU) &&
+                        tecla != 0xFF);
+}
+
+std::uint8_t tecla_para_hablar(std::uint8_t guardada) {
+  return guardada == 0 ? kTeclaHablarPorDefecto : guardada;
 }
 
 bool recordar(Guardados& guardados, ServidorGuardado servidor) {

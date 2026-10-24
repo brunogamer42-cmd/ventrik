@@ -16,6 +16,7 @@
 
 #include "client/audio.h"
 #include "client/diagnostico.h"
+#include "client/horas.h"
 #include "client/motor_voz.h"
 #include "client/sesion.h"
 #include "common/cifrado/inicio.h"
@@ -82,32 +83,6 @@ class Lineas {
   std::mutex candado_;
   std::deque<std::string> lineas_;
 };
-
-Clave clave_de(protocolo::MotivoNegado motivo) {
-  switch (motivo) {
-    case protocolo::MotivoNegado::sin_permiso: return Clave::consola_negado_sin_permiso;
-    case protocolo::MotivoNegado::no_existe: return Clave::consola_negado_no_existe;
-    case protocolo::MotivoNegado::texto_invalido: return Clave::consola_negado_texto_invalido;
-    case protocolo::MotivoNegado::demasiado_rapido: return Clave::consola_negado_demasiado_rapido;
-    case protocolo::MotivoNegado::lleno: return Clave::consola_negado_lleno;
-    case protocolo::MotivoNegado::nombre_en_uso: return Clave::consola_negado_nombre_en_uso;
-  }
-  return Clave::consola_negado_sin_permiso;
-}
-
-std::string hora_local(std::uint64_t hora_ms, std::string sin_hora) {
-  const std::uint64_t desde_1601 = hora_ms * 10000 + 116444736000000000ull;
-  FILETIME universal = {static_cast<DWORD>(desde_1601), static_cast<DWORD>(desde_1601 >> 32)};
-  FILETIME local = {};
-  SYSTEMTIME partes = {};
-  if (!FileTimeToLocalFileTime(&universal, &local) || !FileTimeToSystemTime(&local, &partes)) {
-    return sin_hora;
-  }
-  const auto dos_cifras = [](int valor) {
-    return std::string(valor < 10 ? "0" : "") + std::to_string(valor);
-  };
-  return dos_cifras(partes.wHour) + ":" + dos_cifras(partes.wMinute);
-}
 
 class Charla {
  public:
@@ -297,7 +272,7 @@ class Charla {
     consola_.decir(historial.hay_mas ? Clave::consola_hay_mas : Clave::consola_sin_mas);
   }
 
-  void atender(const protocolo::Negado& negado) { consola_.decir(clave_de(negado.motivo)); }
+  void atender(const protocolo::Negado& negado) { consola_.escribir(explicar(consola_.idioma(), negado.motivo)); }
 
   void atender(const PingMedido& ping) { ping_ = ping.milisegundos; }
 
@@ -307,8 +282,9 @@ class Charla {
   }
 
   void mostrar_mensaje(std::uint64_t hora_ms, const std::string& autor, const std::string& texto) const {
+    const std::string hora = hora_local(hora_ms);
     consola_.decir(Clave::consola_mensaje,
-                   {hora_local(hora_ms, consola_.texto_de(Clave::consola_sin_hora)), autor, texto});
+                   {hora.empty() ? consola_.texto_de(Clave::consola_sin_hora) : hora, autor, texto});
   }
 
   std::uint32_t mi_canal() const {
