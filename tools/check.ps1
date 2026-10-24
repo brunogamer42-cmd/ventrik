@@ -166,6 +166,11 @@ function Probar-Ventana([string]$exe) {
 
 Push-Location $raiz
 try {
+    $deCompilacion = Join-Path $raiz 'build\'
+    Get-Process ventrik* -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($deCompilacion, [StringComparison]::OrdinalIgnoreCase) -and
+                       $_.Path -notlike '*\servidor_de_prueba\*' } |
+        ForEach-Object { $_.Kill(); [void]$_.WaitForExit(5000) }
     Write-Host 'Herramientas'
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
     $componentes = @('Microsoft.VisualStudio.Component.VC.Tools.x86.x64', 'Microsoft.VisualStudio.Component.VC.ASAN')

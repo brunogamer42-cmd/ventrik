@@ -5,6 +5,10 @@
 #include "common/texto.h"
 
 namespace ventrik::protocolo {
+bool es_tipo_valido(TipoCanal tipo, bool solo_admins) {
+  return tipo == TipoCanal::texto || (tipo == TipoCanal::voz && !solo_admins);
+}
+
 namespace {
 void escribir_nombre(Escritor& escritor, const std::string& nombre) {
   if (!es_nombre_valido(nombre)) {
@@ -63,14 +67,35 @@ void leer_lista(Lector& lector, std::vector<Elemento>& lista, std::size_t maximo
   }
 }
 
+void escribir_tipo(Escritor& escritor, TipoCanal tipo, bool solo_admins) {
+  if (!es_tipo_valido(tipo, solo_admins)) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u8(static_cast<std::uint8_t>(tipo));
+  escritor.escribir_booleano(solo_admins);
+}
+
+void leer_tipo(Lector& lector, TipoCanal& tipo, bool& solo_admins) {
+  tipo = static_cast<TipoCanal>(lector.leer_u8());
+  solo_admins = lector.leer_booleano();
+  if (lector.ok() && !es_tipo_valido(tipo, solo_admins)) {
+    lector.marcar_error();
+  }
+}
+
 void escribir_canal(Escritor& escritor, const CanalInfo& canal) {
   escritor.escribir_u32(canal.id);
   escribir_nombre(escritor, canal.nombre);
+  escribir_tipo(escritor, canal.tipo, canal.solo_admins);
+  escritor.escribir_u32(canal.contador);
 }
 
 void leer_canal(Lector& lector, CanalInfo& canal) {
   canal.id = lector.leer_u32();
   leer_nombre(lector, canal.nombre);
+  leer_tipo(lector, canal.tipo, canal.solo_admins);
+  canal.contador = lector.leer_u32();
 }
 
 void escribir_usuario(Escritor& escritor, const UsuarioInfo& usuario) {
@@ -116,7 +141,7 @@ void leer_medio(Lector& lector, Medio& medio) {
 
 bool es_pedido(std::uint16_t tipo) {
   return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
-         tipo <= static_cast<std::uint16_t>(TipoMensaje::ping);
+         tipo <= static_cast<std::uint16_t>(TipoMensaje::mirar_canal);
 }
 
 }
@@ -213,11 +238,11 @@ void leer(Lector& lector, CanalCreado& mensaje) {
   leer_canal(lector, mensaje.canal);
 }
 
-void escribir(Escritor& escritor, const CanalRenombrado& mensaje) {
+void escribir(Escritor& escritor, const CanalCambiado& mensaje) {
   escribir_canal(escritor, mensaje.canal);
 }
 
-void leer(Lector& lector, CanalRenombrado& mensaje) {
+void leer(Lector& lector, CanalCambiado& mensaje) {
   leer_canal(lector, mensaje.canal);
 }
 
@@ -240,16 +265,19 @@ void leer(Lector& lector, EntrarACanal& mensaje) {
 }
 
 void escribir(Escritor& escritor, const EnviarChat& mensaje) {
+  escritor.escribir_u32(mensaje.canal);
   escribir_chat(escritor, mensaje.texto);
 }
 
 void leer(Lector& lector, EnviarChat& mensaje) {
+  mensaje.canal = lector.leer_u32();
   leer_chat(lector, mensaje.texto);
 }
 
 void escribir(Escritor& escritor, const MensajeChat& mensaje) {
   escritor.escribir_u64(mensaje.id);
   escritor.escribir_u32(mensaje.canal);
+  escritor.escribir_u32(mensaje.numero);
   escritor.escribir_u32(mensaje.autor_id);
   escribir_nombre(escritor, mensaje.autor);
   escritor.escribir_u64(mensaje.hora_ms);
@@ -259,6 +287,7 @@ void escribir(Escritor& escritor, const MensajeChat& mensaje) {
 void leer(Lector& lector, MensajeChat& mensaje) {
   mensaje.id = lector.leer_u64();
   mensaje.canal = lector.leer_u32();
+  mensaje.numero = lector.leer_u32();
   mensaje.autor_id = lector.leer_u32();
   leer_nombre(lector, mensaje.autor);
   mensaje.hora_ms = lector.leer_u64();
@@ -281,6 +310,7 @@ void escribir(Escritor& escritor, const Historial& mensaje) {
   escribir_lista(escritor, mensaje.mensajes, kMaximoMensajesEnHistorial,
                  [&escritor](const MensajeGuardado& guardado) {
                    escritor.escribir_u64(guardado.id);
+                   escritor.escribir_u32(guardado.numero);
                    escribir_nombre(escritor, guardado.autor);
                    escritor.escribir_u64(guardado.hora_ms);
                    escribir_chat(escritor, guardado.texto);
@@ -293,6 +323,7 @@ void leer(Lector& lector, Historial& mensaje) {
   leer_lista(lector, mensaje.mensajes, kMaximoMensajesEnHistorial,
              [&lector](MensajeGuardado& guardado) {
                guardado.id = lector.leer_u64();
+               guardado.numero = lector.leer_u32();
                leer_nombre(lector, guardado.autor);
                guardado.hora_ms = lector.leer_u64();
                leer_chat(lector, guardado.texto);
@@ -301,20 +332,46 @@ void leer(Lector& lector, Historial& mensaje) {
 
 void escribir(Escritor& escritor, const CrearCanal& mensaje) {
   escribir_nombre(escritor, mensaje.nombre);
+  escribir_tipo(escritor, mensaje.tipo, mensaje.solo_admins);
 }
 
 void leer(Lector& lector, CrearCanal& mensaje) {
   leer_nombre(lector, mensaje.nombre);
+  leer_tipo(lector, mensaje.tipo, mensaje.solo_admins);
 }
 
-void escribir(Escritor& escritor, const RenombrarCanal& mensaje) {
+void escribir(Escritor& escritor, const CambiarCanal& mensaje) {
   escritor.escribir_u32(mensaje.canal);
   escribir_nombre(escritor, mensaje.nombre);
+  escritor.escribir_booleano(mensaje.solo_admins);
 }
 
-void leer(Lector& lector, RenombrarCanal& mensaje) {
+void leer(Lector& lector, CambiarCanal& mensaje) {
   mensaje.canal = lector.leer_u32();
   leer_nombre(lector, mensaje.nombre);
+  mensaje.solo_admins = lector.leer_booleano();
+}
+
+void escribir(Escritor& escritor, const MirarCanal& mensaje) {
+  escritor.escribir_u32(mensaje.canal);
+}
+
+void leer(Lector& lector, MirarCanal& mensaje) {
+  mensaje.canal = lector.leer_u32();
+}
+
+void escribir(Escritor& escritor, const MensajesNuevos& mensaje) {
+  escribir_lista(escritor, mensaje.canales, kMaximoCanalesEnLista, [&escritor](const Contador& contador) {
+    escritor.escribir_u32(contador.canal);
+    escritor.escribir_u32(contador.contador);
+  });
+}
+
+void leer(Lector& lector, MensajesNuevos& mensaje) {
+  leer_lista(lector, mensaje.canales, kMaximoCanalesEnLista, [&lector](Contador& contador) {
+    contador.canal = lector.leer_u32();
+    contador.contador = lector.leer_u32();
+  });
 }
 
 void escribir(Escritor& escritor, const BorrarCanal& mensaje) {
@@ -337,7 +394,7 @@ void leer(Lector& lector, Negado& mensaje) {
     return;
   }
   if (!es_pedido(pedido) || motivo < static_cast<std::uint8_t>(MotivoNegado::sin_permiso) ||
-      motivo > static_cast<std::uint8_t>(MotivoNegado::nombre_en_uso)) {
+      motivo > static_cast<std::uint8_t>(MotivoNegado::tipo_de_canal)) {
     lector.marcar_error();
     return;
   }

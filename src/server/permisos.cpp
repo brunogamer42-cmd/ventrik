@@ -8,6 +8,7 @@
 namespace ventrik::servidor {
 namespace {
 using protocolo::MotivoNegado;
+using protocolo::TipoCanal;
 
 bool nombre_ocupado(const std::vector<Canal>& canales, const std::string& nombre,
                     std::uint32_t salvo) {
@@ -20,21 +21,45 @@ bool nombre_ocupado(const std::vector<Canal>& canales, const std::string& nombre
 
 }
 
-const Canal* buscar_canal(const std::vector<Canal>& canales, std::uint32_t id) {
-  const auto encontrado = std::find_if(canales.begin(), canales.end(),
-                                       [id](const Canal& canal) { return canal.id == id; });
-  return encontrado == canales.end() ? nullptr : &*encontrado;
-}
-
 Permiso puede_entrar(const std::vector<Canal>& canales, std::uint32_t canal) {
-  if (buscar_canal(canales, canal) == nullptr) {
+  const Canal* buscado = buscar_canal(canales, canal);
+  if (buscado == nullptr) {
     return MotivoNegado::no_existe;
+  }
+  if (buscado->tipo != TipoCanal::voz) {
+    return MotivoNegado::tipo_de_canal;
   }
   return std::nullopt;
 }
 
-Permiso puede_leer_historial(const Persona& persona, std::uint32_t canal) {
-  if (persona.canal != canal) {
+Permiso puede_mirar(const std::vector<Canal>& canales, std::uint32_t canal) {
+  const Canal* buscado = buscar_canal(canales, canal);
+  if (canal != 0 && buscado == nullptr) {
+    return MotivoNegado::no_existe;
+  }
+  if (buscado != nullptr && buscado->tipo != TipoCanal::texto) {
+    return MotivoNegado::tipo_de_canal;
+  }
+  return std::nullopt;
+}
+
+Permiso puede_leer(const Persona& persona, const std::vector<Canal>& canales, std::uint32_t canal) {
+  const Canal* buscado = buscar_canal(canales, canal);
+  if (buscado == nullptr) {
+    return MotivoNegado::no_existe;
+  }
+  if (buscado->tipo == TipoCanal::voz && persona.canal != canal) {
+    return MotivoNegado::sin_permiso;
+  }
+  return std::nullopt;
+}
+
+Permiso puede_escribir(const Persona& persona, const std::vector<Canal>& canales, std::uint32_t canal) {
+  const Permiso leer = puede_leer(persona, canales, canal);
+  if (leer) {
+    return leer;
+  }
+  if (buscar_canal(canales, canal)->solo_admins && !persona.dueno) {
     return MotivoNegado::sin_permiso;
   }
   return std::nullopt;
@@ -57,18 +82,22 @@ Permiso puede_crear(const Persona& persona, const std::vector<Canal>& canales,
   return std::nullopt;
 }
 
-Permiso puede_renombrar(const Persona& persona, const std::vector<Canal>& canales,
-                        std::uint32_t canal, const std::string& nombre) {
+Permiso puede_cambiar(const Persona& persona, const std::vector<Canal>& canales,
+                      const protocolo::CambiarCanal& cambio) {
   if (!persona.dueno) {
     return MotivoNegado::sin_permiso;
   }
-  if (buscar_canal(canales, canal) == nullptr) {
+  const Canal* buscado = buscar_canal(canales, cambio.canal);
+  if (buscado == nullptr) {
     return MotivoNegado::no_existe;
   }
-  if (!es_nombre_valido(nombre)) {
+  if (cambio.solo_admins && buscado->tipo != TipoCanal::texto) {
+    return MotivoNegado::tipo_de_canal;
+  }
+  if (!es_nombre_valido(cambio.nombre)) {
     return MotivoNegado::texto_invalido;
   }
-  if (nombre_ocupado(canales, nombre, canal)) {
+  if (nombre_ocupado(canales, cambio.nombre, cambio.canal)) {
     return MotivoNegado::nombre_en_uso;
   }
   return std::nullopt;

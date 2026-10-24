@@ -27,9 +27,16 @@ struct Presentarse {
   std::optional<std::array<std::uint8_t, 16>> codigo_dueno;
 };
 
+enum class TipoCanal : std::uint8_t { voz = 1, texto = 2 };
+
+bool es_tipo_valido(TipoCanal tipo, bool solo_admins);
+
 struct CanalInfo {
   std::uint32_t id = 0;
   std::string nombre;
+  TipoCanal tipo = TipoCanal::voz;
+  bool solo_admins = false;
+  std::uint32_t contador = 0;
 };
 
 struct UsuarioInfo {
@@ -79,8 +86,8 @@ struct CanalCreado {
   CanalInfo canal;
 };
 
-struct CanalRenombrado {
-  static constexpr TipoMensaje kTipo = TipoMensaje::canal_renombrado;
+struct CanalCambiado {
+  static constexpr TipoMensaje kTipo = TipoMensaje::canal_cambiado;
   CanalInfo canal;
 };
 
@@ -97,6 +104,7 @@ struct EntrarACanal {
 
 struct EnviarChat {
   static constexpr TipoMensaje kTipo = TipoMensaje::enviar_chat;
+  std::uint32_t canal = 0;
   std::string texto;
 };
 
@@ -104,6 +112,7 @@ struct MensajeChat {
   static constexpr TipoMensaje kTipo = TipoMensaje::mensaje_chat;
   std::uint64_t id = 0;
   std::uint32_t canal = 0;
+  std::uint32_t numero = 0;
   std::uint32_t autor_id = 0;
   std::string autor;
   std::uint64_t hora_ms = 0;
@@ -118,6 +127,7 @@ struct PedirHistorial {
 
 struct MensajeGuardado {
   std::uint64_t id = 0;
+  std::uint32_t numero = 0;
   std::string autor;
   std::uint64_t hora_ms = 0;
   std::string texto;
@@ -133,12 +143,30 @@ struct Historial {
 struct CrearCanal {
   static constexpr TipoMensaje kTipo = TipoMensaje::crear_canal;
   std::string nombre;
+  TipoCanal tipo = TipoCanal::voz;
+  bool solo_admins = false;
 };
 
-struct RenombrarCanal {
-  static constexpr TipoMensaje kTipo = TipoMensaje::renombrar_canal;
+struct CambiarCanal {
+  static constexpr TipoMensaje kTipo = TipoMensaje::cambiar_canal;
   std::uint32_t canal = 0;
   std::string nombre;
+  bool solo_admins = false;
+};
+
+struct MirarCanal {
+  static constexpr TipoMensaje kTipo = TipoMensaje::mirar_canal;
+  std::uint32_t canal = 0;
+};
+
+struct Contador {
+  std::uint32_t canal = 0;
+  std::uint32_t contador = 0;
+};
+
+struct MensajesNuevos {
+  static constexpr TipoMensaje kTipo = TipoMensaje::mensajes_nuevos;
+  std::vector<Contador> canales;
 };
 
 struct BorrarCanal {
@@ -153,6 +181,7 @@ enum class MotivoNegado : std::uint8_t {
   demasiado_rapido = 4,
   lleno = 5,
   nombre_en_uso = 6,
+  tipo_de_canal = 7,
 };
 
 struct Negado {
@@ -207,7 +236,7 @@ VENTRIK_MENSAJE(UsuarioEntro)
 VENTRIK_MENSAJE(UsuarioSalio)
 VENTRIK_MENSAJE(UsuarioCambioCanal)
 VENTRIK_MENSAJE(CanalCreado)
-VENTRIK_MENSAJE(CanalRenombrado)
+VENTRIK_MENSAJE(CanalCambiado)
 VENTRIK_MENSAJE(CanalBorrado)
 VENTRIK_MENSAJE(EntrarACanal)
 VENTRIK_MENSAJE(EnviarChat)
@@ -215,7 +244,9 @@ VENTRIK_MENSAJE(MensajeChat)
 VENTRIK_MENSAJE(PedirHistorial)
 VENTRIK_MENSAJE(Historial)
 VENTRIK_MENSAJE(CrearCanal)
-VENTRIK_MENSAJE(RenombrarCanal)
+VENTRIK_MENSAJE(CambiarCanal)
+VENTRIK_MENSAJE(MirarCanal)
+VENTRIK_MENSAJE(MensajesNuevos)
 VENTRIK_MENSAJE(BorrarCanal)
 VENTRIK_MENSAJE(Negado)
 VENTRIK_MENSAJE(Ping)

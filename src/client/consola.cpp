@@ -145,7 +145,7 @@ class Charla {
         consola_.decir(Clave::consola_mensaje_invalido);
         return;
       }
-      sesion_.ordenar(protocolo::EnviarChat{linea});
+      sesion_.ordenar(protocolo::EnviarChat{mi_canal(), linea});
       return;
     }
     const std::size_t espacio = linea.find(' ');
@@ -168,7 +168,8 @@ class Charla {
                       std::to_string(static_cast<int>(medicion.procesador + 0.5)),
                       std::to_string(medicion.ram_bytes / (1024 * 1024)),
                       std::to_string(total == 0 ? 0 : perdidos * 100 / total),
-                      std::to_string(audio_.espera_de_salida_ms())});
+                      std::to_string(audio_.espera_de_salida_ms()),
+                      std::to_string(motor_.espera_ms())});
     } else if (comando == "/hablar") {
       motor_.transmitir(!motor_.transmitiendo());
       consola_.decir(motor_.transmitiendo() ? Clave::consola_hablando_vos : Clave::consola_callado);
@@ -176,7 +177,7 @@ class Charla {
       terminada_ = true;
     } else if (comando == "/entrar") {
       if (const auto canal = buscar(resto)) {
-        sesion_.ordenar(protocolo::EntrarACanal{*canal});
+        sesion_.ordenar(protocolo::EntrarACanal{canal->id});
       }
     } else if (comando == "/crear") {
       if (es_nombre_valido(resto)) {
@@ -186,16 +187,16 @@ class Charla {
       }
     } else if (comando == "/renombrar") {
       const std::size_t igual = resto.find(" = ");
-      const auto canal = igual == std::string::npos ? std::nullopt : buscar(resto.substr(0, igual));
+      const auto canal = igual == std::string::npos ? nullptr : buscar(resto.substr(0, igual));
       const std::string nuevo = igual == std::string::npos ? std::string() : resto.substr(igual + 3);
       if (canal && es_nombre_valido(nuevo)) {
-        sesion_.ordenar(protocolo::RenombrarCanal{*canal, nuevo});
+        sesion_.ordenar(protocolo::CambiarCanal{canal->id, nuevo, canal->solo_admins});
       } else if (canal) {
         consola_.decir(Clave::consola_nombre_canal_invalido);
       }
     } else if (comando == "/borrar") {
       if (const auto canal = buscar(resto)) {
-        sesion_.ordenar(protocolo::BorrarCanal{*canal});
+        sesion_.ordenar(protocolo::BorrarCanal{canal->id});
       }
     } else {
       consola_.decir(Clave::consola_comando_desconocido);
@@ -247,11 +248,11 @@ class Charla {
     consola_.decir(Clave::consola_canal_creado, {creado.canal.nombre});
   }
 
-  void atender(const protocolo::CanalRenombrado& renombrado) {
+  void atender(const protocolo::CanalCambiado& cambiado) {
     for (auto& canal : canales_) {
-      if (canal.id == renombrado.canal.id) {
-        consola_.decir(Clave::consola_canal_renombrado, {canal.nombre, renombrado.canal.nombre});
-        canal.nombre = renombrado.canal.nombre;
+      if (canal.id == cambiado.canal.id) {
+        consola_.decir(Clave::consola_canal_renombrado, {canal.nombre, cambiado.canal.nombre});
+        canal = cambiado.canal;
       }
     }
   }
@@ -279,6 +280,8 @@ class Charla {
       mostrar_mensaje(mensaje.hora_ms, mensaje.autor, mensaje.texto);
     }
   }
+
+  void atender(const protocolo::MensajesNuevos&) {}
 
   void atender(const protocolo::Historial& historial) {
     if (historial.canal != mi_canal()) {
@@ -325,16 +328,16 @@ class Charla {
     return canal == canales_.end() ? consola_.texto_de(Clave::consola_desconocido) : canal->nombre;
   }
 
-  std::optional<std::uint32_t> buscar(const std::string& nombre) const {
+  const protocolo::CanalInfo* buscar(const std::string& nombre) const {
     const std::wstring buscado = nombre_para_comparar(nombre);
     const auto canal = std::find_if(canales_.begin(), canales_.end(), [&](const protocolo::CanalInfo& c) {
       return !buscado.empty() && nombre_para_comparar(c.nombre) == buscado;
     });
     if (canal == canales_.end()) {
       consola_.decir(Clave::consola_no_existe);
-      return std::nullopt;
+      return nullptr;
     }
-    return canal->id;
+    return &*canal;
   }
 
   void pedir_historial_nuevo() {

@@ -136,12 +136,14 @@ bool Sesion::procesar(const protocolo::Marco& marco) {
       return publicar_si(protocolo::UsuarioCambioCanal{});
     case TipoMensaje::canal_creado:
       return publicar_si(protocolo::CanalCreado{});
-    case TipoMensaje::canal_renombrado:
-      return publicar_si(protocolo::CanalRenombrado{});
+    case TipoMensaje::canal_cambiado:
+      return publicar_si(protocolo::CanalCambiado{});
     case TipoMensaje::canal_borrado:
       return publicar_si(protocolo::CanalBorrado{});
     case TipoMensaje::mensaje_chat:
       return publicar_si(protocolo::MensajeChat{});
+    case TipoMensaje::mensajes_nuevos:
+      return publicar_si(protocolo::MensajesNuevos{});
     case TipoMensaje::historial:
       return publicar_si(protocolo::Historial{});
     case TipoMensaje::negado:

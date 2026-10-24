@@ -16,9 +16,11 @@ class BufferVoz {
   void llegar(const PaqueteVoz& paquete);
   Salida sacar(PaqueteVoz& paquete);
   void reiniciar();
+  std::size_t cantidad() const { return cantidad_; }
 
  private:
   static constexpr std::size_t kLugares = 64;
+  static constexpr std::size_t kMargen = 4;
 
   struct Lugar {
     bool ocupado = false;

@@ -73,6 +73,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
         hay_anterior = true;
         anterior = sacado.numero;
       }
+      exigir(buffer.cantidad() <= 6);
       if ((entrada[4] & 2) != 0) {
         buffer.reiniciar();
         hay_anterior = false;

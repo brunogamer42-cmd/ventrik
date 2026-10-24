@@ -39,13 +39,14 @@ struct Fin {
 
 using Novedad = std::variant<IntentoDeConexion, protocolo::UsuarioEntro, protocolo::UsuarioSalio,
                              protocolo::UsuarioCambioCanal, protocolo::CanalCreado,
-                             protocolo::CanalRenombrado, protocolo::CanalBorrado,
-                             protocolo::MensajeChat, protocolo::Historial, protocolo::Negado,
-                             PingMedido, Fin>;
+                             protocolo::CanalCambiado, protocolo::CanalBorrado,
+                             protocolo::MensajeChat, protocolo::MensajesNuevos,
+                             protocolo::Historial, protocolo::Negado, PingMedido, Fin>;
 
 using Orden = std::variant<protocolo::EntrarACanal, protocolo::EnviarChat,
                            protocolo::PedirHistorial, protocolo::CrearCanal,
-                           protocolo::RenombrarCanal, protocolo::BorrarCanal>;
+                           protocolo::CambiarCanal, protocolo::MirarCanal,
+                           protocolo::BorrarCanal>;
 
 struct OpcionesSesion {
   OpcionesConexion conexion;

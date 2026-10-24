@@ -30,12 +30,15 @@ class Base {
   Base& operator=(const Base&) = delete;
 
   std::vector<protocolo::CanalInfo> canales();
-  std::optional<std::uint32_t> crear_canal(const std::string& nombre);
-  bool renombrar_canal(std::uint32_t id, const std::string& nombre);
+  std::optional<std::uint32_t> crear_canal(const std::string& nombre,
+                                           protocolo::TipoCanal tipo = protocolo::TipoCanal::voz,
+                                           bool solo_admins = false);
+  bool cambiar_canal(std::uint32_t id, const std::string& nombre, bool solo_admins);
   bool borrar_canal(std::uint32_t id);
 
-  std::optional<std::uint64_t> guardar_mensaje(std::uint32_t canal, const std::string& autor,
-                                               std::uint64_t hora_ms, const std::string& texto);
+  std::optional<std::uint64_t> guardar_mensaje(std::uint32_t canal, std::uint32_t numero,
+                                               const std::string& autor, std::uint64_t hora_ms,
+                                               const std::string& texto, bool guardar = true);
   protocolo::Historial historial(std::uint32_t canal, std::uint64_t antes_de,
                                  std::size_t maximo_bytes);
 

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -115,6 +116,36 @@ TEST_CASE("BufferVoz sigue la vuelta del número y se reinicia del todo") {
   buffer.llegar(paquete(0));
   buffer.llegar(paquete(1));
   CHECK(sacar_todo(buffer, 2) == std::vector<int>{0, 1});
+}
+
+TEST_CASE("BufferVoz no junta retraso con las trabas de la red ni con relojes distintos") {
+  BufferVoz buffer;
+  std::uint16_t numero = 0;
+  const auto paso = [&](int llegan) {
+    for (int i = 0; i < llegan; ++i) {
+      buffer.llegar(paquete(numero++));
+    }
+    PaqueteVoz sacado;
+    return buffer.sacar(sacado);
+  };
+  std::size_t mayor = 0;
+  for (int traba = 1; traba <= 10; ++traba) {
+    for (int i = 0; i < 50; ++i) {
+      paso(1);
+    }
+    for (int i = 0; i < traba * 3; ++i) {
+      paso(0);
+    }
+    paso(traba * 3);
+    mayor = std::max(mayor, buffer.cantidad());
+  }
+  CHECK(mayor <= 6);
+  int sonaron = 0;
+  for (int i = 1; i <= 10000; ++i) {
+    sonaron += paso(i % 100 == 0 ? 2 : 1) == Salida::paquete ? 1 : 0;
+  }
+  CHECK(buffer.cantidad() <= 6);
+  CHECK(sonaron >= 9900);
 }
 
 TEST_CASE("La voz comprimida se escucha del otro lado, también con otra calidad") {

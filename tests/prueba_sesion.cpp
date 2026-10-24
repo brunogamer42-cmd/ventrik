@@ -6,6 +6,8 @@
 #include <variant>
 #include <vector>
 
+#include <windows.h>
+
 #include "client/sesion.h"
 #include "common/cifrado/codigo_dueno.h"
 #include "servidor_de_prueba.h"
@@ -20,6 +22,7 @@ using ventrik::cliente::MotivoFin;
 using ventrik::cliente::Novedad;
 using ventrik::cliente::PingMedido;
 using ventrik::servidor::Evento;
+using ventrik::servidor::kCanalGeneral;
 
 namespace {
 class Cliente {
@@ -135,14 +138,22 @@ TEST_CASE("El chat llega a los del mismo canal, se guarda y otro canal no lo ve"
   REQUIRE(creado);
   carla.ordenar(EntrarACanal{creado->canal.id});
   REQUIRE(beto.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == carla_id; }));
-  ana.ordenar(EnviarChat{"hola 😀"});
+  ana.ordenar(EnviarChat{kCanalGeneral, "hola 😀"});
   const auto mensaje = beto.esperar<MensajeChat>();
   REQUIRE(mensaje);
   CHECK(mensaje->texto == "hola 😀");
   CHECK(mensaje->autor == "Ana");
   CHECK(mensaje->canal == ventrik::servidor::kCanalGeneral);
+  CHECK(mensaje->numero == 1);
   CHECK(ana.esperar<MensajeChat>());
   CHECK(carla.no_llega<MensajeChat>());
+  carla.ordenar(EnviarChat{kCanalGeneral, "intrusa"});
+  const auto intrusa = carla.esperar<Negado>();
+  REQUIRE(intrusa);
+  CHECK(intrusa->pedido == TipoMensaje::enviar_chat);
+  CHECK(intrusa->motivo == MotivoNegado::sin_permiso);
+  CHECK(beto.no_llega<MensajeChat>());
+  CHECK(carla.no_llega<MensajesNuevos>());
 
   carla.ordenar(PedirHistorial{ventrik::servidor::kCanalGeneral, 0});
   const auto negado = carla.esperar<Negado>();
@@ -162,9 +173,9 @@ TEST_CASE("Quien no es dueño no toca los canales") {
   Cliente beto(servidor, "Beto");
   beto.entrar();
   beto.ordenar(CrearCanal{"Juegos"});
-  beto.ordenar(RenombrarCanal{ventrik::servidor::kCanalGeneral, "Mío"});
+  beto.ordenar(CambiarCanal{ventrik::servidor::kCanalGeneral, "Mío", false});
   beto.ordenar(BorrarCanal{ventrik::servidor::kCanalGeneral});
-  for (const auto pedido : {TipoMensaje::crear_canal, TipoMensaje::renombrar_canal,
+  for (const auto pedido : {TipoMensaje::crear_canal, TipoMensaje::cambiar_canal,
                             TipoMensaje::borrar_canal}) {
     const auto negado = beto.esperar<Negado>([pedido](const Negado& n) { return n.pedido == pedido; });
     REQUIRE(negado);
@@ -194,8 +205,8 @@ TEST_CASE("El dueño crea, renombra y borra, y al borrar la gente pasa a General
   CHECK(repetido->motivo == MotivoNegado::nombre_en_uso);
   beto.ordenar(EntrarACanal{creado->canal.id});
   REQUIRE(ana.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == beto_id; }));
-  ana.ordenar(RenombrarCanal{creado->canal.id, "Música"});
-  const auto renombrado = beto.esperar<CanalRenombrado>();
+  ana.ordenar(CambiarCanal{creado->canal.id, "Música", false});
+  const auto renombrado = beto.esperar<CanalCambiado>();
   REQUIRE(renombrado);
   CHECK(renombrado->canal.nombre == "Música");
   ana.ordenar(BorrarCanal{creado->canal.id});
@@ -203,7 +214,7 @@ TEST_CASE("El dueño crea, renombra y borra, y al borrar la gente pasa a General
   REQUIRE(borrado);
   CHECK(borrado->id == creado->canal.id);
   CHECK(borrado->movidos_a == ventrik::servidor::kCanalGeneral);
-  beto.ordenar(EnviarChat{"volví"});
+  beto.ordenar(EnviarChat{kCanalGeneral, "volví"});
   CHECK(ana.esperar<MensajeChat>());
   ana.ordenar(BorrarCanal{ventrik::servidor::kCanalGeneral});
   const auto general = ana.esperar<Negado>();
@@ -211,12 +222,135 @@ TEST_CASE("El dueño crea, renombra y borra, y al borrar la gente pasa a General
   CHECK(general->motivo == MotivoNegado::sin_permiso);
 }
 
+TEST_CASE("Los canales de texto se leen y se escriben sin entrar, y a los demás les llega solo el aviso") {
+  ConDueno dueno;
+  ServidorDePrueba servidor(dueno.opciones());
+  Cliente ana(servidor, "Ana", dueno.codigo);
+  Cliente beto(servidor, "Beto");
+  Cliente carla(servidor, "Carla");
+  ana.entrar();
+  beto.entrar();
+  carla.entrar();
+  ana.ordenar(CrearCanal{"Charla", TipoCanal::texto, false});
+  const auto charla = carla.esperar<CanalCreado>();
+  REQUIRE(charla);
+  CHECK(charla->canal.tipo == TipoCanal::texto);
+  ana.ordenar(CrearCanal{"Anuncios", TipoCanal::texto, true});
+  const auto anuncios = carla.esperar<CanalCreado>();
+  REQUIRE(anuncios);
+  CHECK(anuncios->canal.solo_admins);
+  const std::uint32_t id = charla->canal.id;
+
+  carla.ordenar(MirarCanal{id});
+  carla.ordenar(PedirHistorial{id, 0});
+  REQUIRE(carla.esperar<Historial>());
+  beto.ordenar(EnviarChat{id, "hola"});
+  const auto en_carla = carla.esperar<MensajeChat>();
+  REQUIRE(en_carla);
+  CHECK(en_carla->canal == id);
+  CHECK(en_carla->numero == 1);
+  CHECK(beto.esperar<MensajeChat>());
+  const auto aviso = ana.esperar<MensajesNuevos>();
+  const auto primero = std::chrono::steady_clock::now();
+  REQUIRE(aviso);
+  REQUIRE(aviso->canales.size() == 1);
+  CHECK(aviso->canales[0].canal == id);
+  CHECK(aviso->canales[0].contador == 1);
+  for (int i = 0; i < 3; ++i) {
+    beto.ordenar(EnviarChat{id, "otro"});
+  }
+  const auto juntos = ana.esperar<MensajesNuevos>();
+  REQUIRE(juntos);
+  CHECK(std::chrono::steady_clock::now() - primero >= 800ms);
+  REQUIRE(juntos->canales.size() == 1);
+  CHECK(juntos->canales[0].contador == 4);
+  CHECK(carla.esperar<MensajeChat>([](const MensajeChat& m) { return m.numero == 4; }));
+  CHECK(ana.no_llega<MensajeChat>());
+  CHECK(ana.no_llega<MensajesNuevos>());
+  CHECK(carla.no_llega<MensajesNuevos>());
+  CHECK(beto.no_llega<MensajesNuevos>());
+  beto.ordenar(PedirHistorial{id, 0});
+  const auto historial = beto.esperar<Historial>();
+  REQUIRE(historial);
+  REQUIRE(historial->mensajes.size() == 4);
+  CHECK(historial->mensajes[0].numero == 4);
+
+  beto.ordenar(EnviarChat{anuncios->canal.id, "spam"});
+  const auto sin_permiso = beto.esperar<Negado>();
+  REQUIRE(sin_permiso);
+  CHECK(sin_permiso->pedido == TipoMensaje::enviar_chat);
+  CHECK(sin_permiso->motivo == MotivoNegado::sin_permiso);
+  ana.ordenar(EnviarChat{anuncios->canal.id, "aviso"});
+  CHECK(ana.esperar<MensajeChat>([&](const MensajeChat& m) { return m.canal == anuncios->canal.id; }));
+  ana.ordenar(CambiarCanal{anuncios->canal.id, "Anuncios", false});
+  const auto cambiado = beto.esperar<CanalCambiado>();
+  REQUIRE(cambiado);
+  CHECK(cambiado->canal.tipo == TipoCanal::texto);
+  CHECK_FALSE(cambiado->canal.solo_admins);
+  CHECK(cambiado->canal.contador == 1);
+  beto.ordenar(EnviarChat{anuncios->canal.id, "ahora sí"});
+  CHECK(beto.esperar<MensajeChat>([&](const MensajeChat& m) { return m.canal == anuncios->canal.id; }));
+
+  const auto negado_a = [](Cliente& cliente, TipoMensaje pedido) {
+    const auto negado = cliente.esperar<Negado>([pedido](const Negado& n) { return n.pedido == pedido; });
+    return negado ? std::optional<MotivoNegado>(negado->motivo) : std::nullopt;
+  };
+  carla.ordenar(EntrarACanal{id});
+  CHECK(negado_a(carla, TipoMensaje::entrar_a_canal) == MotivoNegado::tipo_de_canal);
+  carla.ordenar(MirarCanal{kCanalGeneral});
+  CHECK(negado_a(carla, TipoMensaje::mirar_canal) == MotivoNegado::tipo_de_canal);
+  ana.ordenar(CrearCanal{"GENERAL", TipoCanal::texto, false});
+  CHECK(negado_a(ana, TipoMensaje::crear_canal) == MotivoNegado::nombre_en_uso);
+  ana.ordenar(CambiarCanal{kCanalGeneral, "General", true});
+  CHECK(negado_a(ana, TipoMensaje::cambiar_canal) == MotivoNegado::tipo_de_canal);
+
+  ana.ordenar(BorrarCanal{id});
+  REQUIRE(carla.esperar<CanalBorrado>());
+  beto.ordenar(EnviarChat{id, "tarde"});
+  CHECK(negado_a(beto, TipoMensaje::enviar_chat) == MotivoNegado::no_existe);
+}
+
+TEST_CASE("Sin guardar, el chat sale una sola vez y el contador queda en la base al cerrar") {
+  wchar_t carpeta[MAX_PATH] = {};
+  REQUIRE(GetTempPathW(MAX_PATH, carpeta) > 0);
+  const std::wstring archivo = std::wstring(carpeta) + L"ventrik_sin_guardar_" +
+                               std::to_wstring(GetCurrentProcessId()) + L".db";
+  DeleteFileW(archivo.c_str());
+  {
+    auto base = ventrik::servidor::Base::abrir(archivo, "General");
+    REQUIRE(base);
+    REQUIRE(base->cambiar_retencion(ventrik::servidor::Retencion::no_guardar));
+  }
+  ventrik::servidor::Opciones opciones;
+  opciones.archivo_base = archivo;
+  {
+    ServidorDePrueba servidor(opciones);
+    Cliente ana(servidor, "Ana");
+    ana.entrar();
+    ana.ordenar(EnviarChat{kCanalGeneral, "uno"});
+    ana.ordenar(EnviarChat{kCanalGeneral, "dos"});
+    REQUIRE(ana.esperar<MensajeChat>([](const MensajeChat& m) { return m.numero == 2; }));
+    CHECK(ana.esperar<MensajeChat>([](const MensajeChat& m) { return m.numero == 1; }));
+    CHECK(ana.no_llega<MensajeChat>());
+    ana.ordenar(PedirHistorial{kCanalGeneral, 0});
+    const auto historial = ana.esperar<Historial>();
+    REQUIRE(historial);
+    CHECK(historial->mensajes.empty());
+  }
+  {
+    auto base = ventrik::servidor::Base::abrir(archivo, "General");
+    REQUIRE(base);
+    CHECK(base->canales()[0].contador == 2);
+  }
+  CHECK(DeleteFileW(archivo.c_str()));
+}
+
 TEST_CASE("Hay un tope de mensajes de chat por persona") {
   ServidorDePrueba servidor;
   Cliente ana(servidor, "Ana");
   ana.entrar();
   for (int i = 0; i < 15; ++i) {
-    ana.ordenar(EnviarChat{"mensaje " + std::to_string(i)});
+    ana.ordenar(EnviarChat{kCanalGeneral, "mensaje " + std::to_string(i)});
   }
   const auto negado = ana.esperar<Negado>();
   REQUIRE(negado);
@@ -263,7 +397,7 @@ TEST_CASE("Un programa que no lee lo que recibe es desconectado") {
   const std::string largo(4000, 'x');
   for (int ronda = 0; ronda < 500 && servidor.cuantos(Evento::no_lee) == 0; ++ronda) {
     for (int i = 0; i < 8; ++i) {
-      ana.ordenar(EnviarChat{largo});
+      ana.ordenar(EnviarChat{kCanalGeneral, largo});
     }
     for (int i = 0; i < 8; ++i) {
       REQUIRE(ana.esperar<MensajeChat>());

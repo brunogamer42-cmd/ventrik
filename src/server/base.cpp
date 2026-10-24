@@ -18,19 +18,34 @@ namespace {
 constexpr std::size_t kMaximoPedidosEnCola = 4096;
 constexpr std::chrono::hours kCadaCuantoLimpiar{1};
 constexpr std::uint64_t kMsPorDia = 24ull * 60 * 60 * 1000;
-constexpr int kVersionEsquema = 1;
+constexpr int kVersionEsquema = 2;
 constexpr int kMaximoFila = 64 * 1024;
 
 const char kEsquema[] =
     "PRAGMA secure_delete=ON;"
     "PRAGMA trusted_schema=OFF;"
     "CREATE TABLE IF NOT EXISTS canales(id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL,"
-    " comparable TEXT NOT NULL UNIQUE, orden INTEGER NOT NULL);"
+    " comparable TEXT NOT NULL UNIQUE, orden INTEGER NOT NULL, tipo INTEGER NOT NULL DEFAULT 1,"
+    " solo_admins INTEGER NOT NULL DEFAULT 0, contador INTEGER NOT NULL DEFAULT 0);"
     "CREATE TABLE IF NOT EXISTS mensajes(id INTEGER PRIMARY KEY AUTOINCREMENT,"
-    " canal INTEGER NOT NULL, autor TEXT NOT NULL, hora INTEGER NOT NULL, texto TEXT NOT NULL);"
+    " canal INTEGER NOT NULL, autor TEXT NOT NULL, hora INTEGER NOT NULL, texto TEXT NOT NULL,"
+    " numero INTEGER NOT NULL DEFAULT 0);"
     "CREATE INDEX IF NOT EXISTS mensajes_por_canal ON mensajes(canal, id);"
     "CREATE INDEX IF NOT EXISTS mensajes_por_hora ON mensajes(hora);"
     "CREATE TABLE IF NOT EXISTS config(clave TEXT PRIMARY KEY, valor INTEGER NOT NULL);";
+
+const char kMigrarDe1[] =
+    "BEGIN;"
+    "ALTER TABLE canales ADD COLUMN tipo INTEGER NOT NULL DEFAULT 1;"
+    "ALTER TABLE canales ADD COLUMN solo_admins INTEGER NOT NULL DEFAULT 0;"
+    "ALTER TABLE canales ADD COLUMN contador INTEGER NOT NULL DEFAULT 0;"
+    "ALTER TABLE mensajes ADD COLUMN numero INTEGER NOT NULL DEFAULT 0;"
+    "UPDATE mensajes SET numero = orden.n FROM (SELECT id, ROW_NUMBER() OVER"
+    " (PARTITION BY canal ORDER BY id) AS n FROM mensajes) AS orden WHERE mensajes.id = orden.id;"
+    "UPDATE canales SET contador = (SELECT IFNULL(MAX(numero), 0) FROM mensajes"
+    " WHERE mensajes.canal = canales.id);"
+    "PRAGMA user_version=2;"
+    "COMMIT;";
 
 class Consulta {
  public:
@@ -115,7 +130,8 @@ std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string
   }
   if (sqlite3_db_config(abierta, SQLITE_DBCONFIG_DEFENSIVE, 1, nullptr) != SQLITE_OK ||
       guardada < 0 || guardada > kVersionEsquema || !ejecutar(abierta, kEsquema) ||
-      (guardada == 0 && !ejecutar(abierta, "PRAGMA user_version=1"))) {
+      (guardada == 0 && !ejecutar(abierta, "PRAGMA user_version=2")) ||
+      (guardada == 1 && !ejecutar(abierta, kMigrarDe1))) {
     return nullptr;
   }
   Consulta general(abierta,
@@ -142,28 +158,37 @@ std::vector<protocolo::CanalInfo> Base::canales() {
   if (!es_su_hilo()) {
     return lista;
   }
-  Consulta consulta(base_, "SELECT id, nombre FROM canales WHERE id BETWEEN 1 AND 4294967295"
-                           " ORDER BY orden, id LIMIT ?1");
+  Consulta consulta(base_,
+                    "SELECT id, nombre, tipo, solo_admins, contador FROM canales"
+                    " WHERE id BETWEEN 1 AND 4294967295 AND tipo IN (1, 2) AND solo_admins IN (0, 1)"
+                    " AND contador BETWEEN 0 AND 4294967294 ORDER BY orden, id LIMIT ?1");
   consulta.entero(1, static_cast<std::int64_t>(protocolo::kMaximoCanalesEnLista));
   while (consulta.paso() == SQLITE_ROW) {
     protocolo::CanalInfo canal;
     canal.id = static_cast<std::uint32_t>(consulta.columna_entero(0));
     canal.nombre = consulta.columna_texto(1);
-    if (es_nombre_valido(canal.nombre)) {
+    canal.tipo = static_cast<protocolo::TipoCanal>(consulta.columna_entero(2));
+    canal.solo_admins = consulta.columna_entero(3) == 1;
+    canal.contador = static_cast<std::uint32_t>(consulta.columna_entero(4));
+    if (es_nombre_valido(canal.nombre) && protocolo::es_tipo_valido(canal.tipo, canal.solo_admins)) {
       lista.push_back(std::move(canal));
     }
   }
   return lista;
 }
 
-std::optional<std::uint32_t> Base::crear_canal(const std::string& nombre) {
-  if (!es_su_hilo() || !es_nombre_valido(nombre)) {
+std::optional<std::uint32_t> Base::crear_canal(const std::string& nombre,
+                                               protocolo::TipoCanal tipo, bool solo_admins) {
+  if (!es_su_hilo() || !es_nombre_valido(nombre) || !protocolo::es_tipo_valido(tipo, solo_admins)) {
     return std::nullopt;
   }
   Consulta consulta(base_,
-                    "INSERT INTO canales(nombre, comparable, orden)"
-                    " VALUES (?1, ?2, (SELECT IFNULL(MAX(orden), 0) + 1 FROM canales))");
-  consulta.texto(1, nombre).texto(2, comparable(nombre));
+                    "INSERT INTO canales(nombre, comparable, orden, tipo, solo_admins)"
+                    " VALUES (?1, ?2, (SELECT IFNULL(MAX(orden), 0) + 1 FROM canales), ?3, ?4)");
+  consulta.texto(1, nombre)
+      .texto(2, comparable(nombre))
+      .entero(3, static_cast<std::int64_t>(tipo))
+      .entero(4, solo_admins);
   if (consulta.paso() != SQLITE_DONE) {
     return std::nullopt;
   }
@@ -174,12 +199,13 @@ std::optional<std::uint32_t> Base::crear_canal(const std::string& nombre) {
   return static_cast<std::uint32_t>(id);
 }
 
-bool Base::renombrar_canal(std::uint32_t id, const std::string& nombre) {
+bool Base::cambiar_canal(std::uint32_t id, const std::string& nombre, bool solo_admins) {
   if (!es_su_hilo() || !es_nombre_valido(nombre)) {
     return false;
   }
-  Consulta consulta(base_, "UPDATE canales SET nombre = ?2, comparable = ?3 WHERE id = ?1");
-  consulta.entero(1, id).texto(2, nombre).texto(3, comparable(nombre));
+  Consulta consulta(base_, "UPDATE canales SET nombre = ?2, comparable = ?3, solo_admins = ?4"
+                           " WHERE id = ?1 AND (tipo = 2 OR ?4 = 0)");
+  consulta.entero(1, id).texto(2, nombre).texto(3, comparable(nombre)).entero(4, solo_admins);
   return consulta.paso() == SQLITE_DONE && sqlite3_changes(base_) == 1;
 }
 
@@ -191,30 +217,43 @@ bool Base::borrar_canal(std::uint32_t id) {
   Consulta canal(base_, "DELETE FROM canales WHERE id = ?1");
   mensajes.entero(1, id);
   canal.entero(1, id);
-  const bool borrado = mensajes.paso() == SQLITE_DONE && canal.paso() == SQLITE_DONE &&
-                       sqlite3_changes(base_) == 1;
-  ejecutar(base_, borrado ? "COMMIT" : "ROLLBACK");
-  return borrado;
+  if (mensajes.paso() != SQLITE_DONE || canal.paso() != SQLITE_DONE ||
+      sqlite3_changes(base_) != 1 || !ejecutar(base_, "COMMIT")) {
+    ejecutar(base_, "ROLLBACK");
+    return false;
+  }
+  return true;
 }
 
-std::optional<std::uint64_t> Base::guardar_mensaje(std::uint32_t canal, const std::string& autor,
+std::optional<std::uint64_t> Base::guardar_mensaje(std::uint32_t canal, std::uint32_t numero,
+                                                   const std::string& autor,
                                                    std::uint64_t hora_ms,
-                                                   const std::string& texto) {
-  if (!es_su_hilo() || !es_nombre_valido(autor) || !es_chat_valido(texto) ||
-      hora_ms > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+                                                   const std::string& texto, bool guardar) {
+  if (!es_su_hilo() || numero == 0 || !es_nombre_valido(autor) || !es_chat_valido(texto) ||
+      hora_ms > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
+      !ejecutar(base_, "BEGIN")) {
     return std::nullopt;
   }
-  Consulta consulta(base_,
-                    "INSERT INTO mensajes(canal, autor, hora, texto) SELECT ?1, ?2, ?3, ?4"
-                    " WHERE EXISTS(SELECT 1 FROM canales WHERE id = ?1)");
-  consulta.entero(1, canal)
-      .texto(2, autor)
-      .entero(3, static_cast<std::int64_t>(hora_ms))
-      .texto(4, texto);
-  if (consulta.paso() != SQLITE_DONE || sqlite3_changes(base_) != 1) {
+  Consulta contador(base_, "UPDATE canales SET contador = MAX(contador, ?2) WHERE id = ?1");
+  contador.entero(1, canal).entero(2, numero);
+  bool hecho = contador.paso() == SQLITE_DONE && sqlite3_changes(base_) == 1;
+  std::optional<std::uint64_t> id;
+  if (hecho && guardar) {
+    Consulta consulta(base_, "INSERT INTO mensajes(canal, numero, autor, hora, texto)"
+                             " VALUES (?1, ?2, ?3, ?4, ?5)");
+    consulta.entero(1, canal)
+        .entero(2, numero)
+        .texto(3, autor)
+        .entero(4, static_cast<std::int64_t>(hora_ms))
+        .texto(5, texto);
+    hecho = consulta.paso() == SQLITE_DONE;
+    id = static_cast<std::uint64_t>(sqlite3_last_insert_rowid(base_));
+  }
+  if (!hecho || !ejecutar(base_, "COMMIT")) {
+    ejecutar(base_, "ROLLBACK");
     return std::nullopt;
   }
-  return static_cast<std::uint64_t>(sqlite3_last_insert_rowid(base_));
+  return id;
 }
 
 protocolo::Historial Base::historial(std::uint32_t canal, std::uint64_t antes_de,
@@ -229,8 +268,8 @@ protocolo::Historial Base::historial(std::uint32_t canal, std::uint64_t antes_de
                         ? std::numeric_limits<std::int64_t>::max()
                         : static_cast<std::int64_t>(antes_de);
   Consulta consulta(base_,
-                    "SELECT id, autor, hora, texto FROM mensajes"
-                    " WHERE canal = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3");
+                    "SELECT id, numero, autor, hora, texto FROM mensajes WHERE canal = ?1"
+                    " AND id < ?2 AND numero BETWEEN 0 AND 4294967295 ORDER BY id DESC LIMIT ?3");
   consulta.entero(1, canal)
       .entero(2, tope)
       .entero(3, static_cast<std::int64_t>(protocolo::kMaximoMensajesEnHistorial) + 1);
@@ -239,15 +278,16 @@ protocolo::Historial Base::historial(std::uint32_t canal, std::uint64_t antes_de
   while (consulta.paso() == SQLITE_ROW) {
     protocolo::MensajeGuardado guardado;
     guardado.id = static_cast<std::uint64_t>(consulta.columna_entero(0));
-    guardado.autor = consulta.columna_texto(1);
-    guardado.hora_ms = static_cast<std::uint64_t>(consulta.columna_entero(2));
-    guardado.texto = consulta.columna_texto(3);
+    guardado.numero = static_cast<std::uint32_t>(consulta.columna_entero(1));
+    guardado.autor = consulta.columna_texto(2);
+    guardado.hora_ms = static_cast<std::uint64_t>(consulta.columna_entero(3));
+    guardado.texto = consulta.columna_texto(4);
     if (guardado.id == 0 || guardado.id >= anterior || !es_nombre_valido(guardado.autor) ||
         !es_chat_valido(guardado.texto)) {
       continue;
     }
     anterior = guardado.id;
-    const std::size_t ocupa = 8 + 2 + guardado.autor.size() + 8 + 2 + guardado.texto.size();
+    const std::size_t ocupa = 8 + 4 + 2 + guardado.autor.size() + 8 + 2 + guardado.texto.size();
     if (historial.mensajes.size() == protocolo::kMaximoMensajesEnHistorial ||
         bytes + ocupa > maximo_bytes) {
       historial.hay_mas = true;
@@ -374,10 +414,10 @@ void ServicioBase::trabajar(std::wstring archivo, std::string nombre_general) {
     }
     hay_pedidos_.wait_until(candado, proxima_limpieza,
                             [this] { return terminar_ || !pedidos_.empty(); });
-    if (terminar_) {
-      return;
-    }
     if (pedidos_.empty()) {
+      if (terminar_) {
+        return;
+      }
       continue;
     }
     Trabajo trabajo = std::move(pedidos_.front());

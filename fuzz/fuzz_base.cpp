@@ -53,10 +53,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   }
   const auto canales = base->canales();
   exigir(canales.size() <= ventrik::protocolo::kMaximoCanalesEnLista);
+  std::vector<std::uint8_t> marco;
   for (const auto& canal : canales) {
-    exigir(canal.id > 0 && ventrik::es_nombre_valido(canal.nombre));
-    const auto historial = base->historial(canal.id, 0, 65536);
+    exigir(canal.id > 0 && ventrik::es_nombre_valido(canal.nombre) &&
+           ventrik::protocolo::es_tipo_valido(canal.tipo, canal.solo_admins));
+    exigir(ventrik::protocolo::armar_mensaje(ventrik::protocolo::CanalCreado{canal}, marco));
+    const auto historial = base->historial(canal.id, 0, ventrik::protocolo::kMaximoCuerpo - 64);
     revisar(historial, 0);
+    exigir(ventrik::protocolo::armar_mensaje(historial, marco));
     if (!historial.mensajes.empty()) {
       revisar(base->historial(canal.id, historial.mensajes.back().id, 65536),
               historial.mensajes.back().id);
@@ -64,7 +68,16 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   }
   base->retencion();
   base->crear_canal("Nuevo");
-  base->guardar_mensaje(ventrik::servidor::kCanalGeneral, "Ana", 1, "hola");
+  base->crear_canal("Texto", ventrik::protocolo::TipoCanal::texto, true);
+  base->cambiar_canal(ventrik::servidor::kCanalGeneral, "General", false);
+  base->guardar_mensaje(ventrik::servidor::kCanalGeneral, 1, "Ana", 1, "hola");
+  base->guardar_mensaje(ventrik::servidor::kCanalGeneral, 2, "Ana", 1, "hola", false);
+  const auto despues = base->canales();
+  for (const auto& canal : canales) {
+    for (const auto& nuevo : despues) {
+      exigir(nuevo.id != canal.id || nuevo.contador >= canal.contador);
+    }
+  }
   base->borrar_viejos(UINT64_MAX / 2);
   return 0;
 }

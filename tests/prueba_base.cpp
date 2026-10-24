@@ -17,6 +17,7 @@
 #include <doctest/doctest.h>
 
 using namespace ventrik::servidor;
+using ventrik::protocolo::TipoCanal;
 
 namespace {
 constexpr std::uint64_t kDia = 24ull * 60 * 60 * 1000;
@@ -25,6 +26,31 @@ std::unique_ptr<Base> base_en_memoria() {
   auto base = Base::abrir(L"", "General");
   REQUIRE(base);
   return base;
+}
+
+void armar_base(const std::wstring& archivo, const char* sql) {
+  sqlite3* base = nullptr;
+  REQUIRE(sqlite3_open_v2(ventrik::a_utf8(archivo).c_str(), &base,
+                          SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) == SQLITE_OK);
+  CHECK(sqlite3_exec(base, sql, nullptr, nullptr, nullptr) == SQLITE_OK);
+  sqlite3_close(base);
+}
+
+int leer_numero(const std::wstring& archivo, const char* sql) {
+  sqlite3* base = nullptr;
+  int valor = -1;
+  if (sqlite3_open_v2(ventrik::a_utf8(archivo).c_str(), &base, SQLITE_OPEN_READONLY, nullptr) ==
+      SQLITE_OK) {
+    sqlite3_exec(
+        base, sql,
+        [](void* destino, int, char** valores, char**) {
+          *static_cast<int*>(destino) = std::atoi(valores[0]);
+          return 0;
+        },
+        &valor, nullptr);
+  }
+  sqlite3_close(base);
+  return valor;
 }
 
 std::wstring archivo_temporal() {
@@ -44,20 +70,53 @@ TEST_CASE("La base arranca con General y administra canales") {
   REQUIRE(juegos);
   CHECK_FALSE(base->crear_canal("JUEGOS"));
   CHECK_FALSE(base->crear_canal(" Juegos"));
-  CHECK(base->renombrar_canal(*juegos, "Música"));
-  CHECK_FALSE(base->renombrar_canal(*juegos, "general"));
-  CHECK_FALSE(base->renombrar_canal(99, "Otro"));
-  CHECK(base->renombrar_canal(kCanalGeneral, "Charla"));
+  CHECK(base->cambiar_canal(*juegos, "Música", false));
+  CHECK_FALSE(base->cambiar_canal(*juegos, "general", false));
+  CHECK_FALSE(base->cambiar_canal(99, "Otro", false));
+  CHECK(base->cambiar_canal(kCanalGeneral, "Charla", false));
   const auto canales = base->canales();
   REQUIRE(canales.size() == 2);
   CHECK(canales[0].nombre == "Charla");
   CHECK(canales[1].nombre == "Música");
   CHECK_FALSE(base->borrar_canal(kCanalGeneral));
-  REQUIRE(base->guardar_mensaje(*juegos, "Ana", 1, "hola"));
+  REQUIRE(base->guardar_mensaje(*juegos, 1, "Ana", 1, "hola"));
   CHECK(base->borrar_canal(*juegos));
   CHECK_FALSE(base->borrar_canal(*juegos));
   CHECK(base->historial(*juegos, 0, 65536).mensajes.empty());
   CHECK(base->canales().size() == 1);
+}
+
+TEST_CASE("Los canales de texto guardan su marca y los de voz no la aceptan") {
+  auto base = base_en_memoria();
+  const auto anuncios = base->crear_canal("Anuncios", TipoCanal::texto, true);
+  REQUIRE(anuncios);
+  CHECK_FALSE(base->crear_canal("Otro", TipoCanal::voz, true));
+  CHECK_FALSE(base->crear_canal("Otro", static_cast<TipoCanal>(3), false));
+  CHECK_FALSE(base->crear_canal("general", TipoCanal::texto, false));
+  CHECK_FALSE(base->cambiar_canal(kCanalGeneral, "General", true));
+  CHECK(base->cambiar_canal(*anuncios, "Novedades", false));
+  const auto canales = base->canales();
+  REQUIRE(canales.size() == 2);
+  CHECK(canales[0].tipo == TipoCanal::voz);
+  CHECK_FALSE(canales[0].solo_admins);
+  CHECK(canales[1].tipo == TipoCanal::texto);
+  CHECK(canales[1].nombre == "Novedades");
+  CHECK_FALSE(canales[1].solo_admins);
+  REQUIRE(base->cambiar_canal(*anuncios, "Novedades", true));
+  CHECK(base->canales()[1].solo_admins);
+}
+
+TEST_CASE("El contador de cada canal solo sube, aunque no se guarden los mensajes") {
+  auto base = base_en_memoria();
+  REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1, "hola"));
+  CHECK_FALSE(base->guardar_mensaje(kCanalGeneral, 2, "Ana", 2, "sin guardar", false));
+  CHECK_FALSE(base->guardar_mensaje(kCanalGeneral, 0, "Ana", 3, "sin número"));
+  REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 3, "atrasado"));
+  CHECK(base->canales()[0].contador == 2);
+  const auto historial = base->historial(kCanalGeneral, 0, 65536);
+  REQUIRE(historial.mensajes.size() == 2);
+  CHECK(historial.mensajes[0].texto == "atrasado");
+  CHECK(historial.mensajes[1].numero == 1);
 }
 
 TEST_CASE("Un canal borrado no deja su número ni recibe mensajes") {
@@ -65,18 +124,19 @@ TEST_CASE("Un canal borrado no deja su número ni recibe mensajes") {
   const auto juegos = base->crear_canal("Juegos");
   REQUIRE(juegos);
   REQUIRE(base->borrar_canal(*juegos));
-  CHECK_FALSE(base->guardar_mensaje(*juegos, "Ana", 1, "secreto"));
+  CHECK_FALSE(base->guardar_mensaje(*juegos, 1, "Ana", 1, "secreto"));
   const auto nuevo = base->crear_canal("Nuevo");
   REQUIRE(nuevo);
   CHECK(*nuevo != *juegos);
   CHECK(base->historial(*juegos, 0, 65536).mensajes.empty());
-  CHECK_FALSE(base->guardar_mensaje(99, "Ana", 1, "hola"));
+  CHECK_FALSE(base->guardar_mensaje(99, 1, "Ana", 1, "hola"));
 }
 
 TEST_CASE("El historial sale de a partes, del más nuevo al más viejo") {
   auto base = base_en_memoria();
   for (int i = 1; i <= 300; ++i) {
-    REQUIRE(base->guardar_mensaje(kCanalGeneral, "Ana", static_cast<std::uint64_t>(i),
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, static_cast<std::uint32_t>(i), "Ana",
+                                  static_cast<std::uint64_t>(i),
                                   "mensaje " + std::to_string(i)));
   }
   const auto primera = base->historial(kCanalGeneral, 0, 65536);
@@ -96,9 +156,9 @@ TEST_CASE("El historial sale de a partes, del más nuevo al más viejo") {
 TEST_CASE("La retención borra lo viejo y por defecto se guarda siempre") {
   auto base = base_en_memoria();
   const std::uint64_t ahora = 100 * kDia;
-  REQUIRE(base->guardar_mensaje(kCanalGeneral, "Ana", ahora - 40 * kDia, "muy viejo"));
-  REQUIRE(base->guardar_mensaje(kCanalGeneral, "Ana", ahora - 10 * kDia, "viejo"));
-  REQUIRE(base->guardar_mensaje(kCanalGeneral, "Ana", ahora - 1000, "nuevo"));
+  REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", ahora - 40 * kDia, "muy viejo"));
+  REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", ahora - 10 * kDia, "viejo"));
+  REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", ahora - 1000, "nuevo"));
   const auto cuantos = [&] { return base->historial(kCanalGeneral, 0, 65536).mensajes.size(); };
   CHECK(base->retencion() == Retencion::siempre);
   base->borrar_viejos(ahora);
@@ -121,7 +181,7 @@ TEST_CASE("Comillas y SQL en los textos se guardan tal cual") {
   const std::string texto = "'; DROP TABLE mensajes; -- \"%_\\";
   const auto id = base->crear_canal(canal);
   REQUIRE(id);
-  REQUIRE(base->guardar_mensaje(*id, "O'Brien", 1, texto));
+  REQUIRE(base->guardar_mensaje(*id, 1, "O'Brien", 1, texto));
   const auto historial = base->historial(*id, 0, 65536);
   REQUIRE(historial.mensajes.size() == 1);
   CHECK(historial.mensajes[0].texto == texto);
@@ -135,7 +195,7 @@ TEST_CASE("La base no se deja usar desde otro hilo") {
   std::thread otro([&base] {
     CHECK(base->canales().empty());
     CHECK_FALSE(base->crear_canal("Juegos"));
-    CHECK_FALSE(base->guardar_mensaje(kCanalGeneral, "Ana", 1, "hola"));
+    CHECK_FALSE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1, "hola"));
     CHECK_FALSE(base->cambiar_retencion(Retencion::no_guardar));
   });
   otro.join();
@@ -150,7 +210,7 @@ TEST_CASE("La base guarda en el archivo y se vuelve a abrir igual") {
     auto base = Base::abrir(archivo, "General");
     REQUIRE(base);
     REQUIRE(base->crear_canal("Juegos"));
-    REQUIRE(base->guardar_mensaje(kCanalGeneral, "Ana", 1, "hola"));
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1, "hola"));
   }
   {
     auto base = Base::abrir(archivo, "Otro nombre");
@@ -165,6 +225,63 @@ TEST_CASE("La base guarda en el archivo y se vuelve a abrir igual") {
   CHECK_FALSE(Base::abrir(L"", ""));
 }
 
+TEST_CASE("Una base de la versión 1 se actualiza: canales de voz y mensajes numerados") {
+  const std::wstring archivo = archivo_temporal();
+  DeleteFileW(archivo.c_str());
+  armar_base(archivo,
+                       "CREATE TABLE canales(id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                       " nombre TEXT NOT NULL, comparable TEXT NOT NULL UNIQUE, orden INTEGER NOT NULL);"
+                       "CREATE TABLE mensajes(id INTEGER PRIMARY KEY AUTOINCREMENT, canal INTEGER NOT NULL,"
+                       " autor TEXT NOT NULL, hora INTEGER NOT NULL, texto TEXT NOT NULL);"
+                       "CREATE TABLE config(clave TEXT PRIMARY KEY, valor INTEGER NOT NULL);"
+                       "INSERT INTO canales VALUES (1, 'General', 'GENERAL', 0), (2, 'Juegos', 'JUEGOS', 1),"
+                       " (3, 'Charla', 'CHARLA', 2);"
+                       "INSERT INTO mensajes(canal, autor, hora, texto) VALUES (1, 'Ana', 1, 'a'),"
+                       " (2, 'Ana', 2, 'b'), (1, 'Ana', 3, 'c');"
+                       "PRAGMA user_version=1;");
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    const auto canales = base->canales();
+    REQUIRE(canales.size() == 3);
+    CHECK(canales[0].contador == 2);
+    CHECK(canales[1].contador == 1);
+    CHECK(canales[2].contador == 0);
+    for (const auto& canal : canales) {
+      CHECK(canal.tipo == TipoCanal::voz);
+      CHECK_FALSE(canal.solo_admins);
+    }
+    const auto general = base->historial(kCanalGeneral, 0, 65536);
+    REQUIRE(general.mensajes.size() == 2);
+    CHECK(general.mensajes[0].numero == 2);
+    CHECK(general.mensajes[1].numero == 1);
+    const auto juegos = base->historial(2, 0, 65536);
+    REQUIRE(juegos.mensajes.size() == 1);
+    CHECK(juegos.mensajes[0].numero == 1);
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 3, "Ana", 4, "d"));
+  }
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    CHECK(base->canales()[0].contador == 3);
+    CHECK(base->historial(kCanalGeneral, 0, 65536).mensajes.size() == 3);
+  }
+  CHECK(DeleteFileW(archivo.c_str()));
+}
+
+TEST_CASE("Si la actualización de la versión 1 falla, la base queda como estaba") {
+  const std::wstring archivo = archivo_temporal();
+  DeleteFileW(archivo.c_str());
+  armar_base(archivo,
+             "CREATE TABLE canales(id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL,"
+             " comparable TEXT NOT NULL UNIQUE, orden INTEGER NOT NULL, contador INTEGER);"
+             "PRAGMA user_version=1;");
+  CHECK_FALSE(Base::abrir(archivo, "General"));
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 1);
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM pragma_table_info('canales')") == 5);
+  CHECK(DeleteFileW(archivo.c_str()));
+}
+
 TEST_CASE("Una base de una versión futura o que no es una base no se abre") {
   const std::wstring archivo = archivo_temporal();
   const std::string basura = "esto no es una base de SQLite, aunque se llame .db";
@@ -172,25 +289,30 @@ TEST_CASE("Una base de una versión futura o que no es una base no se abre") {
       archivo, gsl::make_span(reinterpret_cast<const std::uint8_t*>(basura.data()), basura.size())));
   CHECK_FALSE(Base::abrir(archivo, "General"));
   REQUIRE(DeleteFileW(archivo.c_str()));
-  sqlite3* futura = nullptr;
-  REQUIRE(sqlite3_open_v2(ventrik::a_utf8(archivo).c_str(), &futura,
-                          SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) == SQLITE_OK);
-  REQUIRE(sqlite3_exec(futura, "PRAGMA user_version=2", nullptr, nullptr, nullptr) == SQLITE_OK);
-  sqlite3_close(futura);
+  armar_base(archivo, "PRAGMA user_version=3");
   CHECK_FALSE(Base::abrir(archivo, "General"));
-  sqlite3* revisada = nullptr;
-  REQUIRE(sqlite3_open_v2(ventrik::a_utf8(archivo).c_str(), &revisada, SQLITE_OPEN_READONLY,
-                          nullptr) == SQLITE_OK);
-  int tablas = -1;
-  sqlite3_exec(
-      revisada, "SELECT COUNT(*) FROM sqlite_master",
-      [](void* cuantas, int, char** valores, char**) {
-        *static_cast<int*>(cuantas) = std::atoi(valores[0]);
-        return 0;
-      },
-      &tablas, nullptr);
-  sqlite3_close(revisada);
-  CHECK(tablas == 0);
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master") == 0);
+  CHECK(DeleteFileW(archivo.c_str()));
+}
+
+TEST_CASE("Al cerrarse, el servicio de la base termina los pedidos que quedaron en la cola") {
+  ventrik::red::Inicio red;
+  REQUIRE(red.ok());
+  ventrik::red::Despertador despertador;
+  REQUIRE(despertador.ok());
+  const std::wstring archivo = archivo_temporal();
+  DeleteFileW(archivo.c_str());
+  {
+    ServicioBase servicio;
+    REQUIRE(servicio.arrancar(archivo, "General", despertador));
+    for (std::uint32_t numero = 1; numero <= 100; ++numero) {
+      REQUIRE(servicio.pedir([numero](Base& base) -> std::function<void()> {
+        base.guardar_mensaje(kCanalGeneral, numero, "Ana", 1, "hola", false);
+        return {};
+      }));
+    }
+  }
+  CHECK(leer_numero(archivo, "SELECT contador FROM canales WHERE id = 1") == 100);
   CHECK(DeleteFileW(archivo.c_str()));
 }
 

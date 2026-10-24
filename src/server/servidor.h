@@ -97,12 +97,14 @@ class Servidor {
   void enviar_chat(Conexion& conexion, const protocolo::Marco& marco);
   void pedir_historial(Conexion& conexion, const protocolo::Marco& marco);
   void crear_canal(Conexion& conexion, const protocolo::Marco& marco);
-  void renombrar_canal(Conexion& conexion, const protocolo::Marco& marco);
+  void cambiar_canal(Conexion& conexion, const protocolo::Marco& marco);
+  void mirar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void borrar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void error_de_protocolo(Conexion& conexion);
   void negar(Conexion& conexion, protocolo::TipoMensaje pedido, protocolo::MotivoNegado motivo);
   void cerrar_con_respuesta(Conexion& conexion);
   void difundir_chat(const protocolo::MensajeChat& mensaje);
+  void avisar_novedades();
   void quitar_terminadas();
   void atender_udp();
   void renovar_claves();

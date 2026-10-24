@@ -15,6 +15,7 @@ namespace ventrik::servidor {
 namespace {
 using Reloj = std::chrono::steady_clock;
 using protocolo::MotivoNegado;
+using protocolo::TipoCanal;
 using protocolo::TipoMensaje;
 
 constexpr std::chrono::milliseconds kEsperaMaxima{500};
@@ -25,6 +26,7 @@ constexpr int kLecturasPorVuelta = 16;
 constexpr std::size_t kDatagramasPorVuelta = 256;
 constexpr std::chrono::milliseconds kCadaCuantoRevisarVoz{100};
 constexpr std::size_t kMaximoHistorial = protocolo::kMaximoCuerpo - 64;
+constexpr std::chrono::seconds kEntreAvisos{1};
 
 enum class Estado { cifrando, saludando, presentando, conectada, cerrando };
 
@@ -38,6 +40,10 @@ std::uint64_t ahora_ms() {
   const auto desde_1970 = std::chrono::system_clock::now().time_since_epoch();
   return static_cast<std::uint64_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(desde_1970).count());
+}
+
+protocolo::CanalInfo info_de(const Canal& canal) {
+  return {canal.id, canal.nombre, canal.tipo, canal.solo_admins, canal.contador};
 }
 
 }
@@ -70,6 +76,9 @@ struct Servidor::Conexion {
   std::wstring comparable;
   bool dueno = false;
   std::uint32_t canal = kCanalGeneral;
+  std::uint32_t mirando = 0;
+  std::vector<std::uint32_t> novedades;
+  Reloj::time_point ultimo_aviso{};
   Cubeta chat;
   Cubeta pedidos;
   Cubeta historial;
@@ -103,9 +112,10 @@ bool Servidor::escuchar() {
   auto [canales, retencion] = futuro.get();
   retencion_ = retencion;
   for (auto& canal : canales) {
-    canales_.push_back(Canal{canal.id, canal.nombre, nombre_para_comparar(canal.nombre)});
+    canales_.push_back(Canal{canal.id, canal.nombre, nombre_para_comparar(canal.nombre),
+                             canal.tipo, canal.solo_admins, canal.contador});
   }
-  if (buscar_canal(canales_, kCanalGeneral) == nullptr) {
+  if (puede_entrar(canales_, kCanalGeneral)) {
     return false;
   }
   for (int intento = 0; intento < 8 && !udp_.valido(); ++intento) {
@@ -177,6 +187,11 @@ void Servidor::correr(const std::atomic<bool>& seguir) {
       if (conexion->datos_guardados) {
         espera = std::chrono::milliseconds{0};
       }
+      if (!conexion->novedades.empty()) {
+        espera = std::min(espera, std::max(std::chrono::milliseconds{0},
+                                           std::chrono::ceil<std::chrono::milliseconds>(
+                                               conexion->ultimo_aviso + kEntreAvisos - ahora)));
+      }
       const auto limite = conexion->tiene_limite() ? conexion->limite
                           : conexion->estado == Estado::conectada
                               ? conexion->ultimo_dato + opciones_.inactividad
@@ -214,6 +229,7 @@ void Servidor::correr(const std::atomic<bool>& seguir) {
     if (FD_ISSET(static_cast<SOCKET>(escucha_.get()), &lectura)) {
       aceptar_nuevas();
     }
+    avisar_novedades();
 
     const auto despues = Reloj::now();
     for (auto& conexion : conexiones_) {
@@ -545,7 +561,7 @@ void Servidor::atender_presentacion(Conexion& conexion, const protocolo::Marco& 
   presentado.tu_id = conexion.id;
   presentado.dueno = conexion.dueno;
   for (const Canal& canal : canales_) {
-    presentado.canales.push_back(protocolo::CanalInfo{canal.id, canal.nombre});
+    presentado.canales.push_back(info_de(canal));
   }
   for (const auto& otra : conexiones_) {
     if (otra->estado == Estado::conectada && !otra->terminar) {
@@ -585,8 +601,11 @@ void Servidor::atender_pedido(Conexion& conexion, const protocolo::Marco& marco)
     case TipoMensaje::crear_canal:
       crear_canal(conexion, marco);
       return;
-    case TipoMensaje::renombrar_canal:
-      renombrar_canal(conexion, marco);
+    case TipoMensaje::cambiar_canal:
+      cambiar_canal(conexion, marco);
+      return;
+    case TipoMensaje::mirar_canal:
+      mirar_canal(conexion, marco);
       return;
     case TipoMensaje::borrar_canal:
       borrar_canal(conexion, marco);
@@ -632,20 +651,22 @@ void Servidor::enviar_chat(Conexion& conexion, const protocolo::Marco& marco) {
     negar(conexion, TipoMensaje::enviar_chat, MotivoNegado::demasiado_rapido);
     return;
   }
+  if (const auto motivo = puede_escribir(conexion.persona(), canales_, pedido->canal)) {
+    negar(conexion, TipoMensaje::enviar_chat, *motivo);
+    return;
+  }
+  Canal* canal = buscar_canal(canales_, pedido->canal);
   protocolo::MensajeChat mensaje;
-  mensaje.canal = conexion.canal;
+  mensaje.canal = pedido->canal;
+  mensaje.numero = ++canal->contador;
   mensaje.autor_id = conexion.id;
   mensaje.autor = conexion.nombre;
   mensaje.hora_ms = ahora_ms();
   mensaje.texto = pedido->texto;
-  if (retencion_ == Retencion::no_guardar) {
-    mensaje.id = proximo_mensaje_sin_guardar_++;
-    difundir_chat(mensaje);
-    return;
-  }
-  const bool pedido_aceptado = base_.pedir([this, mensaje](Base& base) mutable {
-    const auto id = base.guardar_mensaje(mensaje.canal, mensaje.autor, mensaje.hora_ms,
-                                         mensaje.texto);
+  const bool guardar = retencion_ != Retencion::no_guardar;
+  const bool pedido_aceptado = base_.pedir([this, mensaje, guardar](Base& base) mutable {
+    const auto id = base.guardar_mensaje(mensaje.canal, mensaje.numero, mensaje.autor,
+                                         mensaje.hora_ms, mensaje.texto, guardar);
     return std::function<void()>([this, mensaje, id]() mutable {
       if (id) {
         mensaje.id = *id;
@@ -654,21 +675,69 @@ void Servidor::enviar_chat(Conexion& conexion, const protocolo::Marco& marco) {
     });
   });
   if (!pedido_aceptado) {
+    --canal->contador;
     negar(conexion, TipoMensaje::enviar_chat, MotivoNegado::lleno);
+  } else if (!guardar) {
+    mensaje.id = proximo_mensaje_sin_guardar_++;
+    difundir_chat(mensaje);
   }
 }
 
 void Servidor::difundir_chat(const protocolo::MensajeChat& mensaje) {
   std::vector<std::uint8_t> marco;
-  if (!protocolo::armar_mensaje(mensaje, marco)) {
+  const Canal* canal = buscar_canal(canales_, mensaje.canal);
+  if (canal == nullptr || !protocolo::armar_mensaje(mensaje, marco)) {
     return;
   }
+  const bool texto = canal->tipo == TipoCanal::texto;
   for (auto& conexion : conexiones_) {
-    if (conexion->estado == Estado::conectada && !conexion->terminar &&
-        conexion->canal == mensaje.canal) {
+    if (conexion->estado != Estado::conectada || conexion->terminar) {
+      continue;
+    }
+    if (texto ? conexion->mirando == mensaje.canal || conexion->id == mensaje.autor_id
+              : conexion->canal == mensaje.canal) {
       encolar_bytes(*conexion, marco);
+    } else if (texto && std::find(conexion->novedades.begin(), conexion->novedades.end(),
+                                  mensaje.canal) == conexion->novedades.end()) {
+      conexion->novedades.push_back(mensaje.canal);
     }
   }
+}
+
+void Servidor::avisar_novedades() {
+  const auto ahora = Reloj::now();
+  for (auto& conexion : conexiones_) {
+    if (conexion->novedades.empty() || ahora - conexion->ultimo_aviso < kEntreAvisos) {
+      continue;
+    }
+    protocolo::MensajesNuevos aviso;
+    for (const std::uint32_t id : conexion->novedades) {
+      if (const Canal* canal = buscar_canal(canales_, id)) {
+        aviso.canales.push_back(protocolo::Contador{id, canal->contador});
+      }
+    }
+    conexion->novedades.clear();
+    conexion->ultimo_aviso = ahora;
+    if (!aviso.canales.empty()) {
+      encolar(*conexion, aviso);
+    }
+  }
+}
+
+void Servidor::mirar_canal(Conexion& conexion, const protocolo::Marco& marco) {
+  const auto pedido = protocolo::leer_mensaje<protocolo::MirarCanal>(marco.cuerpo);
+  if (!pedido) {
+    error_de_protocolo(conexion);
+    return;
+  }
+  if (const auto motivo = puede_mirar(canales_, pedido->canal)) {
+    negar(conexion, TipoMensaje::mirar_canal, *motivo);
+    return;
+  }
+  conexion.mirando = pedido->canal;
+  conexion.novedades.erase(
+      std::remove(conexion.novedades.begin(), conexion.novedades.end(), pedido->canal),
+      conexion.novedades.end());
 }
 
 void Servidor::pedir_historial(Conexion& conexion, const protocolo::Marco& marco) {
@@ -677,7 +746,7 @@ void Servidor::pedir_historial(Conexion& conexion, const protocolo::Marco& marco
     error_de_protocolo(conexion);
     return;
   }
-  if (const auto motivo = puede_leer_historial(conexion.persona(), pedido->canal)) {
+  if (const auto motivo = puede_leer(conexion.persona(), canales_, pedido->canal)) {
     negar(conexion, TipoMensaje::pedir_historial, *motivo);
     return;
   }
@@ -687,7 +756,7 @@ void Servidor::pedir_historial(Conexion& conexion, const protocolo::Marco& marco
     auto historial = base.historial(canal, antes_de, kMaximoHistorial);
     return std::function<void()>([this, quien, historial = std::move(historial)]() {
       Conexion* conexion = buscar_conectada(quien);
-      if (conexion != nullptr && conexion->canal == historial.canal) {
+      if (conexion != nullptr && !puede_leer(conexion->persona(), canales_, historial.canal)) {
         encolar(*conexion, historial);
       }
     });
@@ -712,9 +781,9 @@ void Servidor::crear_canal(Conexion& conexion, const protocolo::Marco& marco) {
     return;
   }
   const std::uint32_t quien = conexion.id;
-  const bool pedido_aceptado = base_.pedir([this, quien, nombre = pedido->nombre](Base& base) {
-    const auto id = base.crear_canal(nombre);
-    return std::function<void()>([this, quien, nombre, id]() {
+  const bool pedido_aceptado = base_.pedir([this, quien, nuevo = *pedido](Base& base) {
+    const auto id = base.crear_canal(nuevo.nombre, nuevo.tipo, nuevo.solo_admins);
+    return std::function<void()>([this, quien, nuevo, id]() {
       --canales_pedidos_;
       if (!id) {
         if (Conexion* conexion = buscar_conectada(quien)) {
@@ -722,8 +791,9 @@ void Servidor::crear_canal(Conexion& conexion, const protocolo::Marco& marco) {
         }
         return;
       }
-      canales_.push_back(Canal{*id, nombre, nombre_para_comparar(nombre)});
-      difundir(protocolo::CanalCreado{protocolo::CanalInfo{*id, nombre}});
+      canales_.push_back(Canal{*id, nuevo.nombre, nombre_para_comparar(nuevo.nombre), nuevo.tipo,
+                               nuevo.solo_admins});
+      difundir(protocolo::CanalCreado{info_de(canales_.back())});
     });
   });
   if (pedido_aceptado) {
@@ -733,37 +803,35 @@ void Servidor::crear_canal(Conexion& conexion, const protocolo::Marco& marco) {
   }
 }
 
-void Servidor::renombrar_canal(Conexion& conexion, const protocolo::Marco& marco) {
-  const auto pedido = protocolo::leer_mensaje<protocolo::RenombrarCanal>(marco.cuerpo);
+void Servidor::cambiar_canal(Conexion& conexion, const protocolo::Marco& marco) {
+  const auto pedido = protocolo::leer_mensaje<protocolo::CambiarCanal>(marco.cuerpo);
   if (!pedido) {
     error_de_protocolo(conexion);
     return;
   }
-  if (const auto motivo =
-          puede_renombrar(conexion.persona(), canales_, pedido->canal, pedido->nombre)) {
-    negar(conexion, TipoMensaje::renombrar_canal, *motivo);
+  if (const auto motivo = puede_cambiar(conexion.persona(), canales_, *pedido)) {
+    negar(conexion, TipoMensaje::cambiar_canal, *motivo);
     return;
   }
   const std::uint32_t quien = conexion.id;
-  const bool pedido_aceptado = base_.pedir(
-      [this, quien, canal = pedido->canal, nombre = pedido->nombre](Base& base) {
-        const bool hecho = base.renombrar_canal(canal, nombre);
-        return std::function<void()>([this, quien, canal, nombre, hecho]() {
-          auto encontrado = std::find_if(canales_.begin(), canales_.end(),
-                                         [canal](const Canal& c) { return c.id == canal; });
-          if (!hecho || encontrado == canales_.end()) {
-            if (Conexion* conexion = buscar_conectada(quien)) {
-              negar(*conexion, TipoMensaje::renombrar_canal, MotivoNegado::nombre_en_uso);
-            }
-            return;
-          }
-          encontrado->nombre = nombre;
-          encontrado->comparable = nombre_para_comparar(nombre);
-          difundir(protocolo::CanalRenombrado{protocolo::CanalInfo{canal, nombre}});
-        });
-      });
+  const bool pedido_aceptado = base_.pedir([this, quien, cambio = *pedido](Base& base) {
+    const bool hecho = base.cambiar_canal(cambio.canal, cambio.nombre, cambio.solo_admins);
+    return std::function<void()>([this, quien, cambio, hecho]() {
+      Canal* encontrado = buscar_canal(canales_, cambio.canal);
+      if (!hecho || encontrado == nullptr) {
+        if (Conexion* conexion = buscar_conectada(quien)) {
+          negar(*conexion, TipoMensaje::cambiar_canal, MotivoNegado::nombre_en_uso);
+        }
+        return;
+      }
+      encontrado->nombre = cambio.nombre;
+      encontrado->comparable = nombre_para_comparar(cambio.nombre);
+      encontrado->solo_admins = cambio.solo_admins;
+      difundir(protocolo::CanalCambiado{info_de(*encontrado)});
+    });
+  });
   if (!pedido_aceptado) {
-    negar(conexion, TipoMensaje::renombrar_canal, MotivoNegado::lleno);
+    negar(conexion, TipoMensaje::cambiar_canal, MotivoNegado::lleno);
   }
 }
 
