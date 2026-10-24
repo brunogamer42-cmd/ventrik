@@ -110,6 +110,7 @@ inicio_version = Ventrik, versión {1}
 inicio_pie_modo = Modo Rendimiento
 inicio_llega_en = Todavía no está: llega en la etapa {1}.
 inicio_no_se_guardo = No se pudo guardar la lista de servidores en esta PC.
+registro_sin_archivo = No se pudo abrir el archivo del registro: {1}
 inicio_lista_nueva = La lista de servidores es de una versión más nueva de Ventrik: esta versión no la cambia. Está en %APPDATA%\Ventrik\Programa.
 inicio_lista_ilegible = No se pudo leer la lista de servidores de esta PC: por ahora no se guardan los cambios.
 inicio_lista_danada = La lista de servidores estaba dañada y se empezó una nueva.

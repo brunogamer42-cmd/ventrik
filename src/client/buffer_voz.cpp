@@ -64,6 +64,7 @@ BufferVoz::Salida BufferVoz::sacar(PaqueteVoz& paquete) {
   }
   llenando_ = false;
   if (cantidad_ == 0) {
+    ++vaciados_;
     vaciar();
     return Salida::nada;
   }
@@ -82,6 +83,7 @@ BufferVoz::Salida BufferVoz::sacar(PaqueteVoz& paquete) {
   hay_ultimo_ = true;
   paquete.numero = ultimo_;
   if (!lugar.ocupado || lugar.paquete.numero != ultimo_) {
+    ++faltas_;
     return Salida::perdido;
   }
   lugar.ocupado = false;

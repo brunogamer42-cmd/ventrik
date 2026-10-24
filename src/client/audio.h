@@ -27,6 +27,9 @@ class Audio {
   bool abrir(unsigned frecuencia, Procesar procesar, void* datos);
   void cerrar();
   std::uint32_t espera_de_salida_ms() const { return espera_de_salida_ms_.load(std::memory_order_relaxed); }
+  std::uint32_t tomar_espera_maxima_ms() { return espera_maxima_ms_.exchange(0, std::memory_order_relaxed); }
+  std::uint32_t descartados() const { return descartados_.load(std::memory_order_relaxed); }
+  std::uint32_t vacios() const { return vacios_.load(std::memory_order_relaxed); }
 
  private:
   struct Pedazo {
@@ -57,6 +60,9 @@ class Audio {
   std::size_t siguiente_entrada_ = 0;
   std::atomic<bool> seguir_{false};
   std::atomic<std::uint32_t> espera_de_salida_ms_{0};
+  std::atomic<std::uint32_t> espera_maxima_ms_{0};
+  std::atomic<std::uint32_t> descartados_{0};
+  std::atomic<std::uint32_t> vacios_{0};
 };
 
 }

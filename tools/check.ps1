@@ -265,7 +265,8 @@ try {
     New-Item -ItemType Directory -Force -Path $paraXP | Out-Null
     $copiado = $true
     $archivos = @((Join-Path $clasica 'ventrik.exe'), (Join-Path $clasica 'ventrik_servidor.exe'),
-                  (Join-Path $clasica 'ventrik_pruebas.exe'), (Join-Path $raiz 'tools\probar_en_xp.bat'))
+                  (Join-Path $clasica 'ventrik_pruebas.exe'), (Join-Path $raiz 'tools\probar_en_xp.bat'),
+                  (Join-Path $raiz 'tools\registro.bat'))
     if (Test-Path (Join-Path $raiz 'src\prueba_voz')) {
         $archivos += (Join-Path $clasica 'ventrik_eco.exe'), (Join-Path $clasica 'ventrik_red.exe'), (Join-Path $raiz 'tools\red_xp.bat'), (Join-Path $raiz 'tools\eco_complejidad5.bat'), (Join-Path $raiz 'tools\eco_complejidad5_cola4.bat'), (Join-Path $raiz 'tools\opus_complejidad.bat')
     }

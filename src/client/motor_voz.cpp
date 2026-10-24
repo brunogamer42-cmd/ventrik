@@ -138,6 +138,8 @@ void MotorVoz::decodificar() {
   const auto salida = buffer_.sacar(paquete);
   espera_ms_.store(static_cast<std::uint32_t>(buffer_.cantidad() * 20), std::memory_order_relaxed);
   recortes_.store(static_cast<std::uint32_t>(buffer_.recortes()), std::memory_order_relaxed);
+  vaciados_.store(static_cast<std::uint32_t>(buffer_.vaciados()), std::memory_order_relaxed);
+  faltas_.store(static_cast<std::uint32_t>(buffer_.faltas()), std::memory_order_relaxed);
   const int muestras =
       salida == BufferVoz::Salida::paquete
           ? opus_decode(decodificador_.get(), paquete.opus.data(), paquete.largo,

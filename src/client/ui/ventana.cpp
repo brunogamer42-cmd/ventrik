@@ -1,6 +1,7 @@
 #include "client/ui/ventana.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <vector>
 
@@ -56,6 +57,7 @@ struct Ventana::Grafica {
   D3DPRESENT_PARAMETERS presentar{};
   bool win32 = false;
   bool dx9 = false;
+  bool por_procesador = false;
 };
 
 Ventana::Ventana(const std::wstring& titulo, int como_mostrar)
@@ -129,6 +131,7 @@ bool Ventana::preparar_dispositivo() {
     if (SUCCEEDED(grafica_->d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, ventana_,
                                               vertices | D3DCREATE_FPU_PRESERVE, &presentar, &dispositivo))) {
       grafica_->dispositivo.reset(dispositivo);
+      grafica_->por_procesador = vertices == D3DCREATE_SOFTWARE_VERTEXPROCESSING;
       return true;
     }
   }
@@ -138,6 +141,14 @@ bool Ventana::preparar_dispositivo() {
 ImTextureID Ventana::logo() const {
   return static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(grafica_->logo.get()));
 }
+
+std::string Ventana::placa() const {
+  D3DADAPTER_IDENTIFIER9 placa = {};
+  grafica_->d3d->GetAdapterIdentifier(D3DADAPTER_DEFAULT, 0, &placa);
+  return placa.Description;
+}
+
+bool Ventana::por_procesador() const { return grafica_->por_procesador; }
 
 void Ventana::cargar_logo(float escala) {
   const int lado = 42 * escala <= 64 ? 64 : 128;
@@ -233,11 +244,13 @@ int Ventana::correr(const std::function<void()>& atender, const std::function<vo
   DWORD ultimo = GetTickCount() - kMilisegundosPorCuadro;
   DWORD ultimo_mensaje = GetTickCount();
   for (;;) {
+    const auto empezo = std::chrono::steady_clock::now();
     MSG mensaje = {};
     while (PeekMessageW(&mensaje, nullptr, 0, 0, PM_REMOVE)) {
       if (mensaje.message == WM_QUIT) {
         return static_cast<int>(mensaje.wParam);
       }
+      ++uso_.mensajes[mensaje.message];
       TranslateMessage(&mensaje);
       DispatchMessageW(&mensaje);
       pendientes = kCuadrosTrasEvento;
@@ -257,8 +270,12 @@ int Ventana::correr(const std::function<void()>& atender, const std::function<vo
       ultimo = GetTickCount();
       dibujar_cuadro(dibujar);
       --pendientes;
-    } else if (MsgWaitForMultipleObjects(0, nullptr, FALSE, espera, QS_ALLINPUT) == WAIT_TIMEOUT &&
-               pendientes == 0) {
+    }
+    const double pasada = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - empezo).count();
+    uso_.ocupado_ms += pasada;
+    uso_.pasada_maxima_ms = std::max(uso_.pasada_maxima_ms, pasada);
+    if (espera != 0 && MsgWaitForMultipleObjects(0, nullptr, FALSE, espera, QS_ALLINPUT) == WAIT_TIMEOUT &&
+        pendientes == 0) {
       pendientes = 1;
     }
   }

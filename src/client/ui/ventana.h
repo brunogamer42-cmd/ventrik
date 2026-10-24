@@ -1,8 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include <windows.h>
 
@@ -10,6 +13,12 @@
 
 namespace ventrik::ui {
 constexpr UINT kMensajeNovedades = WM_APP + 1;
+
+struct UsoVentana {
+  std::map<UINT, std::uint32_t> mensajes;
+  double ocupado_ms = 0;
+  double pasada_maxima_ms = 0;
+};
 
 class Ventana {
  public:
@@ -21,6 +30,9 @@ class Ventana {
   bool ok() const { return lista_; }
   HWND hwnd() const { return ventana_; }
   ImTextureID logo() const;
+  std::string placa() const;
+  bool por_procesador() const;
+  UsoVentana tomar_uso() { return std::exchange(uso_, {}); }
   int correr(const std::function<void()>& atender, const std::function<void()>& dibujar);
   void al_terminar_la_sesion(std::function<void()> terminar) { al_terminar_ = std::move(terminar); }
 
@@ -38,6 +50,7 @@ class Ventana {
   float escala_ = 1.0f;
   bool lista_ = false;
   bool perdido_ = false;
+  UsoVentana uso_;
   UINT ancho_nuevo_ = 0;
   UINT alto_nuevo_ = 0;
   std::function<void()> al_terminar_;

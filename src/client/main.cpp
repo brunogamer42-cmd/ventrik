@@ -37,14 +37,22 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int como_mostrar) {
   int cantidad = 0;
   const std::unique_ptr<LPWSTR, LiberarArgumentos> argumentos(
       CommandLineToArgvW(GetCommandLineW(), &cantidad));
+  std::wstring registro;
+  std::vector<std::wstring_view> resto;
+  for (int i = 1; argumentos && i < cantidad; ++i) {
+    if (std::wstring_view(argumentos.get()[i]) == L"--registro" && i + 1 < cantidad) {
+      registro = argumentos.get()[++i];
+    } else {
+      resto.emplace_back(argumentos.get()[i]);
+    }
+  }
   std::vector<std::string> entrar;
-  if (argumentos && (cantidad == 5 || (cantidad == 7 && std::wstring_view(argumentos.get()[5]) == L"--dueno")) &&
-      std::wstring_view(argumentos.get()[1]) == L"--entrar") {
-    for (int i = 2; i < cantidad; ++i) {
-      if (i != 5) {
-        entrar.push_back(ventrik::a_utf8(argumentos.get()[i]));
+  if ((resto.size() == 4 || (resto.size() == 6 && resto[4] == L"--dueno")) && resto[0] == L"--entrar") {
+    for (std::size_t i = 1; i < resto.size(); ++i) {
+      if (i != 4) {
+        entrar.push_back(ventrik::a_utf8(resto[i]));
       }
     }
   }
-  return ventrik::ui::abrir_programa(idioma, titulo, como_mostrar, entrar);
+  return ventrik::ui::abrir_programa(idioma, titulo, como_mostrar, entrar, registro);
 }

@@ -18,6 +18,8 @@ class BufferVoz {
   void reiniciar();
   std::size_t cantidad() const { return cantidad_; }
   std::size_t recortes() const { return recortes_; }
+  std::size_t vaciados() const { return vaciados_; }
+  std::size_t faltas() const { return faltas_; }
 
  private:
   static constexpr std::size_t kLugares = 64;
@@ -37,6 +39,8 @@ class BufferVoz {
   std::uint16_t siguiente_ = 0;
   std::size_t cantidad_ = 0;
   std::size_t recortes_ = 0;
+  std::size_t vaciados_ = 0;
+  std::size_t faltas_ = 0;
   bool hay_ultimo_ = false;
   std::uint16_t ultimo_ = 0;
 };

@@ -103,6 +103,8 @@ TEST_CASE("BufferVoz ordena, descarta duplicados y tardíos, y marca los perdido
   buffer.llegar(paquete(1));
   buffer.llegar(paquete(2));
   CHECK(sacar_todo(buffer, 3) == std::vector<int>{-1, 4, -2});
+  CHECK(buffer.faltas() == 1);
+  CHECK(buffer.vaciados() == 1);
 }
 
 TEST_CASE("BufferVoz sigue la vuelta del número y se reinicia del todo") {

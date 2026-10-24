@@ -170,12 +170,19 @@ void Audio::atender() {
       const auto en_espera = std::count_if(pedazos_salida_.begin(), pedazos_salida_.end(),
                                            [](const Pedazo& pedazo) { return en_cola(pedazo.cabecera); });
       if (en_espera == 0) {
+        vacios_.fetch_add(1, std::memory_order_relaxed);
         for (unsigned i = 1; i < kPedazosAdelantados; ++i) {
           escribir_silencio();
         }
       }
-      espera_de_salida_ms_ = static_cast<std::uint32_t>(en_espera) * kPeriodoMs;
+      const auto espera_ms = static_cast<std::uint32_t>(en_espera * kPeriodoMs);
+      espera_de_salida_ms_ = espera_ms;
+      espera_maxima_ms_.store(std::max(espera_maxima_ms_.load(std::memory_order_relaxed), espera_ms),
+                              std::memory_order_relaxed);
       Pedazo* sale = en_espera < kMaximoEnEspera ? libre_para_salida() : nullptr;
+      if (sale == nullptr) {
+        descartados_.fetch_add(1, std::memory_order_relaxed);
+      }
       procesar_(datos_, gsl::span<const std::int16_t>(llego.muestras).first(grabadas),
                 sale != nullptr ? gsl::span<std::int16_t>(sale->muestras)
                                 : gsl::span<std::int16_t>(borrador_));

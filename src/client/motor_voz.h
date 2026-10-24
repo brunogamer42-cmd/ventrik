@@ -36,6 +36,8 @@ class MotorVoz {
   std::uint32_t espera_ms() const { return espera_ms_.load(std::memory_order_relaxed); }
   int nivel(int segmentos) const;
   std::uint32_t recortes() const { return recortes_.load(std::memory_order_relaxed); }
+  std::uint32_t vaciados() const { return vaciados_.load(std::memory_order_relaxed); }
+  std::uint32_t faltas() const { return faltas_.load(std::memory_order_relaxed); }
 
   void procesar(gsl::span<const std::int16_t> entrada, gsl::span<std::int16_t> salida) noexcept;
   static void procesar_audio(void* motor, gsl::span<const std::int16_t> entrada,
@@ -70,6 +72,8 @@ class MotorVoz {
   std::atomic<std::uint32_t> espera_ms_{0};
   std::atomic<int> pico_{0};
   std::atomic<std::uint32_t> recortes_{0};
+  std::atomic<std::uint32_t> vaciados_{0};
+  std::atomic<std::uint32_t> faltas_{0};
 };
 
 }

@@ -110,6 +110,7 @@ inicio_version = Ventrik, version {1}
 inicio_pie_modo = Performance mode
 inicio_llega_en = Not here yet: it arrives in stage {1}.
 inicio_no_se_guardo = The server list could not be saved on this PC.
+registro_sin_archivo = The log file could not be opened: {1}
 inicio_lista_nueva = The server list is from a newer version of Ventrik: this version doesn't change it. It is in %APPDATA%\Ventrik\Programa.
 inicio_lista_ilegible = The server list on this PC could not be read: changes are not saved for now.
 inicio_lista_danada = The server list was damaged and a new one was started.

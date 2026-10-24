@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <fstream>
+#include <iomanip>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -29,10 +31,9 @@ using Reloj = std::chrono::steady_clock;
 
 class Programa {
  public:
-  Programa(Idioma idioma, HWND ventana, ImTextureID logo, const std::vector<std::string>& entrada)
-      : ventana_(ventana) {
+  Programa(Idioma idioma, Ventana& ventana, const std::vector<std::string>& entrada) : ventana_(ventana) {
     pantalla_.idioma = idioma;
-    pantalla_.logo = logo;
+    pantalla_.logo = ventana.logo();
     const cliente::LecturaGuardados lectura = cliente::cargar_guardados(guardados_);
     se_puede_guardar_ = lectura == cliente::LecturaGuardados::leidos || lectura == cliente::LecturaGuardados::danados;
     const Clave aviso = lectura == cliente::LecturaGuardados::version_nueva ? Clave::inicio_lista_nueva
@@ -53,6 +54,24 @@ class Programa {
   }
 
   ~Programa() { cerrar(); }
+
+  void registrar(const std::wstring& ruta) {
+    registro_.open(ruta.c_str(), std::ios::trunc);
+    if (!registro_) {
+      MessageBoxW(ventana_.hwnd(),
+                  a_utf16(con_datos(texto(pantalla_.idioma, Clave::registro_sin_archivo), {a_utf8(ruta)})).c_str(),
+                  a_utf16(texto(pantalla_.idioma, Clave::titulo_ventana)).c_str(), MB_OK | MB_ICONWARNING);
+      return;
+    }
+    registro_ << std::fixed << std::setprecision(1) << "# placa=" << ventana_.placa()
+              << ";vertices_por_procesador=" << ventana_.por_procesador() << ";frecuencia=" << calidad_.frecuencia
+              << ";complejidad=" << calidad_.complejidad << '\n'
+              << "ms,ping_ms,ping_voz_ms,cpu_total,cpu_ventana,cpu_sistema,ocupado_ms,pasada_max_ms,cuadros,colchon_ms,"
+                 "recortes_total,perdidos,recibidos,salida_ms,salida_max_ms,descartes_salida_total,vacios_salida_total,"
+                 "vaciados_colchon_total,faltas_colchon_total,transmitiendo,hablando,voz_lista,avisos,mensajes,"
+                 "mensaje_comun"
+              << std::endl;
+  }
 
   void cerrar() {
     if (auto* guardado = sala_ ? cliente::buscar_guardado(guardados_, pendiente_.direccion) : nullptr) {
@@ -86,6 +105,7 @@ class Programa {
   }
 
   void cuadro() {
+    ++cuadros_;
     if (sala_) {
       PedidoServidor pedido = dibujar_servidor(servidor_, *sala_);
       ordenar(std::move(pedido.ordenes));
@@ -126,7 +146,7 @@ class Programa {
  private:
   void avisar() {
     if (!avisado_.exchange(true)) {
-      PostMessageW(ventana_, kMensajeNovedades, 0, 0);
+      PostMessageW(ventana_.hwnd(), kMensajeNovedades, 0, 0);
     }
   }
 
@@ -203,10 +223,13 @@ class Programa {
     servidor_.tecla = guardados_.tecla_hablar;
     servidor_.enfocar_mensaje = true;
     vigia_ = std::make_unique<cliente::Vigia>(*motor_, *puente_, cliente::tecla_para_hablar(guardados_.tecla_hablar),
-                                              ventana_, [this] { avisar(); });
+                                              ventana_.hwnd(), [this] { avisar(); });
     perdidos_ = puente_->perdidos;
     recibidos_ = puente_->recibidos;
     proxima_muestra_ = Reloj::now() + 1s;
+    diagnostico_ = cliente::Diagnostico();
+    cuadros_ = 0;
+    ventana_.tomar_uso();
     ordenar(sala_->empezar());
   }
 
@@ -237,6 +260,32 @@ class Programa {
     const cliente::Medicion medicion = diagnostico_.medir();
     servidor_.diagnostico = {puente_->estado == cliente::EstadoVoz::lista, puente_->ping_ms, medicion.procesador,
                              medicion.ram_bytes, motor_->espera_ms(), motor_->recortes(), audio_->espera_de_salida_ms()};
+    if (registro_.is_open()) {
+      const Muestra& muestra = servidor_.grafico.back();
+      const DatosDiagnostico& datos = servidor_.diagnostico;
+      UsoVentana uso = ventana_.tomar_uso();
+      auto& mensajes = uso.mensajes;
+      const std::uint32_t avisos = mensajes[kMensajeNovedades];
+      mensajes.erase(kMensajeNovedades);
+      std::pair<UINT, std::uint32_t> comun{0, 0};
+      std::uint32_t otros = 0;
+      for (const auto& par : mensajes) {
+        otros += par.second;
+        if (par.second > comun.second) {
+          comun = par;
+        }
+      }
+      registro_ << std::chrono::duration_cast<std::chrono::milliseconds>(ahora - inicio_).count() << ','
+                << muestra.ping << ',' << datos.ping_voz << ',' << medicion.procesador << ',' << medicion.ventana << ','
+                << medicion.sistema << ',' << uso.ocupado_ms << ',' << uso.pasada_maxima_ms << ',' << cuadros_ << ','
+                << datos.colchon_ms << ',' << datos.recortes << ',' << muestra.perdidos << ','
+                << muestra.recibidos << ',' << datos.salida_ms << ',' << audio_->tomar_espera_maxima_ms() << ','
+                << audio_->descartados() << ',' << audio_->vacios() << ',' << motor_->vaciados() << ','
+                << motor_->faltas() << ',' << servidor_.transmitiendo << ','
+                << servidor_.hablando << ',' << datos.voz_lista << ',' << avisos << ',' << otros << ',' << comun.first
+                << std::endl;
+    }
+    cuadros_ = 0;
     if (servidor_.grafico.size() > kMuestrasDelGrafico) {
       servidor_.grafico.pop_front();
     }
@@ -261,7 +310,7 @@ class Programa {
     }
   }
 
-  const HWND ventana_;
+  Ventana& ventana_;
   const cliente::Calidad calidad_ = cliente::calidad_automatica();
   std::atomic<bool> avisado_{false};
   PantallaInicio pantalla_;
@@ -274,6 +323,9 @@ class Programa {
   std::uint64_t recibidos_ = 0;
   Reloj::time_point proxima_muestra_{};
   cliente::Diagnostico diagnostico_;
+  const Reloj::time_point inicio_ = Reloj::now();
+  std::uint32_t cuadros_ = 0;
+  std::ofstream registro_;
   std::shared_ptr<cliente::PuenteVoz> puente_;
   std::unique_ptr<cliente::MotorVoz> motor_;
   std::unique_ptr<cliente::Audio> audio_;
@@ -285,7 +337,7 @@ class Programa {
 }
 
 int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar,
-                   const std::vector<std::string>& entrar) {
+                   const std::vector<std::string>& entrar, const std::wstring& registro) {
   const cifrado::Inicio cifrado;
   const red::Inicio red;
   Ventana ventana(titulo, como_mostrar);
@@ -294,7 +346,10 @@ int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar,
                 MB_OK | MB_ICONERROR);
     return 3;
   }
-  Programa programa(idioma, ventana.hwnd(), ventana.logo(), entrar);
+  Programa programa(idioma, ventana, entrar);
+  if (!registro.empty()) {
+    programa.registrar(registro);
+  }
   ventana.al_terminar_la_sesion([&programa] { programa.cerrar(); });
   return ventana.correr([&programa] { programa.atender(); }, [&programa] { programa.cuadro(); });
 }

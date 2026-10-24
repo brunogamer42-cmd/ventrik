@@ -1,4 +1,9 @@
+#include <chrono>
+#include <thread>
+
 #include <windows.h>
+
+#include "client/diagnostico.h"
 
 #include "common/proceso.h"
 #include <doctest/doctest.h>
@@ -32,4 +37,20 @@ TEST_CASE("con la búsqueda de DLL protegida, las de Windows siguen cargando") {
 
 TEST_CASE("esta PC tiene un Windows que Ventrik admite") {
   CHECK(ventrik::windows_es_compatible());
+}
+
+TEST_CASE("el diagnóstico separa el procesador de la ventana del resto del programa") {
+  ventrik::cliente::Diagnostico diagnostico;
+  const auto gastar = [] {
+    const auto hasta = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+    while (std::chrono::steady_clock::now() < hasta) {
+    }
+  };
+  std::thread otro(gastar);
+  gastar();
+  otro.join();
+  const ventrik::cliente::Medicion medicion = diagnostico.medir();
+  CHECK(medicion.ventana > 10);
+  CHECK(medicion.procesador - medicion.ventana > 10);
+  CHECK(medicion.sistema > 0);
 }
