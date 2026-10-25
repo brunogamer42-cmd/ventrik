@@ -77,7 +77,7 @@ Organización de la ventana:
 | Marcos de avatar | No hay | Se ven alrededor de la imagen, en la lista de canales y en el chat. Pueden ser del catálogo, hechos en el editor o una imagen animada propia |
 | Transmitiendo | Etiqueta fija | La etiqueta late mientras transmitís |
 | Animaciones | Ninguna | Solo mientras se ven; en pausa con la ventana minimizada o sin foco |
-| Ritmo de la interfaz | Lo que se mueve solo (medidor, quién habla) a 4 imágenes por segundo | Hasta 30 imágenes por segundo, para que los elementos visuales se vean fluidos |
+| Ritmo de la interfaz | Lo que se mueve solo (quién habla, el medidor mientras ajustás la sensibilidad) a 4 imágenes por segundo; el medidor de "Tu audio" es una barra fija (ver Voz, paso 3) | Hasta 30 imágenes por segundo, para que los elementos visuales se vean fluidos |
 
 En Rendimiento todo eso se apaga, no se oculta: el programa no lo descarga ni lo procesa. Los dos modos tienen los mismos botones, canales, chat, tarjeta de perfil y controles de audio; solo cambia lo que se descarga y se anima. La única excepción es "Ocultar sus efectos" en la tarjeta de otro, que solo aparece en Visual porque en Rendimiento no hay efectos. En Ajustes hay un tercer modo, Automático: usa Visual, salvo en PCs débiles o con un juego en pantalla completa abierto, donde pasa solo a Rendimiento. Las PCs débiles arrancan en Rendimiento.
 
@@ -145,7 +145,10 @@ Recorrido de la voz:
 2. Se limpia el ruido de fondo y, si no usás auriculares, se cancela el eco (si Windows no informa qué tipo de salida es, queda encendida). Las dos cosas son opcionales porque son lo que más procesador gasta.
 3. Se transmite solo mientras apretás la tecla para hablar, o, en el modo por voz, mientras tu voz supera la sensibilidad que marcás en el medidor. El modo se elige en el panel "Tu audio", en los dos modos de la interfaz. En silencio no se envía casi nada.
    - **Por voz** (capturas: docs/pantallas/Rendimiento-por-voz.png y Visual-por-voz.png): la cabecera dice "Activación por voz" en lugar de "Hablar con <tecla>"; el medidor de "Tu audio" muestra una marca (el umbral), y en lugar de la tecla va el control "Sensibilidad", que mueve esa marca, con el texto "Transmite cuando tu voz pasa la marca del medidor". "Transmitiendo" se prende solo mientras el nivel pasa la marca, y sigue 0,4 s después de callarte para no cortar el final de las palabras. Con la voz pasando la marca se manda también el pedazo de 20 ms anterior, para no comerse el principio. La tecla no hace nada en este modo.
-   - Por debajo de la marca no se comprime ni se manda nada: solo se mide el volumen del micrófono, que es barato. El medidor se mueve solo con la ventana al frente (4 veces por segundo); minimizada o con un juego adelante, la voz sigue igual pero el medidor no se dibuja.
+   - **El medidor de "Tu audio" según el modo de la interfaz** (idea del dueño, 2026-10-25; las capturas de Rendimiento todavía muestran el medidor con divisiones y el deslizador a la vista: manda este texto):
+     - **Rendimiento:** en lugar del volumen va una barra naranja sin divisiones, fija: prendida mientras te escuchan y apagada si no, con la tecla y por voz. Por voz, la fila dice "Sensibilidad" con un botón "Ajustar"; al tocarlo aparecen el medidor en vivo con la marca, el deslizador y la ayuda, y el botón pasa a "Guardar". Al guardar vuelve la barra fija. Así la ventana no se redibuja por el medidor, y un deslizador a 4 imágenes por segundo no queda feo.
+     - **Visual:** el medidor con divisiones y el deslizador de "Sensibilidad" se ven siempre, como en Visual-por-voz.png, y el medidor se mueve hasta 30 imágenes por segundo.
+   - Por debajo de la marca no se comprime ni se manda nada: solo se mide el volumen del micrófono, que es barato. El medidor en vivo se mueve solo con la ventana al frente; minimizada o con un juego adelante, la voz sigue igual pero el medidor no se dibuja.
    - El modo y la sensibilidad se guardan en la PC.
 4. Opus comprime la voz en pedazos de 20 milésimas de segundo, a 24 kbps.
 5. La voz se cifra y viaja al servidor.

@@ -85,6 +85,7 @@ struct PantallaServidor {
   bool eligiendo_tecla = false;
   bool por_voz = false;
   int sensibilidad = 0;
+  bool ajustando = false;
   bool transmitiendo = false;
   std::uint32_t hablando = 0;
   int nivel = 0;

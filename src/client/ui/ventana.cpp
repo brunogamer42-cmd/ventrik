@@ -375,10 +375,11 @@ bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, st
   if (mensaje == WM_MOUSELEAVE) {
     ultimo_mouse.reset();
   }
+  const bool caracter = mensaje == WM_CHAR || mensaje == WM_DEADCHAR || mensaje == WM_SYSCHAR;
   const bool repetida = (mensaje == WM_KEYDOWN || mensaje == WM_SYSKEYDOWN) && (datos & 0x40000000) != 0;
   const bool de_edicion = tecla == VK_BACK || tecla == VK_DELETE || (tecla >= VK_PRIOR && tecla <= VK_DOWN);
   return mensaje != WM_NCMOUSEMOVE && mensaje != WM_TIMER && mensaje != kMensajeNovedades &&
-         (!repetida || (escribiendo && de_edicion));
+         (caracter ? escribiendo : !repetida || (escribiendo && de_edicion));
 }
 
 DWORD espera_entre_cuadros(double ultimo_ms) {

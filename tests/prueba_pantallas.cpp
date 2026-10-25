@@ -427,7 +427,7 @@ TEST_CASE("El gráfico de la barra de estado abre el diagnóstico") {
   }
 }
 
-TEST_CASE("Tocar Por voz lo pide, y arrastrar la sensibilidad la cambia y la guarda al soltar") {
+TEST_CASE("Tocar Por voz lo pide; Ajustar muestra la sensibilidad, que se guarda al soltar, y Guardar la esconde") {
   SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
   auto sala = sala_llena(false, 4, 3, 5);
   auto pantalla = pantalla_servidor();
@@ -443,9 +443,25 @@ TEST_CASE("Tocar Por voz lo pide, y arrastrar la sensibilidad la cambia y la gua
   pantalla.sensibilidad = 30;
   pantalla.transmitiendo = true;
   pantalla.nivel = 6;
+  const auto barrer = [&](float x, float desde, float hasta, auto&& listo) {
+    float y = desde;
+    for (; y < hasta && !listo(); y += 2) {
+      sin_pantalla.cuadro(pantalla, sala, ImVec2(x, y));
+      sin_pantalla.cuadro(pantalla, sala, ImVec2(x, y), true);
+      sin_pantalla.cuadro(pantalla, sala, ImVec2(x, y));
+    }
+    return y;
+  };
   std::optional<int> marca;
+  for (float y = 500; y < 700; y += 2) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(100, y));
+    marca = marca ? marca : sin_pantalla.cuadro(pantalla, sala, ImVec2(100, y), true).sensibilidad;
+  }
+  CHECK_FALSE(marca);
+  const float ajustar = barrer(240, 500, 700, [&] { return pantalla.ajustando; });
+  REQUIRE(pantalla.ajustando);
   float fila = 0;
-  for (float y = 500; y < 660 && !marca; y += 2) {
+  for (float y = ajustar - 50; y < ajustar + 20 && !marca; y += 2) {
     sin_pantalla.cuadro(pantalla, sala, ImVec2(100, y));
     marca = sin_pantalla.cuadro(pantalla, sala, ImVec2(100, y), true).sensibilidad;
     fila = y;
@@ -458,6 +474,8 @@ TEST_CASE("Tocar Por voz lo pide, y arrastrar la sensibilidad la cambia y la gua
   CHECK(*arrastre.sensibilidad > 60);
   CHECK_FALSE(arrastre.guardar);
   CHECK(sin_pantalla.cuadro(pantalla, sala, ImVec2(200, fila)).guardar);
+  barrer(240, ajustar - 90, ajustar - 20, [&] { return !pantalla.ajustando; });
+  CHECK_FALSE(pantalla.ajustando);
 }
 
 namespace {
@@ -656,7 +674,7 @@ TEST_CASE("Una ventana sin bordes que cubre el monitor es pantalla completa") {
   CHECK_FALSE(ui::tapa_el_monitor({1920, 0, 3840, 1080}, monitor, WS_POPUP, 0));
 }
 
-TEST_CASE("Las teclas repetidas no piden cuadros salvo las de edición escribiendo, y los cuadros lentos se espacian") {
+TEST_CASE("Las teclas repetidas no piden cuadros salvo las de edición escribiendo, los caracteres solo escribiendo, y los cuadros lentos se espacian") {
   constexpr LPARAM kRepetida = 0x40000000;
   std::optional<LPARAM> mouse;
   CHECK(ui::pide_cuadros(WM_KEYDOWN, VK_CONTROL, 0, false, mouse));
@@ -670,6 +688,10 @@ TEST_CASE("Las teclas repetidas no piden cuadros salvo las de edición escribien
   CHECK_FALSE(ui::pide_cuadros(WM_KEYDOWN, VK_CAPITAL, kRepetida, true, mouse));
   CHECK_FALSE(ui::pide_cuadros(WM_KEYDOWN, 'V', kRepetida, true, mouse));
   CHECK(ui::pide_cuadros(WM_KEYDOWN, VK_F5, 0, true, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_CHAR, 'v', 0, false, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_CHAR, 'v', kRepetida, false, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_DEADCHAR, '`', kRepetida, false, mouse));
+  CHECK(ui::pide_cuadros(WM_CHAR, 'v', kRepetida, true, mouse));
   CHECK_FALSE(ui::pide_cuadros(WM_NCMOUSEMOVE, 0, 0, false, mouse));
   CHECK(ui::pide_cuadros(WM_MOUSEMOVE, 0, 7, false, mouse));
   CHECK_FALSE(ui::pide_cuadros(WM_MOUSEMOVE, 0, 7, false, mouse));

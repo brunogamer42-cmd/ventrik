@@ -96,8 +96,8 @@ void Vigia::por_voz(bool si) {
   SetEvent(despertar_.get());
 }
 
-void Vigia::medidor_siempre(bool si) {
-  medidor_siempre_ = si;
+void Vigia::medir(bool si) {
+  medir_ = si;
   SetEvent(despertar_.get());
 }
 
@@ -130,7 +130,7 @@ void Vigia::correr() {
       escuchar_teclado(oyente, con_tecla);
     }
     const DWORD espera = eligiendo_ || (con_tecla && es_boton_del_mouse(tecla_)) ? kConsultaRapida
-                         : con_tecla || medidor_siempre_                         ? kRespaldo
+                         : con_tecla || medir_                                   ? kRespaldo
                                                                                  : INFINITE;
     if (MsgWaitForMultipleObjects(2, avisos, FALSE, espera, QS_ALLINPUT) == WAIT_FAILED) {
       Sleep(espera == INFINITE ? kRespaldo : espera);
@@ -183,7 +183,7 @@ void Vigia::correr() {
       cambio = true;
     }
     const auto ahora = Reloj::now();
-    if ((medidor_siempre_ || (!por_voz && transmite)) && ahora >= proximo_nivel) {
+    if (medir_ && ahora >= proximo_nivel) {
       proximo_nivel = ahora + kCadaNivel;
       const int nuevo = motor_.nivel(kSegmentosDelMedidor);
       const int viejo = nivel_.exchange(nuevo);

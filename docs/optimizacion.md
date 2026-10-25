@@ -228,7 +228,7 @@ Se reevalúa con los números de 5.1 y 5.2.
 - **5.3 Mandar solo lo que cambió** (clásica sin composición del escritorio).
   - `D3DSWAPEFFECT_COPY` y `Present` con el rectángulo que cambió, calculado con la huella por zonas.
   - El rectángulo es solo una sugerencia para Windows: queda si la medición en la HP muestra que gana.
-- **5.4 Ritmo de la interfaz (decisión del dueño, 2026-10-25):** en Rendimiento, lo que se mueve solo (medidor, quién habla) va a 4 imágenes por segundo, y también sin foco. En Visual, la interfaz sube hasta 30 imágenes por segundo, por los elementos visuales y para que se vea fluida (las animaciones, el medidor y lo que late). Con una pantalla compartida (etapa 12), la pantalla va a su propio ritmo, el que se configuró (o el que aguante la PC, sin dejar de verse), mientras el resto de la interfaz sigue a 4 en Rendimiento.
+- **5.4 Ritmo de la interfaz (decisión del dueño, 2026-10-25):** en Rendimiento, lo que se mueve solo (quién habla) va a 4 imágenes por segundo, y también sin foco; el medidor de "Tu audio" es una barra fija y se mueve, a 4, solo mientras ajustás la sensibilidad (idea del dueño, diseno.md, Voz, paso 3). En Visual, la interfaz sube hasta 30 imágenes por segundo, por los elementos visuales y para que se vea fluida (las animaciones, el medidor y lo que late). Con una pantalla compartida (etapa 12), la pantalla va a su propio ritmo, el que se configuró (o el que aguante la PC, sin dejar de verse), mientras el resto de la interfaz sigue a 4 en Rendimiento.
 - **5.5 Rendimiento sin suavizado de bordes (decide el dueño):** `AntiAliasedLines` y `AntiAliasedFill` apagados y curvas con menos segmentos. En Visual queda igual.
 - **5.6 Textos guardados:** conectados, ping, voz perdida, nombre de la tecla y subtítulos se rehacen solo cuando cambia el dato o el idioma.
 - **5.7 Ritmo con el mouse:** en Rendimiento, como mucho 15 vueltas por segundo (hoy 28 en la HP, el 14 %).
@@ -266,7 +266,7 @@ El diseño ya pide que las animaciones corran solo a la vista, a 30 cuadros por 
 | Situación | Qué hace | Cómo se detecta |
 | --- | --- | --- |
 | Con foco | Normal | — |
-| Sin foco | Sin carteles; medidor a 4 por segundo en Rendimiento; animaciones del Visual en pausa | `WM_ACTIVATEAPP` |
+| Sin foco | Sin carteles; sin medidor en vivo (en Rendimiento queda la barra fija); animaciones del Visual en pausa | `WM_ACTIVATEAPP` |
 | Minimizada | No dibuja (ya); sin el aviso de cada segundo; pings cada 20 s | `IsIconic` |
 | Tapada por completo | No dibuja | Moderna: `S_PRESENT_OCCLUDED` (5.2) |
 | Un juego u otro programa en pantalla completa | No dibuja; suelta las texturas y búferes de Direct3D; baja la prioridad de la ventana; pings cada 20 s. **La voz y la tecla siguen igual.** También es lo que necesita el modo Automático del diseño para pasar a Rendimiento | Cada 1 a 2 s. Moderna: `SHQueryUserNotificationState` (`QUNS_RUNNING_D3D_FULL_SCREEN`, `QUNS_BUSY`, `QUNS_PRESENTATION_MODE`). Las dos: la comprobación de Chromium (la ventana de adelante cubre todo el monitor, sin bordes ni barra de título) |

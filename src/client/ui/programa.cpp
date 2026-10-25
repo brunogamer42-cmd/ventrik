@@ -260,7 +260,7 @@ class Programa {
     motor_->sensibilidad(guardados_.sensibilidad);
     motor_->por_voz(guardados_.por_voz);
     vigia_->por_voz(guardados_.por_voz);
-    medidor_siempre_ = false;
+    midiendo_ = false;
     perdidos_ = puente_->perdidos;
     recibidos_ = puente_->recibidos;
     proxima_muestra_ = Reloj::now() + 1s;
@@ -284,9 +284,10 @@ class Programa {
     servidor_.hablando = puente_->hablando;
     servidor_.nivel = vigia_->nivel();
     const Situacion& situacion = ventana_.situacion();
-    if (const bool medir = servidor_.por_voz && situacion.con_foco && situacion.dibuja(); medir != medidor_siempre_) {
-      medidor_siempre_ = medir;
-      vigia_->medidor_siempre(medir);
+    if (const bool medir = servidor_.por_voz && servidor_.ajustando && situacion.con_foco && situacion.dibuja();
+        medir != midiendo_) {
+      midiendo_ = medir;
+      vigia_->medir(medir);
     }
     bool cambio = antes != std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
     if (const auto elegida = vigia_->tomar_elegida()) {
@@ -403,7 +404,7 @@ class Programa {
   std::uint32_t cuadros_ = 0;
   bool poca_memoria_ = false;
   bool ahorrando_ = false;
-  bool medidor_siempre_ = false;
+  bool midiendo_ = false;
   std::ofstream registro_;
   std::shared_ptr<cliente::PuenteVoz> puente_;
   std::unique_ptr<cliente::MotorVoz> motor_;

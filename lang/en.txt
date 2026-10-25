@@ -144,6 +144,7 @@ servidor_apreta_tecla = Press the key (Esc cancels)
 servidor_activacion_por_voz = Voice activation
 servidor_sensibilidad = Sensitivity
 servidor_sensibilidad_ayuda = Transmits when your voice passes the meter mark.
+servidor_ajustar = Adjust
 servidor_volumen_microfono = Microphone volume
 servidor_volumen_salida = Output volume
 servidor_chat_voz = Voice channel chat, {1} people
