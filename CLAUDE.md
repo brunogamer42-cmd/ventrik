@@ -27,6 +27,7 @@ Diseño: @docs/diseno.md. Plan de etapas: @docs/plan.md. Estado del trabajo (lee
 - Cambios en cifrado, protocolo o archivos: revisión con un subagente antes de darlos por terminados.
 - Sin comentarios en el código. El porqué de una decisión de seguridad o de un arreglo para XP va en docs/estado.md o docs/diseno.md.
 - Código lo más corto posible: antes de escribir, buscar si ya hay una función propia, de la biblioteca estándar o de third_party que lo haga.
+- Consumo: todo código nuevo cumple los principios de docs/optimizacion.md (sección 2) y las reglas de su etapa (sección 15). Toda pantalla nueva pasa por el banco sin ventana; todo hilo, caché o despertar nuevo se justifica en docs/estado.md.
 
 ## Git
 - Un commit por paso aprobado, con un mensaje en español que diga qué hace.
