@@ -33,7 +33,7 @@ float actualizar(Alturas& alturas, const cliente::Chat& chat, float ancho) {
        (alturas.ids.front() == chat.mensajes.front().id && alturas.ids.back() == chat.mensajes.back().id))) {
     return 0;
   }
-  Alturas nuevas{chat.canal, ancho, {}, {}, {}, {0}, {}};
+  Alturas nuevas{chat.canal, ancho, {}, {}, {}, {0}, {}, {}, {}};
   for (const auto& mensaje : chat.mensajes) {
     const auto viejo = std::lower_bound(alturas.ids.begin(), alturas.ids.end(), mensaje.id);
     const bool conocido = mismo && viejo != alturas.ids.end() && *viejo == mensaje.id;
@@ -41,6 +41,8 @@ float actualizar(Alturas& alturas, const cliente::Chat& chat, float ancho) {
     nuevas.ids.push_back(mensaje.id);
     nuevas.dias.push_back(conocido ? alturas.dias[i] : cliente::dia_local(mensaje.hora_ms));
     nuevas.textos.push_back(conocido ? alturas.textos[i] : alto_envuelto(mensaje.texto, ancho));
+    nuevas.horas.push_back(conocido ? std::move(alturas.horas[i]) : cliente::hora_local(mensaje.hora_ms));
+    nuevas.iniciales.push_back(conocido ? std::move(alturas.iniciales[i]) : iniciales(mensaje.autor));
   }
   for (std::size_t i = 0; i < nuevas.ids.size(); ++i) {
     const bool nuevo = i == 0 || nuevas.dias[i] != nuevas.dias[i - 1];
@@ -141,8 +143,7 @@ class Dibujo {
   }
 
   std::string personas(std::uint32_t canal) const {
-    return std::to_string(std::count_if(sala_.usuarios().begin(), sala_.usuarios().end(),
-                                        [canal](const auto& par) { return par.second.canal == canal; }));
+    return std::to_string(sala_.en_canal(canal).size());
   }
 
   void barra() {
@@ -271,15 +272,14 @@ class Dibujo {
       }
     }
     y = grupo(origen.x, y + px(7), ancho, t(Clave::servidor_canales_voz), "##mas_voz", Dialogo::crear_voz);
+    const std::vector<const protocolo::UsuarioInfo*> nadie;
     for (const auto& canal : sala_.canales()) {
       if (canal.tipo != TipoCanal::voz) {
         continue;
       }
       y = fila_voz(origen.x, y, ancho, canal);
-      for (const auto& par : sala_.usuarios()) {
-        if (par.second.canal == canal.id && pantalla_.plegados.count(canal.id) == 0) {
-          y = fila_persona(origen.x, y, ancho, par.second);
-        }
+      for (const auto* usuario : pantalla_.plegados.count(canal.id) == 0 ? sala_.en_canal(canal.id) : nadie) {
+        y = fila_persona(origen.x, y, ancho, *usuario);
       }
     }
     ImGui::SetCursorScreenPos(ImVec2(origen.x, y));
@@ -573,7 +573,7 @@ class Dibujo {
     auto primero = std::upper_bound(alturas.desde.begin(), alturas.desde.end(), ImGui::GetWindowPos().y - base);
     std::size_t i = primero == alturas.desde.begin() ? 0 : static_cast<std::size_t>(primero - alturas.desde.begin()) - 1;
     for (; i < chat.mensajes.size() && base + alturas.desde[i] < tope; ++i) {
-      mensaje(chat.mensajes[i], alturas.nuevo_dia[i], x, base + alturas.desde[i], ancho_texto);
+      mensaje(chat.mensajes[i], i, x, base + alturas.desde[i], ancho_texto);
     }
     ImGui::SetCursorPos(ImVec2(0, corrimiento + total - 1));
     ImGui::Dummy(ImVec2(1, 1));
@@ -590,18 +590,19 @@ class Dibujo {
     ImGui::PopStyleVar();
   }
 
-  void mensaje(const protocolo::MensajeGuardado& guardado, bool nuevo_dia, float x, float y, float ancho_texto) const {
-    if (nuevo_dia) {
+  void mensaje(const protocolo::MensajeGuardado& guardado, std::size_t i, float x, float y, float ancho_texto) const {
+    const Alturas& alturas = pantalla_.alturas;
+    if (alturas.nuevo_dia[i]) {
       escribir(ImVec2(x, y + px(8)), dia(guardado.hora_ms), color::apagado, Letra::normal, medida::letra_chica);
       y += px(kAltoDia);
     }
-    avatar(ImVec2(x, y), px(medida::avatar_chat), iniciales(guardado.autor), color_de_avatar(guardado.autor),
-           color::texto, medida::letra_mini);
+    avatar(ImVec2(x, y), px(medida::avatar_chat), alturas.iniciales[i], color_de_avatar(guardado.autor), color::texto,
+           medida::letra_mini);
     const float texto_x = x + px(kSangria);
     const std::string_view autor =
         guardado.autor == mi_nombre_ ? t(Clave::servidor_vos) : std::string_view(guardado.autor);
     const float fin = escribir_en(texto_x, y + px(9), autor, color::texto, Letra::fuerte);
-    escribir_en(fin + px(8), y + px(9), cliente::hora_local(guardado.hora_ms), color::apagado);
+    escribir_en(fin + px(8), y + px(9), alturas.horas[i], color::apagado);
     escribir_envuelto(ImVec2(texto_x, y + px(20)), guardado.texto, color::texto, ancho_texto);
   }
 

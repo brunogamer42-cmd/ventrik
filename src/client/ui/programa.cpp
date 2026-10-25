@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <variant>
 
 #include "client/audio.h"
@@ -28,6 +29,13 @@ namespace ventrik::ui {
 namespace {
 using namespace std::chrono_literals;
 using Reloj = std::chrono::steady_clock;
+
+template <typename... Valores>
+void anotar(std::ostream& salida, const Valores&... valores) {
+  const char* separador = "";
+  ((salida << separador << valores, separador = ","), ...);
+  salida << std::endl;
+}
 
 class Programa {
  public:
@@ -66,10 +74,11 @@ class Programa {
     registro_ << std::fixed << std::setprecision(1) << "# placa=" << ventana_.placa()
               << ";vertices_por_procesador=" << ventana_.por_procesador() << ";frecuencia=" << calidad_.frecuencia
               << ";complejidad=" << calidad_.complejidad << '\n'
-              << "ms,ping_ms,ping_voz_ms,cpu_total,cpu_ventana,cpu_sistema,ocupado_ms,pasada_max_ms,cuadros,colchon_ms,"
-                 "recortes_total,perdidos,recibidos,salida_ms,salida_max_ms,descartes_salida_total,vacios_salida_total,"
+              << "ms,ping_ms,ping_voz_ms,cpu_total,cpu_ventana,cpu_sistema,ocupado_ms,pasada_max_ms,imgui_ms,"
+                 "direct3d_ms,presentados,vertices_max,cuadros,colchon_ms,recortes_total,perdidos,recibidos,salida_ms,"
+                 "salida_max_ms,descartes_salida_total,descartes_con_voz_total,vacios_salida_total,"
                  "vaciados_colchon_total,faltas_colchon_total,transmitiendo,hablando,voz_lista,avisos,mensajes,"
-                 "mensaje_comun"
+                 "mensaje_comun,ram_mb"
               << std::endl;
   }
 
@@ -227,6 +236,8 @@ class Programa {
     perdidos_ = puente_->perdidos;
     recibidos_ = puente_->recibidos;
     proxima_muestra_ = Reloj::now() + 1s;
+    acumulada_ = {};
+    segundos_ = 0;
     diagnostico_ = cliente::Diagnostico();
     cuadros_ = 0;
     ventana_.tomar_uso();
@@ -253,15 +264,18 @@ class Programa {
     proxima_muestra_ = ahora + 1s;
     const std::uint64_t perdidos = puente_->perdidos;
     const std::uint64_t recibidos = puente_->recibidos;
-    servidor_.grafico.push_back({sala_->ping().value_or(0), static_cast<std::uint32_t>(perdidos - perdidos_),
-                                 static_cast<std::uint32_t>(recibidos - recibidos_)});
+    const Muestra muestra{sala_->ping().value_or(0), static_cast<std::uint32_t>(perdidos - perdidos_),
+                          static_cast<std::uint32_t>(recibidos - recibidos_)};
     perdidos_ = perdidos;
     recibidos_ = recibidos;
+    acumulada_ = {muestra.ping, acumulada_.perdidos + muestra.perdidos, acumulada_.recibidos + muestra.recibidos};
+    if (++segundos_ % kSegundosPorMuestra == 0) {
+      servidor_.grafico.push_back(std::exchange(acumulada_, {}));
+    }
     const cliente::Medicion medicion = diagnostico_.medir();
     servidor_.diagnostico = {puente_->estado == cliente::EstadoVoz::lista, puente_->ping_ms, medicion.procesador,
                              medicion.ram_bytes, motor_->espera_ms(), motor_->recortes(), audio_->espera_de_salida_ms()};
     if (registro_.is_open()) {
-      const Muestra& muestra = servidor_.grafico.back();
       const DatosDiagnostico& datos = servidor_.diagnostico;
       UsoVentana uso = ventana_.tomar_uso();
       auto& mensajes = uso.mensajes;
@@ -275,15 +289,13 @@ class Programa {
           comun = par;
         }
       }
-      registro_ << std::chrono::duration_cast<std::chrono::milliseconds>(ahora - inicio_).count() << ','
-                << muestra.ping << ',' << datos.ping_voz << ',' << medicion.procesador << ',' << medicion.ventana << ','
-                << medicion.sistema << ',' << uso.ocupado_ms << ',' << uso.pasada_maxima_ms << ',' << cuadros_ << ','
-                << datos.colchon_ms << ',' << datos.recortes << ',' << muestra.perdidos << ','
-                << muestra.recibidos << ',' << datos.salida_ms << ',' << audio_->tomar_espera_maxima_ms() << ','
-                << audio_->descartados() << ',' << audio_->vacios() << ',' << motor_->vaciados() << ','
-                << motor_->faltas() << ',' << servidor_.transmitiendo << ','
-                << servidor_.hablando << ',' << datos.voz_lista << ',' << avisos << ',' << otros << ',' << comun.first
-                << std::endl;
+      anotar(registro_, std::chrono::duration_cast<std::chrono::milliseconds>(ahora - inicio_).count(), muestra.ping,
+             datos.ping_voz, medicion.procesador, medicion.ventana, medicion.sistema, uso.ocupado_ms,
+             uso.pasada_maxima_ms, uso.imgui_ms, uso.direct3d_ms, uso.presentados, uso.vertices_max, cuadros_,
+             datos.colchon_ms, datos.recortes, muestra.perdidos, muestra.recibidos, datos.salida_ms,
+             audio_->tomar_espera_maxima_ms(), audio_->descartados(), audio_->descartados_con_voz(), audio_->vacios(),
+             motor_->vaciados(), motor_->faltas(), servidor_.transmitiendo, servidor_.hablando, datos.voz_lista, avisos,
+             otros, comun.first, medicion.ram_bytes / (1024 * 1024));
     }
     cuadros_ = 0;
     if (servidor_.grafico.size() > kMuestrasDelGrafico) {
@@ -322,6 +334,8 @@ class Programa {
   std::uint64_t perdidos_ = 0;
   std::uint64_t recibidos_ = 0;
   Reloj::time_point proxima_muestra_{};
+  Muestra acumulada_{};
+  std::uint32_t segundos_ = 0;
   cliente::Diagnostico diagnostico_;
   const Reloj::time_point inicio_ = Reloj::now();
   std::uint32_t cuadros_ = 0;

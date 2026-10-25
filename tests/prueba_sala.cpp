@@ -37,6 +37,14 @@ MensajeChat mensaje(std::uint64_t id, std::uint32_t canal, std::uint32_t numero,
   return MensajeChat{id, canal, numero, 8, "Beto", 1000, std::move(texto)};
 }
 
+std::vector<std::uint32_t> en(const Sala& sala, std::uint32_t canal) {
+  std::vector<std::uint32_t> lista;
+  for (const auto* usuario : sala.en_canal(canal)) {
+    lista.push_back(usuario->id);
+  }
+  return lista;
+}
+
 std::vector<std::uint64_t> ids(const Sala& sala) {
   std::vector<std::uint64_t> lista;
   for (const auto& guardado : sala.chat().mensajes) {
@@ -107,17 +115,23 @@ TEST_CASE("Sin nada guardado todo cuenta como leído, y lo leído que se guarda 
 
 TEST_CASE("Las personas entran, salen y se mueven; si te movés vos, se pide el historial del canal nuevo") {
   Sala sala(presentado());
+  CHECK(en(sala, 1) == std::vector<std::uint32_t>{7, 8});
+  CHECK(en(sala, 2) == std::vector<std::uint32_t>{9});
   sala.aplicar(UsuarioEntro{{10, "Dani", 2}});
   sala.aplicar(UsuarioCambioCanal{8, 2});
   sala.aplicar(UsuarioSalio{9});
   CHECK(sala.usuarios().size() == 3);
   CHECK(sala.usuarios().at(8).canal == 2);
+  CHECK(en(sala, 1) == std::vector<std::uint32_t>{7});
+  CHECK(en(sala, 2) == std::vector<std::uint32_t>{8, 10});
   CHECK(sala.aplicar(UsuarioCambioCanal{99, 2}).empty());
   const auto ordenes = sala.aplicar(UsuarioCambioCanal{7, 2});
   REQUIRE(ordenes.size() == 1);
   CHECK(como<PedirHistorial>(ordenes[0]).canal == 2);
   CHECK(sala.tu_canal() == 2);
   CHECK(sala.chat().canal == 2);
+  CHECK(en(sala, 1).empty());
+  CHECK(en(sala, 2) == std::vector<std::uint32_t>{7, 8, 10});
 }
 
 TEST_CASE("Elegir un canal de texto lo mira y pide su historial; tocar tu canal de voz vuelve a su chat") {

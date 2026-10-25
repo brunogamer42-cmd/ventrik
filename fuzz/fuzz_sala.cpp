@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -30,6 +31,10 @@ void revisar(const Sala& sala) {
   exigir(chat.mensajes.size() <= ventrik::cliente::kTopeMensajesPorChat);
   exigir(chat.bytes <= ventrik::cliente::kTopeBytesPorChat);
   exigir(sala.usuarios().size() <= kMaximoUsuariosEnLista);
+  for (const auto& par : sala.usuarios()) {
+    const auto& lista = sala.en_canal(par.second.canal);
+    exigir(std::find(lista.begin(), lista.end(), &par.second) != lista.end());
+  }
   exigir(sala.canales().size() <= kMaximoCanalesEnLista);
   for (const auto& canal : sala.canales()) {
     exigir(sala.nuevos(canal.id) <= canal.contador);

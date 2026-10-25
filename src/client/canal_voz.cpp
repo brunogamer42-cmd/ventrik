@@ -15,6 +15,7 @@ constexpr std::chrono::seconds kSinRespuesta{15};
 constexpr std::chrono::seconds kPlazoSaludo{10};
 constexpr std::chrono::milliseconds kPrimeraEspera{2000};
 constexpr std::chrono::milliseconds kEsperaMaxima{60000};
+constexpr std::chrono::milliseconds kDuranteElSaludo{100};
 constexpr int kLecturasPorVuelta = 32;
 constexpr int kMaximoSalto = 50;
 
@@ -35,6 +36,16 @@ void CanalVoz::clave(const protocolo::ClaveVoz& nueva, cifrado::Secreto secreto)
   lista_ = false;
   espera_ = kPrimeraEspera;
   reintentar_en_ = {};
+}
+
+std::chrono::milliseconds CanalVoz::hasta_lo_proximo(Reloj::time_point ahora) const {
+  const auto hasta = [ahora](Reloj::time_point cuando) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(cuando - ahora);
+  };
+  return lista_    ? std::min(hasta(proximo_ping_), hasta(ultimo_dato_ + kSinRespuesta))
+         : sesion_ ? kDuranteElSaludo
+         : clave_  ? hasta(reintentar_en_)
+                   : kEsperaMaxima;
 }
 
 void CanalVoz::atender(Reloj::time_point ahora) {

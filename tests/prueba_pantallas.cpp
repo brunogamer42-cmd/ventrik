@@ -12,6 +12,7 @@
 #include "client/ui/inicio.h"
 #include "client/ui/piezas.h"
 #include "client/ui/servidor.h"
+#include "client/ui/ventana.h"
 
 namespace ui = ventrik::ui;
 using ventrik::cliente::Guardados;
@@ -437,4 +438,39 @@ TEST_CASE("Si borran el canal mientras su cuadro está abierto, el cuadro se cie
   sin_pantalla.cuadro(otra, invitado, fila, true);
   sin_pantalla.cuadro(otra, invitado, fila);
   CHECK_FALSE(hay_ventana_emergente());
+}
+
+TEST_CASE("Dos cuadros iguales tienen la misma huella, y el mouse sobre una fila cambia la imagen") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(false, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  const auto huella = [&](ImVec2 mouse) {
+    sin_pantalla.cuadro(pantalla, sala, mouse);
+    return ui::huella_del_dibujo(*ImGui::GetDrawData());
+  };
+  for (int i = 0; i < 3; ++i) {
+    huella(ImVec2(900, 400));
+  }
+  const std::size_t quieta = huella(ImVec2(900, 400));
+  CHECK(huella(ImVec2(900, 400)) == quieta);
+  CHECK(huella(ImVec2(901, 401)) == quieta);
+  CHECK(huella(ImVec2(100, 192)) != quieta);
+}
+
+TEST_CASE("Las teclas repetidas no piden cuadros salvo escribiendo, y los cuadros lentos se espacian") {
+  constexpr LPARAM kRepetida = 0x40000000;
+  std::optional<LPARAM> mouse;
+  CHECK(ui::pide_cuadros(WM_KEYDOWN, VK_CONTROL, 0, false, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_KEYDOWN, VK_CONTROL, kRepetida, true, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_SYSKEYDOWN, VK_MENU, kRepetida, false, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_KEYDOWN, VK_BACK, kRepetida, false, mouse));
+  CHECK(ui::pide_cuadros(WM_KEYDOWN, VK_BACK, kRepetida, true, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_NCMOUSEMOVE, 0, 0, false, mouse));
+  CHECK(ui::pide_cuadros(WM_MOUSEMOVE, 0, 7, false, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_MOUSEMOVE, 0, 7, false, mouse));
+  CHECK(ui::pide_cuadros(WM_MOUSEMOVE, 0, 8, false, mouse));
+  CHECK(ui::pide_cuadros(WM_MOUSELEAVE, 0, 0, false, mouse));
+  CHECK(ui::pide_cuadros(WM_MOUSEMOVE, 0, 8, false, mouse));
+  CHECK(ui::espera_entre_cuadros(1.4) == 15);
+  CHECK(ui::espera_entre_cuadros(16) == 80);
 }

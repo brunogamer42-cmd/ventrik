@@ -16,7 +16,6 @@ using protocolo::TipoMensaje;
 constexpr std::size_t kMaximoNovedades = 4096;
 constexpr std::size_t kMaximoSalida = 1024 * 1024;
 constexpr int kLecturasPorVuelta = 16;
-constexpr std::chrono::milliseconds kEsperaConVoz{100};
 
 std::uint64_t milisegundos_desde_arranque() {
   return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -306,10 +305,11 @@ void Sesion::correr() {
     }
     const auto hasta_el_ping = std::chrono::duration_cast<std::chrono::milliseconds>(
         proximo_ping - Reloj::now());
+    const auto hasta_la_voz = canal_voz_ ? canal_voz_->hasta_lo_proximo(Reloj::now()) : hasta_el_ping;
     const auto espera = tls.hay_datos_guardados()
                             ? std::chrono::milliseconds{0}
-                            : std::clamp(hasta_el_ping, std::chrono::milliseconds{0},
-                                         canal_voz_ ? kEsperaConVoz : opciones_.cada_cuanto_ping);
+                            : std::clamp(std::min(hasta_el_ping, hasta_la_voz), std::chrono::milliseconds{0},
+                                         opciones_.cada_cuanto_ping);
     timeval tiempo = {};
     tiempo.tv_sec = static_cast<long>(espera.count() / 1000);
     tiempo.tv_usec = static_cast<long>((espera.count() % 1000) * 1000);

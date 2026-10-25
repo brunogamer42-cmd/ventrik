@@ -71,6 +71,23 @@ La demora estimada incluye los 40 ms que espera el buffer para ordenar paquetes;
 
 **Criterio de la etapa 1** ("la demora en red local está cerca de las 80 ms de la meta y la netbook aguanta"): se cumple con el puente propio en XP y el nivel de consumo Bajo en la netbook. La red queda en 107 ms estimados por la espera fija del buffer.
 
+## Etapa 2: consumo de la ventana en la HP 2133 (registro de 1 línea por segundo)
+
+Medido con `ventrik.exe --registro` en la clásica, con XP SP3, placa VIA Chrome9 HC (vértices por la placa), voz en nivel Bajo (16 kHz, complejidad 0). El procesador cuenta por pedazos de reloj de 15,6 ms en XP, así que para la ventana vale más el tiempo ocupado medido con reloj.
+
+| Situación | Antes (2026-10-24) | Después de dibujar solo lo que cambia (2026-10-25) |
+| --- | --- | --- |
+| Quieta | 4,0 %, 3,7 cuadros por segundo | 0,7 % (la ventana ocupada 13 ms por segundo), 1,7 cuadros y 0,5 imágenes por segundo |
+| Escuchando a la PC | 6,1 % | 1,9 % |
+| Hablando, con la tecla apretada | 95,7 %, 51 cuadros por segundo | 24,3 % (la ventana 166 ms por segundo), 16 cuadros y 8 imágenes por segundo, por el medidor |
+| Mouse moviéndose encima | 65,4 % (picos de 100 %) | la ventana ocupada 140 ms por segundo, 28 cuadros y 0,6 imágenes por segundo |
+| Voz tirada hacia los parlantes mientras habla la PC | 36 pedazos con voz en 57 s | 16 en 30 s, ninguno con voz |
+| Memoria (working set) | — | 8 MB |
+
+- **Costo de un dibujo:** 4,6 ms de Dear ImGui por cuadro y 10,5 ms de Direct3D por imagen que llega a la pantalla. En la PC: unos 0,45 y 0,8 ms.
+- **La espera hacia los parlantes crece unos 7 ms por segundo** todo el tiempo: el micrófono de la HP va un 0,7 % más rápido que sus parlantes.
+- **El WiFi de la HP tiene saltos sueltos** (ping de 105 a 221 ms) que vacían el colchón unas veces, con el procesador normal.
+
 ## Pendiente
 
 - Prueba de 10 minutos en la PC y en la HP 2133 por la red local, con registro cada segundo: se hace con la primera beta, con la interfaz completa.

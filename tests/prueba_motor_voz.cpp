@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "client/audio.h"
 #include "client/buffer_voz.h"
 #include "client/motor_voz.h"
 #include <doctest/doctest.h>
@@ -182,4 +183,19 @@ TEST_CASE("Sin transmitir no sale nada, y un segundo hablante espera su turno") 
     motor.procesar(entrada, salida);
   }
   CHECK(puente.hablando == 5);
+}
+
+TEST_CASE("Hacia los parlantes se tira solo lo callado, salvo con mucha espera") {
+  using ventrik::cliente::tirar_pedazo;
+  const std::vector<std::int16_t> silencio(160, 0);
+  const std::vector<std::int16_t> casi(160, -999);
+  std::vector<std::int16_t> voz(160, 0);
+  voz[80] = 1000;
+  for (const auto* callado : {&silencio, &casi}) {
+    CHECK_FALSE(tirar_pedazo(11, *callado));
+    CHECK(tirar_pedazo(12, *callado));
+  }
+  CHECK_FALSE(tirar_pedazo(12, voz));
+  CHECK_FALSE(tirar_pedazo(24, voz));
+  CHECK(tirar_pedazo(25, voz));
 }

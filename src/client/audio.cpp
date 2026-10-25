@@ -17,6 +17,8 @@ constexpr unsigned kPedazosDeEntrada = 8;
 constexpr unsigned kPedazosAdelantados = 3;
 constexpr std::size_t kLugaresDeSalida = 64;
 constexpr std::ptrdiff_t kMaximoEnEspera = 12;
+constexpr std::ptrdiff_t kTopeEnEspera = 25;
+constexpr int kCasiSilencio = 1000;
 
 bool es_windows_xp() {
   OSVERSIONINFOEXW pedido = {};
@@ -34,6 +36,15 @@ bool terminado(const WAVEHDR& cabecera) {
   return (*static_cast<const volatile DWORD*>(&cabecera.dwFlags) & WHDR_DONE) != 0;
 }
 
+bool callado(gsl::span<const std::int16_t> pedazo) {
+  return std::all_of(pedazo.begin(), pedazo.end(),
+                     [](std::int16_t muestra) { return muestra > -kCasiSilencio && muestra < kCasiSilencio; });
+}
+
+}
+
+bool tirar_pedazo(std::ptrdiff_t en_espera, gsl::span<const std::int16_t> pedazo) {
+  return en_espera >= kTopeEnEspera || (en_espera >= kMaximoEnEspera && callado(pedazo));
 }
 
 Audio::Audio() : dispositivo_(std::make_unique<ma_device>()) {}
@@ -179,15 +190,15 @@ void Audio::atender() {
       espera_de_salida_ms_ = espera_ms;
       espera_maxima_ms_.store(std::max(espera_maxima_ms_.load(std::memory_order_relaxed), espera_ms),
                               std::memory_order_relaxed);
-      Pedazo* sale = en_espera < kMaximoEnEspera ? libre_para_salida() : nullptr;
-      if (sale == nullptr) {
-        descartados_.fetch_add(1, std::memory_order_relaxed);
-      }
-      procesar_(datos_, gsl::span<const std::int16_t>(llego.muestras).first(grabadas),
-                sale != nullptr ? gsl::span<std::int16_t>(sale->muestras)
-                                : gsl::span<std::int16_t>(borrador_));
-      if (sale != nullptr) {
+      Pedazo* sale = libre_para_salida();
+      const gsl::span<std::int16_t> destino =
+          sale != nullptr ? gsl::span<std::int16_t>(sale->muestras) : gsl::span<std::int16_t>(borrador_);
+      procesar_(datos_, gsl::span<const std::int16_t>(llego.muestras).first(grabadas), destino);
+      if (sale != nullptr && !tirar_pedazo(en_espera, destino)) {
         escribir(*sale);
+      } else {
+        descartados_.fetch_add(1, std::memory_order_relaxed);
+        descartados_con_voz_.fetch_add(callado(destino) ? 0 : 1, std::memory_order_relaxed);
       }
       llego.cabecera.dwFlags &= ~static_cast<DWORD>(WHDR_DONE);
       waveInAddBuffer(entrada_, &llego.cabecera, sizeof(WAVEHDR));

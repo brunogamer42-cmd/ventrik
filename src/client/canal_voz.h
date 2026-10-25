@@ -23,6 +23,7 @@ class CanalVoz {
 
   void clave(const protocolo::ClaveVoz& nueva, cifrado::Secreto secreto);
   void atender(Reloj::time_point ahora);
+  std::chrono::milliseconds hasta_lo_proximo(Reloj::time_point ahora) const;
   const red::Socket& socket() const { return socket_; }
   void recibir(gsl::span<const std::uint8_t> registro, Reloj::time_point ahora);
 

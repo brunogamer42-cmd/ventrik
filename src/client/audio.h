@@ -14,6 +14,8 @@
 struct ma_device;
 
 namespace ventrik::cliente {
+bool tirar_pedazo(std::ptrdiff_t en_espera, gsl::span<const std::int16_t> pedazo);
+
 class Audio {
  public:
   using Procesar = void (*)(void* datos, gsl::span<const std::int16_t> entrada,
@@ -29,6 +31,7 @@ class Audio {
   std::uint32_t espera_de_salida_ms() const { return espera_de_salida_ms_.load(std::memory_order_relaxed); }
   std::uint32_t tomar_espera_maxima_ms() { return espera_maxima_ms_.exchange(0, std::memory_order_relaxed); }
   std::uint32_t descartados() const { return descartados_.load(std::memory_order_relaxed); }
+  std::uint32_t descartados_con_voz() const { return descartados_con_voz_.load(std::memory_order_relaxed); }
   std::uint32_t vacios() const { return vacios_.load(std::memory_order_relaxed); }
 
  private:
@@ -62,6 +65,7 @@ class Audio {
   std::atomic<std::uint32_t> espera_de_salida_ms_{0};
   std::atomic<std::uint32_t> espera_maxima_ms_{0};
   std::atomic<std::uint32_t> descartados_{0};
+  std::atomic<std::uint32_t> descartados_con_voz_{0};
   std::atomic<std::uint32_t> vacios_{0};
 };
 

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <functional>
+#include <string_view>
 #include <vector>
 
 struct IUnknown;
@@ -29,6 +31,18 @@ constexpr int kCuadrosTrasEvento = 3;
 constexpr DWORD kMilisegundosPorCuadro = 15;
 constexpr DWORD kEsperaConMouseEncima = 100;
 constexpr DWORD kTiempoParaCarteles = 1500;
+constexpr DWORD kVecesElCuadroEntreCuadros = 4;
+
+using Reloj = std::chrono::steady_clock;
+
+double ms_desde(Reloj::time_point desde) {
+  return std::chrono::duration<double, std::milli>(Reloj::now() - desde).count();
+}
+
+template <typename T>
+std::string_view como_bytes(const ImVector<T>& datos) {
+  return std::string_view(reinterpret_cast<const char*>(datos.Data), static_cast<std::size_t>(datos.size_in_bytes()));
+}
 
 struct Soltar {
   void operator()(IUnknown* objeto) const { objeto->Release(); }
@@ -215,63 +229,117 @@ bool Ventana::recuperar_dispositivo() {
   return true;
 }
 
-void Ventana::dibujar_cuadro(const std::function<void()>& dibujar) {
-  if ((perdido_ || ancho_nuevo_ != 0) && !recuperar_dispositivo()) {
-    perdido_ = true;
-    return;
+std::size_t huella_del_dibujo(const ImDrawData& dibujo) {
+  std::size_t huella = 0;
+  for (const ImDrawList* lista : dibujo.CmdLists) {
+    for (const std::string_view bytes : {como_bytes(lista->VtxBuffer), como_bytes(lista->IdxBuffer),
+                                         como_bytes(lista->CmdBuffer)}) {
+      huella = huella * 31 + std::hash<std::string_view>()(bytes);
+    }
+  }
+  return huella;
+}
+
+bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, std::optional<LPARAM>& ultimo_mouse) {
+  if (mensaje == WM_MOUSEMOVE) {
+    const bool movido = ultimo_mouse != datos;
+    ultimo_mouse = datos;
+    return movido;
+  }
+  if (mensaje == WM_MOUSELEAVE) {
+    ultimo_mouse.reset();
+  }
+  const bool repetida = (mensaje == WM_KEYDOWN || mensaje == WM_SYSKEYDOWN) && (datos & 0x40000000) != 0;
+  const bool modificador =
+      tecla == VK_SHIFT || tecla == VK_CONTROL || tecla == VK_MENU || tecla == VK_LWIN || tecla == VK_RWIN;
+  return mensaje != WM_NCMOUSEMOVE && (!repetida || (escribiendo && !modificador));
+}
+
+DWORD espera_entre_cuadros(double ultimo_ms) {
+  return std::max(kMilisegundosPorCuadro, static_cast<DWORD>(ultimo_ms * (kVecesElCuadroEntreCuadros + 1)));
+}
+
+bool Ventana::dibujar_cuadro(const std::function<void()>& dibujar) {
+  if (perdido_ || ancho_nuevo_ != 0) {
+    if (!recuperar_dispositivo()) {
+      perdido_ = true;
+      return false;
+    }
+    presentar_igual_ = true;
   }
   perdido_ = false;
+  const auto empezo = Reloj::now();
   ImGui_ImplDX9_NewFrame();
   ImGui_ImplWin32_NewFrame();
   ImGui::NewFrame();
   pantalla_completa(dibujar);
-  ImGui::EndFrame();
+  ImGui::Render();
+  const ImDrawData& datos = *ImGui::GetDrawData();
+  const std::size_t huella = huella_del_dibujo(datos);
+  uso_.imgui_ms += ms_desde(empezo);
+  uso_.vertices_max = std::max(uso_.vertices_max, datos.TotalVtxCount);
+  if (huella == huella_ && !presentar_igual_) {
+    return false;
+  }
+  huella_ = huella;
+  presentar_igual_ = false;
+  const auto armado = Reloj::now();
   IDirect3DDevice9& dispositivo = *grafica_->dispositivo;
   dispositivo.Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_XRGB(0x16, 0x1B, 0x1E), 1.0f, 0);
   if (SUCCEEDED(dispositivo.BeginScene())) {
-    ImGui::Render();
     ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
     dispositivo.EndScene();
   }
   perdido_ = dispositivo.Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST;
+  uso_.direct3d_ms += ms_desde(armado);
+  ++uso_.presentados;
   if (!IsWindowVisible(ventana_)) {
     ShowWindow(ventana_, como_mostrar_);
   }
+  return true;
 }
 
 int Ventana::correr(const std::function<void()>& atender, const std::function<void()>& dibujar) {
   int pendientes = kCuadrosTrasEvento;
-  DWORD ultimo = GetTickCount() - kMilisegundosPorCuadro;
+  DWORD entre_cuadros = kMilisegundosPorCuadro;
+  DWORD ultimo = GetTickCount() - entre_cuadros;
   DWORD ultimo_mensaje = GetTickCount();
+  std::optional<LPARAM> ultimo_mouse;
   for (;;) {
-    const auto empezo = std::chrono::steady_clock::now();
+    const auto empezo = Reloj::now();
     MSG mensaje = {};
     while (PeekMessageW(&mensaje, nullptr, 0, 0, PM_REMOVE)) {
       if (mensaje.message == WM_QUIT) {
         return static_cast<int>(mensaje.wParam);
       }
       ++uso_.mensajes[mensaje.message];
+      presentar_igual_ = presentar_igual_ || mensaje.message == WM_PAINT;
+      const bool pide =
+          pide_cuadros(mensaje.message, mensaje.wParam, mensaje.lParam, ImGui::GetIO().WantTextInput, ultimo_mouse);
       TranslateMessage(&mensaje);
       DispatchMessageW(&mensaje);
-      pendientes = kCuadrosTrasEvento;
-      ultimo_mensaje = GetTickCount();
+      if (pide) {
+        pendientes = kCuadrosTrasEvento;
+        ultimo_mensaje = GetTickCount();
+      }
     }
     atender();
     const bool minimizada = IsIconic(ventana_) != FALSE;
     const DWORD pasado = GetTickCount() - ultimo;
     DWORD espera = INFINITE;
     if (pendientes > 0 && !minimizada) {
-      espera = pasado < kMilisegundosPorCuadro ? kMilisegundosPorCuadro - pasado : 0;
+      espera = pasado < entre_cuadros ? entre_cuadros - pasado : 0;
     } else if (!minimizada && (perdido_ || (ImGui::IsAnyItemHovered() &&
                                             GetTickCount() - ultimo_mensaje < kTiempoParaCarteles))) {
       espera = kEsperaConMouseEncima;
     }
     if (espera == 0) {
       ultimo = GetTickCount();
-      dibujar_cuadro(dibujar);
-      --pendientes;
+      const auto cuadro = Reloj::now();
+      pendientes = dibujar_cuadro(dibujar) ? pendientes - 1 : 0;
+      entre_cuadros = espera_entre_cuadros(ms_desde(cuadro));
     }
-    const double pasada = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - empezo).count();
+    const double pasada = ms_desde(empezo);
     uso_.ocupado_ms += pasada;
     uso_.pasada_maxima_ms = std::max(uso_.pasada_maxima_ms, pasada);
     if (espera != 0 && MsgWaitForMultipleObjects(0, nullptr, FALSE, espera, QS_ALLINPUT) == WAIT_TIMEOUT &&

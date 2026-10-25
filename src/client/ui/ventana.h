@@ -1,9 +1,11 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -18,7 +20,15 @@ struct UsoVentana {
   std::map<UINT, std::uint32_t> mensajes;
   double ocupado_ms = 0;
   double pasada_maxima_ms = 0;
+  double imgui_ms = 0;
+  double direct3d_ms = 0;
+  std::uint32_t presentados = 0;
+  int vertices_max = 0;
 };
+
+std::size_t huella_del_dibujo(const ImDrawData& dibujo);
+bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, std::optional<LPARAM>& ultimo_mouse);
+DWORD espera_entre_cuadros(double ultimo_ms);
 
 class Ventana {
  public:
@@ -42,7 +52,7 @@ class Ventana {
   bool preparar_dispositivo();
   void cargar_logo(float escala);
   bool recuperar_dispositivo();
-  void dibujar_cuadro(const std::function<void()>& dibujar);
+  bool dibujar_cuadro(const std::function<void()>& dibujar);
 
   std::unique_ptr<Grafica> grafica_;
   HWND ventana_ = nullptr;
@@ -50,6 +60,8 @@ class Ventana {
   float escala_ = 1.0f;
   bool lista_ = false;
   bool perdido_ = false;
+  bool presentar_igual_ = true;
+  std::size_t huella_ = 0;
   UsoVentana uso_;
   UINT ancho_nuevo_ = 0;
   UINT alto_nuevo_ = 0;

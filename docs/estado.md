@@ -24,7 +24,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - el chat, que carga lo más viejo al subir;
   - los contadores de nuevos mientras estás conectado;
   - la tecla para hablar (Alt izquierdo por defecto, se cambia y se guarda);
-  - la barra de estado con el gráfico de ping del último minuto.
+  - la barra de estado con el gráfico de ping del último minuto (un punto cada 5 s, que es cada cuánto se mide el ping).
 
   Lo que en la captura no tiene etapa va apagado con "Pronto": "Buscar usuario", el nombre y la frase del servidor, la nota de GIFs y el botón del costado del chat. La lunita de "ausente" y el candado en un canal de voz no se pueden mostrar apagados (son estados que hoy nunca pasan) y quedan para cuando se diseñen. Comparada con las dos capturas sacando fotos de la ventana a 1376 × 768.
 - **Etapa 2, paso 2.5, parte 3b: cerrada.**
@@ -38,7 +38,14 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - con la tecla para hablar apretada, 96 % todo el tiempo: Windows repite la tecla unas 46 veces por segundo y cada repetición pide cuadros (51 por segundo, de 20 ms). Con el mouse moviéndose encima, 65 % (picos de 100 %);
   - los microcortes de la PC hacia la HP: mientras habla la PC, el procesador, la red (1 pedazo perdido en 77 s) y el colchón están bien; lo que pasa es que la espera hacia los parlantes crece unos 7 ms por segundo todo el tiempo (el micrófono de la HP va un 0,7 % más rápido que sus parlantes, y el programa escribe un pedazo de salida por cada pedazo de entrada), llega a 120 ms y se tiran 10 ms de voz: uno cada 1,6 s (36 en 57 s), sin ningún vacío en la salida;
   - aparte, el WiFi de la HP tiene saltos sueltos (ping de 105 a 188 ms) que vacían el colchón unas veces.
-- **Lo que sigue: arreglar el consumo y los microcortes en la HP** (plan aparte). Después, el **paso 2.6**, la prueba en check.ps1 que levanta servidor y programa en las cuatro combinaciones (clásica y moderna en cada lado). Después, la prueba de estrés y ataques que pidió el dueño (propuesta como 2.7). Las notificaciones son el primer paso de la etapa 3.
+- **Consumo de la ventana y microcortes en XP: hecho, falta la prueba en la HP.**
+  - Las reglas de dibujo y lo que se tira hacia los parlantes están en "Decisiones técnicas".
+  - La `Sala` tiene un índice de personas por canal (`en_canal`), que se rearma solo cuando llega una novedad: la lista de canales con 60 canales y 512 personas bajó de 135 a 39 µs por cuadro en la PC.
+  - La hora y las iniciales de cada mensaje se calculan una vez (en `Alturas`).
+  - La sesión espera hasta lo próximo que tiene que hacer la voz (`hasta_lo_proximo`) en vez de despertarse cada 100 ms; cada 100 ms solo durante el saludo.
+  - El registro suma `imgui_ms`, `direct3d_ms`, `presentados`, `vertices_max`, `descartes_con_voz_total` y `ram_mb`. Medido sin ventana en la PC, un cuadro de la pantalla del servidor cuesta unos 150 µs en la parte de Dear ImGui (unos 3 ms en la HP): lo demás de los 13 ms de la HP sería Direct3D, a confirmar con el registro.
+- **Prueba en la HP del consumo de la ventana (2026-10-25):** quieta cerca de 1 %, escuchando cerca de 2 %, hablando 24 % (antes 96 %), con el mouse cerca de 14 % (antes 65 %), ningún pedazo con voz tirado hacia los parlantes, memoria 8 MB. Por imagen: 4,6 ms de Dear ImGui y 10,5 ms de Direct3D (ver docs/mediciones.md).
+- **Lo que sigue: el plan de optimización (docs/optimizacion.md),** de un solo tirón sobre lo que ya existe, con las pruebas al final (sección 17), después del commit pendiente y de las decisiones del dueño (sección 18). Después, el **paso 2.6**, la prueba en check.ps1 que levanta servidor y programa en las cuatro combinaciones (clásica y moderna en cada lado). Después, la prueba de estrés y ataques que pidió el dueño (propuesta como 2.7). Las notificaciones son el primer paso de la etapa 3.
 
 ## Ramas y repositorio
 
@@ -140,7 +147,12 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **Programa:** `cliente::conectar` saluda, se presenta y devuelve la conexión abierta (`ConexionAbierta`) con lo que sobró de leer. `cliente::Sesion` corre la conexión en su propio hilo con una cola de órdenes y otra de novedades (la va a usar la ventana del 2.5) y manda ping cada 5 s.
 - **Ventana (paso 2.5):**
   - Direct3D 9 con dispositivo HAL, proceso de vértices por hardware y, si no se puede, por software (placas viejas como la VIA de la HP 2133). `D3DCREATE_FPU_PRESERVE`: sin eso, Direct3D 9 pone el procesador en precisión simple y en la clásica cambian las cuentas con `double`. `D3DPRESENT_INTERVAL_IMMEDIATE`: en ventana, XP espera el refresco de la pantalla girando sin pausa.
-  - Se dibuja solo cuando hace falta: 3 cuadros después de cada mensaje de Windows, como mucho uno cada 15 ms, y un cuadro cada 100 ms solo durante 1,5 s después del último movimiento con el mouse sobre algo (para que aparezcan los carteles) o mientras el dispositivo está perdido (pantalla bloqueada). Minimizada no dibuja. Medido en la PC: quieta y minimizada, 0 % de procesador.
+  - Se dibuja solo cuando hace falta (medido en la HP 2133, donde cada cuadro costaba de 13 a 20 ms):
+    - hasta 3 cuadros después de cada mensaje de Windows o aviso propio, pero se corta apenas un cuadro sale igual al anterior. La imagen se compara con una huella de los vértices, índices y comandos de Dear ImGui (`huella_del_dibujo`), y una imagen igual no se manda a la pantalla (sí después de `WM_PAINT`, de cambiar de tamaño o de recuperar el dispositivo, porque XP sin DWM no guarda lo tapado);
+    - no piden cuadros: las repeticiones de teclas (bit 30 de `lParam`) de Ctrl, Shift, Alt y Windows, ni las de otras teclas salvo escribiendo en un campo (ahí hacen falta para borrar manteniendo); el mouse sobre el borde (`WM_NCMOUSEMOVE`; al salir llega `WM_MOUSELEAVE`); ni un `WM_MOUSEMOVE` al mismo lugar que el anterior (hay programas que mandan movimientos en cero 60 veces por segundo: medido en la PC del dueño, también con una ventana que no es Ventrik). Con la tecla para hablar apretada la HP iba al 96 %;
+    - entre dos cuadros se espera al menos 15 ms y 4 veces lo que tardó el último (`espera_entre_cuadros`): dibujar no pasa del 20 % del procesador ni moviendo el mouse;
+    - un cuadro cada 100 ms solo durante 1,5 s después del último movimiento con el mouse sobre algo (para que aparezcan los carteles) o mientras el dispositivo está perdido (pantalla bloqueada). Minimizada no dibuja;
+    - medido en la PC, quieta: 1 o 2 cuadros por segundo y una imagen a la pantalla cada 5 s (antes 3 y 3 por segundo).
   - Las novedades de la sesión se leen en cada vuelta del bucle (`atender`), aunque no se dibuje: si no, con la ventana minimizada o la PC bloqueada unas horas, la cola de 4096 se llenaba con los pings y la sesión se cortaba. La sesión avisa con `kMensajeNovedades` (uno solo pendiente a la vez).
   - Cancelar un intento de conexión es instantáneo: la sesión tiene un segundo `Despertador` (`cancelar_`) que la espera de la red mira mientras conecta y saluda. Antes, destruir la sesión esperaba hasta 15 s y congelaba la ventana. Mientras conecta, el botón dice "Cancelar" (en la tarjeta y en el formulario) y Enter no lanza otro intento.
   - Se puede usar con teclado solo (Tab, flechas, Espacio y Enter: `NavEnableKeyboard` y botones con `EnableNav`). Alt solo no abre el menú del sistema; Alt+Espacio y Alt+F4 sí andan.
@@ -185,6 +197,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **Audio en XP:** puente propio con WinMM.
   - Pedazos de 10 ms, 64 lugares hacia los parlantes y 8 para el micrófono, **sin ninguna corrección de desfase**: XP avisa mal la posición de los parlantes y devuelve tarde los pedazos.
   - Pero la espera hacia los parlantes se recorta: si ya hay 120 ms o más en cola, el pedazo de 10 ms que tocaba se descarta (`kMaximoEnEspera`). Sin eso, cada traba del equipo (WiFi, procesador ocupado) dejaba más audio esperando y nunca bajaba: en la HP 2133 llegó a 580 ms y se oía 1 a 2 segundos tarde. Se dejó margen (120 ms y no 40) porque XP devuelve tarde los pedazos ya sonados. El diagnóstico muestra esa espera.
+  - Lo que se tira es solo lo callado (`tirar_pedazo`): desde 120 ms se tira un pedazo si todas sus muestras están entre −1000 y 1000, y desde 250 ms se tira igual. Medido en la HP con `--registro`: la espera crece unos 7 ms por segundo todo el tiempo (el micrófono va un 0,7 % más rápido que los parlantes y el programa escribe un pedazo de salida por cada pedazo de entrada), así que se tiraban 10 ms de voz cada 1,6 s y eran los microcortes de la PC hacia la HP. Con 64 lugares de salida (640 ms) el techo de 250 ms entra.
   - miniaudio tiene mínimos fijos (30 ms con DirectSound, 40 ms con WinMM) y en XP, con DirectSound, consulta cada 1 ms.
 - **Consumo de la voz:** niveles Alto, Normal, Bajo, Mínimo y Automático, todos con Opus (docs/diseno.md). No sumar otros códecs.
 - **Protocolo (src/common/protocol):**

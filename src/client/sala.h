@@ -28,6 +28,10 @@ struct Chat {
 class Sala {
  public:
   explicit Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& leidos = {});
+  Sala(const Sala&) = delete;
+  Sala& operator=(const Sala&) = delete;
+  Sala(Sala&&) = default;
+  Sala& operator=(Sala&&) = default;
 
   std::vector<Orden> empezar();
   std::vector<Orden> aplicar(const Novedad& novedad);
@@ -40,6 +44,7 @@ class Sala {
   bool dueno() const { return dueno_; }
   const std::vector<protocolo::CanalInfo>& canales() const { return canales_; }
   const std::map<std::uint32_t, protocolo::UsuarioInfo>& usuarios() const { return usuarios_; }
+  const std::vector<const protocolo::UsuarioInfo*>& en_canal(std::uint32_t canal) const;
   const protocolo::CanalInfo* canal(std::uint32_t id) const;
   std::uint32_t tu_canal() const { return voz_.canal; }
   std::uint32_t mirando() const { return texto_.canal; }
@@ -77,6 +82,7 @@ class Sala {
   bool dueno_ = false;
   std::vector<protocolo::CanalInfo> canales_;
   std::map<std::uint32_t, protocolo::UsuarioInfo> usuarios_;
+  mutable std::optional<std::map<std::uint32_t, std::vector<const protocolo::UsuarioInfo*>>> por_canal_;
   std::map<std::uint32_t, std::uint32_t> leidos_;
   Chat voz_;
   Chat texto_;

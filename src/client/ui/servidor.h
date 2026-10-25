@@ -15,7 +15,8 @@
 #include "common/textos.h"
 
 namespace ventrik::ui {
-constexpr std::size_t kMuestrasDelGrafico = 60;
+constexpr std::size_t kMuestrasDelGrafico = 12;
+constexpr std::uint32_t kSegundosPorMuestra = 5;
 
 struct Muestra {
   std::uint32_t ping = 0;
@@ -31,6 +32,8 @@ struct Alturas {
   std::vector<float> textos;
   std::vector<float> desde;
   std::vector<bool> nuevo_dia;
+  std::vector<std::string> horas;
+  std::vector<std::string> iniciales;
 };
 
 enum class Dialogo { ninguno, crear_texto, crear_voz, cambiar, borrar };

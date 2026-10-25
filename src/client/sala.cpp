@@ -65,7 +65,20 @@ std::vector<Orden> Sala::empezar() {
 }
 
 std::vector<Orden> Sala::aplicar(const Novedad& novedad) {
+  por_canal_.reset();
   return std::visit([this](const auto& cual) { return atender(cual); }, novedad);
+}
+
+const std::vector<const protocolo::UsuarioInfo*>& Sala::en_canal(std::uint32_t canal) const {
+  static const std::vector<const protocolo::UsuarioInfo*> kNadie;
+  if (!por_canal_) {
+    por_canal_.emplace();
+    for (const auto& par : usuarios_) {
+      (*por_canal_)[par.second.canal].push_back(&par.second);
+    }
+  }
+  const auto encontrado = por_canal_->find(canal);
+  return encontrado != por_canal_->end() ? encontrado->second : kNadie;
 }
 
 const protocolo::CanalInfo* Sala::canal(std::uint32_t id) const {

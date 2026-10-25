@@ -88,13 +88,16 @@ Terminada cuando: la demora en red local está cerca de las 80 ms de la meta y l
    - Parte 2 (delicada; hecha): canales de texto en el protocolo, la base y los permisos. Tipo de canal y marca "solo los admins escriben", contador de mensajes, aviso de mensajes nuevos sin el texto y con tope de ritmo, y el servidor rechaza usar un canal de texto como canal de voz. La base de prueba se actualiza sola.
    - Parte 3a (hecha): la pantalla del servidor con los dos grupos de canales, la barra de la lista, el chat, los contadores de nuevos mientras estás conectado, la tecla para hablar y la barra de estado con el gráfico de ping. Lo que en la captura no tiene etapa va apagado con "Pronto", igual que "Compartir pantalla". Captura comparada con docs/pantallas/Rendimiento.png y Rendimiento-canal-texto.png.
    - Parte 3b (hecha): hasta dónde leíste guardado en la PC (programa.dat versión 2), los botones + y el clic derecho del dueño para crear, cambiar y borrar canales, el panel de diagnóstico que abre el gráfico, y borrar la consola de prueba.
+   - Medición del consumo (hecha): `ventrik.exe --registro`.
+   - Consumo de la ventana y microcortes en XP (hecho; falta el commit): dibujar solo lo que cambia, teclas repetidas y mouse quieto sin dibujos, hacia los parlantes se tira solo lo callado.
+   - Optimización integral de lo que ya existe, de un solo tirón: docs/optimizacion.md, sección 17.
 6. Prueba en check.ps1 que levanta servidor y programa en las cuatro combinaciones (clásica y moderna en cada lado) y verifica conexión, chat y voz.
 
 Terminada cuando: un servidor con dos programas conectados (uno desde XP) que chatean en un canal de voz y en uno de texto, y hablan, y la revisión independiente sin fallas de seguridad pendientes.
 
 ## Etapas 3 a 14
 
-Cada una empieza en una sesión nueva: se divide en pasos chicos, cada uno con su prueba automática y una prueba a mano, marcando los delicados.
+Cada una empieza en una sesión nueva: se divide en pasos chicos, cada uno con su prueba automática y una prueba a mano, marcando los delicados. Cada etapa cumple las reglas de consumo de docs/optimizacion.md (secciones 2 y 15).
 
 | Etapa | Pasos principales | Pantallas | Prueba a mano al final |
 | --- | --- | --- | --- |
