@@ -52,6 +52,7 @@ target_link_options(ventrik_opciones_base INTERFACE
 if(NOT VENTRIK_VERSION STREQUAL "fuzzing")
   target_compile_options(ventrik_opciones_base INTERFACE /guard:cf)
   target_link_options(ventrik_opciones_base INTERFACE /guard:cf)
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 endif()
 if(VENTRIK_VERSION STREQUAL "clasica")
   target_compile_definitions(ventrik_opciones_base INTERFACE VENTRIK_CLASICA=1)
@@ -85,10 +86,14 @@ else()
   add_subdirectory(third_party)
 endif()
 
+add_library(ventrik_sistema STATIC src/common/sistema.cpp)
+target_include_directories(ventrik_sistema PUBLIC src)
+target_link_libraries(ventrik_sistema PRIVATE ventrik_opciones)
+
 if(VENTRIK_VERSION STREQUAL "clasica" OR VENTRIK_VERSION STREQUAL "fuzzing")
   add_library(ventrik_entropia_xp STATIC src/common/entropia_xp.cpp)
   target_include_directories(ventrik_entropia_xp PRIVATE src)
-  target_link_libraries(ventrik_entropia_xp PRIVATE ventrik_opciones mbedtls gsl)
+  target_link_libraries(ventrik_entropia_xp PRIVATE ventrik_opciones ventrik_sistema mbedtls gsl)
 endif()
 
 file(GLOB VENTRIK_ARCHIVOS_LANG CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/lang/*.txt")
@@ -123,7 +128,7 @@ add_library(ventrik_comun STATIC
   src/common/utf.cpp
   "${VENTRIK_GENERADO}/textos_generados.h")
 target_include_directories(ventrik_comun PUBLIC src "${VENTRIK_GENERADO}")
-target_link_libraries(ventrik_comun PUBLIC ventrik_opciones gsl mbedtls ws2_32 shell32)
+target_link_libraries(ventrik_comun PUBLIC ventrik_opciones ventrik_sistema gsl mbedtls ws2_32 shell32)
 
 if(VENTRIK_VERSION STREQUAL "fuzzing")
   foreach(fuzzer fuzz_base fuzz_guardados fuzz_identidad fuzz_nombres fuzz_protocolo fuzz_sala fuzz_textos
@@ -139,7 +144,8 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
   target_sources(fuzz_sala PRIVATE src/client/guardados.cpp src/client/sala.cpp)
   target_link_libraries(fuzz_base PRIVATE sqlite)
   target_sources(fuzz_voz_servidor PRIVATE src/server/proteccion.cpp src/server/voz.cpp)
-  target_sources(fuzz_voz PRIVATE src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/motor_voz.cpp)
+  target_sources(fuzz_voz PRIVATE src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/motor_voz.cpp
+                 src/client/voz_primero.cpp)
   target_link_libraries(fuzz_voz PRIVATE opus)
   return()
 endif()
@@ -154,10 +160,11 @@ add_library(ventrik_cliente_base STATIC
   src/client/diagnostico.cpp src/client/guardados.cpp src/client/horas.cpp
   src/client/motor_voz.cpp src/client/sala.cpp src/client/sesion.cpp
   src/client/vigia.cpp)
+target_sources(ventrik_cliente_base PRIVATE src/client/voz_primero.cpp)
 target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm)
 add_library(ventrik_interfaz STATIC
-  src/client/ui/iconos.cpp src/client/ui/inicio.cpp src/client/ui/piezas.cpp src/client/ui/programa.cpp
-  src/client/ui/servidor.cpp src/client/ui/ventana.cpp)
+  src/client/ui/dibujante.cpp src/client/ui/iconos.cpp src/client/ui/inicio.cpp src/client/ui/piezas.cpp
+  src/client/ui/programa.cpp src/client/ui/servidor.cpp src/client/ui/ventana.cpp)
 target_link_libraries(ventrik_interfaz PUBLIC ventrik_cliente_base imgui d3d9 user32 gdi32)
 
 add_executable(ventrik WIN32 src/client/main.cpp src/client/ventrik.rc)

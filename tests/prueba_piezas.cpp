@@ -3,6 +3,7 @@
 #include <doctest/doctest.h>
 
 #include "client/ui/piezas.h"
+#include "client/vigia.h"
 
 namespace ui = ventrik::ui;
 
@@ -14,6 +15,26 @@ TEST_CASE("los colores del tema son los de aspecto.md") {
   CHECK(ui::color::fondo == IM_COL32(0x16, 0x1B, 0x1E, 255));
   CHECK(ui::color::naranja == IM_COL32(0xF2, 0x8B, 0x30, 255));
   CHECK(ui::rgb(0xFFFFFF, 15) == IM_COL32(255, 255, 255, 15));
+}
+
+TEST_CASE("el aviso de Windows de una tecla reconoce la tecla para hablar, con lado o sin lado") {
+  using ventrik::cliente::es_la_tecla;
+  const auto tecla = [](USHORT virtual_, USHORT escaneo, USHORT banderas) {
+    RAWKEYBOARD datos = {};
+    datos.VKey = virtual_;
+    datos.MakeCode = escaneo;
+    datos.Flags = banderas;
+    return datos;
+  };
+  CHECK(es_la_tecla(VK_CONTROL, tecla(VK_CONTROL, 0x1D, RI_KEY_MAKE)));
+  CHECK(es_la_tecla(VK_CONTROL, tecla(VK_CONTROL, 0x1D, RI_KEY_E0 | RI_KEY_BREAK)));
+  CHECK(es_la_tecla(VK_LCONTROL, tecla(VK_CONTROL, 0x1D, RI_KEY_MAKE)));
+  CHECK_FALSE(es_la_tecla(VK_LCONTROL, tecla(VK_CONTROL, 0x1D, RI_KEY_E0)));
+  CHECK(es_la_tecla(VK_RSHIFT, tecla(VK_SHIFT, 0x36, RI_KEY_MAKE)));
+  CHECK_FALSE(es_la_tecla(VK_RSHIFT, tecla(VK_SHIFT, 0x2A, RI_KEY_MAKE)));
+  CHECK(es_la_tecla(VK_RMENU, tecla(VK_MENU, 0x38, RI_KEY_E0)));
+  CHECK(es_la_tecla('V', tecla('V', 0x2F, RI_KEY_MAKE)));
+  CHECK_FALSE(es_la_tecla('V', tecla('B', 0x30, RI_KEY_MAKE)));
 }
 
 TEST_CASE("el octógono corta las cuatro esquinas a 45 grados") {

@@ -10,6 +10,7 @@
 
 #include "client/buffer_voz.h"
 #include "client/puente_voz.h"
+#include "client/voz_primero.h"
 
 struct OpusEncoder;
 struct OpusDecoder;
@@ -33,6 +34,8 @@ class MotorVoz {
   unsigned frecuencia() const { return calidad_.frecuencia; }
   void transmitir(bool si) { transmitiendo_ = si; }
   bool transmitiendo() const { return transmitiendo_; }
+  void solo_en_el_canal(bool si) { solo_ = si; }
+  std::size_t memoria_fija() const { return fija_.fijada(); }
   std::uint32_t espera_ms() const { return espera_ms_.load(std::memory_order_relaxed); }
   int nivel(int segmentos) const;
   std::uint32_t recortes() const { return recortes_.load(std::memory_order_relaxed); }
@@ -69,11 +72,13 @@ class MotorVoz {
   unsigned quietos_ = 0;
   std::uint16_t numero_ = 0;
   std::atomic<bool> transmitiendo_{false};
+  std::atomic<bool> solo_{false};
   std::atomic<std::uint32_t> espera_ms_{0};
   std::atomic<int> pico_{0};
   std::atomic<std::uint32_t> recortes_{0};
   std::atomic<std::uint32_t> vaciados_{0};
   std::atomic<std::uint32_t> faltas_{0};
+  MemoriaFija fija_;
 };
 
 }

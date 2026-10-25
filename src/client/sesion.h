@@ -51,6 +51,7 @@ using Orden = std::variant<protocolo::EntrarACanal, protocolo::EnviarChat,
 struct OpcionesSesion {
   OpcionesConexion conexion;
   std::chrono::milliseconds cada_cuanto_ping{5000};
+  std::chrono::milliseconds cada_cuanto_ping_ahorrando{15000};
   std::chrono::milliseconds sin_respuesta{30000};
   std::shared_ptr<PuenteVoz> voz;
   std::function<void()> al_haber_novedades;
@@ -69,7 +70,10 @@ class Sesion {
   Sesion& operator=(const Sesion&) = delete;
 
   void ordenar(Orden orden);
+  void ordenar(std::vector<Orden> ordenes);
+  void ahorrar(bool si);
   std::vector<Novedad> esperar_novedades(std::chrono::milliseconds tiempo);
+  std::uint32_t despertares() const { return despertares_.load(std::memory_order_relaxed); }
 
  private:
   void correr();
@@ -91,6 +95,8 @@ class Sesion {
   bool desbordada_ = false;
   std::unique_ptr<CanalVoz> canal_voz_;
   cifrado::SesionTls* tls_ = nullptr;
+  std::atomic<bool> ahorrando_{false};
+  std::atomic<std::uint32_t> despertares_{0};
   std::thread hilo_;
 };
 

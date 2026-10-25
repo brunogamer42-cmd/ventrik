@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <gsl/gsl>
@@ -37,6 +38,9 @@ class Lector {
 
 class Escritor {
  public:
+  Escritor() = default;
+  explicit Escritor(std::vector<std::uint8_t> reusar) : datos_(std::move(reusar)) { datos_.clear(); }
+
   void escribir_u8(std::uint8_t valor);
   void escribir_u16(std::uint16_t valor);
   void escribir_u32(std::uint32_t valor);
@@ -48,6 +52,7 @@ class Escritor {
   void marcar_error() { fallar(); }
   bool ok() const { return ok_; }
   const std::vector<std::uint8_t>& datos() const { return datos_; }
+  std::vector<std::uint8_t> soltar() && { return std::move(datos_); }
 
  private:
   void escribir_entero(std::uint64_t valor, std::size_t bytes);

@@ -8,6 +8,7 @@
 
 namespace ventrik::cliente {
 namespace {
+using protocolo::Sentido;
 using protocolo::TipoCanal;
 
 template <typename Lista>
@@ -17,23 +18,88 @@ auto buscar(Lista& canales, std::uint32_t id) -> decltype(canales.data()) {
   return encontrado == canales.end() ? nullptr : &*encontrado;
 }
 
-void insertar(Chat& chat, protocolo::MensajeGuardado mensaje) {
-  const auto lugar = std::lower_bound(
-      chat.mensajes.begin(), chat.mensajes.end(), mensaje.id,
-      [](const protocolo::MensajeGuardado& guardado, std::uint64_t id) { return guardado.id < id; });
+auto lugar_de(Chat& chat, std::uint64_t id) {
+  return std::lower_bound(chat.mensajes.begin(), chat.mensajes.end(), id,
+                          [](const MensajeDeChat& guardado, std::uint64_t buscado) { return guardado.id < buscado; });
+}
+
+std::uint32_t indice_de(Chat& chat, const std::string& autor) {
+  const auto conocido = std::find(chat.autores.begin(), chat.autores.end(), autor);
+  if (conocido == chat.autores.end()) {
+    chat.autores.push_back(autor);
+    return static_cast<std::uint32_t>(chat.autores.size() - 1);
+  }
+  return static_cast<std::uint32_t>(conocido - chat.autores.begin());
+}
+
+void insertar(Chat& chat, const protocolo::MensajeChat& mensaje) {
+  const auto lugar = lugar_de(chat, mensaje.id);
   if (lugar != chat.mensajes.end() && lugar->id == mensaje.id) {
     return;
   }
-  chat.bytes += mensaje.autor.size() + mensaje.texto.size();
-  chat.mensajes.insert(lugar, std::move(mensaje));
+  const std::uint32_t autor = indice_de(chat, mensaje.autor);
+  chat.bytes += mensaje.texto.size();
+  chat.mensajes.insert(lugar, MensajeDeChat{mensaje.id, mensaje.hora_ms, mensaje.numero, autor, mensaje.texto});
 }
 
-void recortar(Chat& chat) {
-  while (chat.mensajes.size() > kTopeMensajesPorChat || chat.bytes > kTopeBytesPorChat) {
-    chat.bytes -= chat.mensajes.front().autor.size() + chat.mensajes.front().texto.size();
-    chat.mensajes.pop_front();
-    chat.hay_mas = true;
+void juntar(Chat& chat, const std::vector<protocolo::MensajeGuardado>& llegados) {
+  const auto antes = static_cast<std::ptrdiff_t>(chat.mensajes.size());
+  for (const auto& mensaje : llegados) {
+    chat.mensajes.push_back(
+        MensajeDeChat{mensaje.id, mensaje.hora_ms, mensaje.numero, indice_de(chat, mensaje.autor), mensaje.texto});
   }
+  const auto por_id = [](const MensajeDeChat& uno, const MensajeDeChat& otro) { return uno.id < otro.id; };
+  std::sort(chat.mensajes.begin() + antes, chat.mensajes.end(), por_id);
+  std::inplace_merge(chat.mensajes.begin(), chat.mensajes.begin() + antes, chat.mensajes.end(), por_id);
+  chat.mensajes.erase(std::unique(chat.mensajes.begin(), chat.mensajes.end(),
+                                  [](const MensajeDeChat& uno, const MensajeDeChat& otro) { return uno.id == otro.id; }),
+                      chat.mensajes.end());
+  chat.bytes = 0;
+  for (const MensajeDeChat& mensaje : chat.mensajes) {
+    chat.bytes += mensaje.texto.size();
+  }
+}
+
+void compactar(Chat& chat, std::size_t hasta) {
+  if (chat.autores.size() <= hasta) {
+    return;
+  }
+  std::vector<std::string> usados;
+  std::vector<std::uint32_t> nuevo(chat.autores.size(), UINT32_MAX);
+  for (MensajeDeChat& mensaje : chat.mensajes) {
+    std::uint32_t& indice = nuevo[mensaje.autor];
+    if (indice == UINT32_MAX) {
+      indice = static_cast<std::uint32_t>(usados.size());
+      usados.push_back(std::move(chat.autores[mensaje.autor]));
+    }
+    mensaje.autor = indice;
+  }
+  chat.autores = std::move(usados);
+}
+
+void recortar(Chat& chat, std::size_t ventana) {
+  std::size_t inicio = 0;
+  std::size_t fin = chat.mensajes.size();
+  const std::size_t ancla =
+      chat.ancla == 0 ? fin : static_cast<std::size_t>(lugar_de(chat, chat.ancla) - chat.mensajes.begin());
+  while (fin > inicio && (fin - inicio > ventana || chat.bytes > kTopeBytesPorChat)) {
+    if (fin - ancla > ancla - inicio) {
+      chat.bytes -= chat.mensajes[--fin].texto.size();
+      chat.hay_nuevos = true;
+    } else {
+      chat.bytes -= chat.mensajes[inicio++].texto.size();
+      chat.hay_mas = true;
+    }
+  }
+  chat.mensajes.erase(chat.mensajes.begin() + static_cast<std::ptrdiff_t>(fin), chat.mensajes.end());
+  chat.mensajes.erase(chat.mensajes.begin(), chat.mensajes.begin() + static_cast<std::ptrdiff_t>(inicio));
+  compactar(chat, 2 * kVentanaChat);
+}
+
+Orden pedir(Chat& chat, std::uint64_t desde, Sentido sentido, std::uint16_t cantidad) {
+  chat.pidiendo = true;
+  chat.pedido = {chat.canal, desde, sentido, cantidad};
+  return chat.pedido;
 }
 
 }
@@ -131,10 +197,9 @@ std::vector<Orden> Sala::elegir_texto(std::uint32_t id) {
     return {};
   }
   texto_ = Chat{id};
-  texto_.pidiendo = true;
   negado_.reset();
   marcar_leido();
-  return {protocolo::MirarCanal{id}, protocolo::PedirHistorial{id, 0}};
+  return {protocolo::MirarCanal{id}, pedir(texto_, 0, Sentido::viejos, kMensajesAlEntrar)};
 }
 
 std::optional<Orden> Sala::enviar(const std::string& texto) {
@@ -145,14 +210,43 @@ std::optional<Orden> Sala::enviar(const std::string& texto) {
   return protocolo::EnviarChat{chat().canal, texto};
 }
 
+bool Sala::puede_pedir(const Chat& chat) const {
+  return chat.canal != 0 && !chat.pidiendo && std::chrono::steady_clock::now() >= historial_despues_;
+}
+
 std::optional<Orden> Sala::pedir_mas_viejos() {
   Chat& actual = visible();
-  if (actual.canal == 0 || actual.pidiendo || !actual.hay_mas || actual.mensajes.size() >= kTopeMensajesPorChat ||
-      actual.bytes >= kTopeBytesPorChat || std::chrono::steady_clock::now() < historial_despues_) {
+  if (!puede_pedir(actual) || !actual.hay_mas) {
     return std::nullopt;
   }
-  actual.pidiendo = true;
-  return protocolo::PedirHistorial{actual.canal, actual.mensajes.empty() ? 0 : actual.mensajes.front().id};
+  return actual.mensajes.empty() ? pedir(actual, 0, Sentido::viejos, kMensajesAlEntrar)
+                                 : pedir(actual, actual.mensajes.front().id, Sentido::viejos, kMensajesAlMoverse);
+}
+
+std::optional<Orden> Sala::pedir_mas_nuevos() {
+  Chat& actual = visible();
+  if (!puede_pedir(actual) || !actual.hay_nuevos || actual.mensajes.empty()) {
+    return std::nullopt;
+  }
+  return pedir(actual, actual.mensajes.back().id, Sentido::nuevos, kMensajesAlMoverse);
+}
+
+std::optional<Orden> Sala::ir_a_lo_ultimo() {
+  Chat& actual = visible();
+  if (actual.canal == 0 || !actual.hay_nuevos) {
+    return std::nullopt;
+  }
+  actual = Chat{actual.canal};
+  return pedir(actual, 0, Sentido::viejos, kMensajesAlEntrar);
+}
+
+void Sala::soltar_lejanos() {
+  for (Chat* chat : {&voz_, &texto_}) {
+    recortar(*chat, kMensajesAlEntrar);
+    compactar(*chat, 0);
+    chat->mensajes.shrink_to_fit();
+    chat->autores.shrink_to_fit();
+  }
 }
 
 std::vector<Orden> Sala::atender(const protocolo::UsuarioEntro& entro) {
@@ -212,9 +306,10 @@ std::vector<Orden> Sala::atender(const protocolo::CanalBorrado& borrado) {
 }
 
 std::vector<Orden> Sala::atender(const protocolo::MensajeChat& mensaje) {
-  if (Chat* destino = chat_de(mensaje.canal)) {
-    insertar(*destino, {mensaje.id, mensaje.numero, mensaje.autor, mensaje.hora_ms, mensaje.texto});
-    recortar(*destino);
+  Chat* destino = chat_de(mensaje.canal);
+  if (destino != nullptr && !destino->hay_nuevos) {
+    insertar(*destino, mensaje);
+    recortar(*destino, kVentanaChat);
   }
   subir(mensaje.canal, mensaje.numero);
   return {};
@@ -229,15 +324,22 @@ std::vector<Orden> Sala::atender(const protocolo::MensajesNuevos& nuevos) {
 
 std::vector<Orden> Sala::atender(const protocolo::Historial& historial) {
   Chat* destino = chat_de(historial.canal);
-  if (destino == nullptr || !destino->pidiendo) {
+  if (destino == nullptr || !destino->pidiendo || historial.desde != destino->pedido.desde ||
+      historial.sentido != destino->pedido.sentido) {
     return {};
   }
-  for (const auto& mensaje : historial.mensajes) {
-    insertar(*destino, mensaje);
+  const bool nuevos = historial.sentido == Sentido::nuevos;
+  if (historial.desde != 0 &&
+      (destino->mensajes.empty() ||
+       (nuevos ? destino->mensajes.back().id : destino->mensajes.front().id) != historial.desde)) {
+    destino->pidiendo = false;
+    (nuevos ? destino->hay_nuevos : destino->hay_mas) = true;
+    return {};
   }
-  destino->hay_mas = historial.hay_mas;
+  juntar(*destino, historial.mensajes);
+  (historial.sentido == Sentido::nuevos ? destino->hay_nuevos : destino->hay_mas) = historial.hay_mas;
   destino->pidiendo = false;
-  recortar(*destino);
+  recortar(*destino, kVentanaChat);
   return {};
 }
 
@@ -249,7 +351,9 @@ std::vector<Orden> Sala::atender(const protocolo::Negado& negado) {
   }
   if (negado.pedido == protocolo::TipoMensaje::pedir_historial) {
     for (Chat* chat : {&voz_, &texto_}) {
-      chat->hay_mas = chat->hay_mas || chat->pidiendo;
+      if (chat->pidiendo) {
+        (chat->pedido.sentido == Sentido::nuevos ? chat->hay_nuevos : chat->hay_mas) = true;
+      }
       chat->pidiendo = false;
     }
     historial_despues_ = std::chrono::steady_clock::now() + kEsperaTrasRechazo;
@@ -264,9 +368,8 @@ std::vector<Orden> Sala::atender(const PingMedido& ping) {
 
 std::vector<Orden> Sala::cambiar_voz(std::uint32_t id) {
   voz_ = Chat{id};
-  voz_.pidiendo = id != 0;
   marcar_leido();
-  return id == 0 ? std::vector<Orden>{} : std::vector<Orden>{protocolo::PedirHistorial{id, 0}};
+  return id == 0 ? std::vector<Orden>{} : std::vector<Orden>{pedir(voz_, 0, Sentido::viejos, kMensajesAlEntrar)};
 }
 
 Chat* Sala::chat_de(std::uint32_t id) {

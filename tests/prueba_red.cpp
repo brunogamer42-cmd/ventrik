@@ -106,6 +106,33 @@ TEST_CASE("UDP: ida y vuelta, y un puerto cerrado no rompe el socket") {
   CHECK(recibir_de(b, chico)->largo == 0);
 }
 
+TEST_CASE("La voz se marca como voz para la red y el socket sigue andando") {
+  using namespace ventrik::red;
+  const auto escucha = abrir_udp({kLocal, 0});
+  REQUIRE(escucha.valido());
+  const Direccion destino = *direccion_local(escucha);
+  const auto voz = conectar_udp(destino);
+  REQUIRE(voz.valido());
+  const std::array<std::uint8_t, 3> datos = {1, 2, 3};
+  std::array<std::uint8_t, 16> recibido{};
+  const Direccion afuera{0xC0000201, 7700};
+  const auto hacia_afuera = conectar_udp(afuera);
+  REQUIRE(hacia_afuera.valido());
+  for (int vuelta = 0; vuelta < 2; ++vuelta) {
+    PrioridadDeVoz prioridad;
+    PrioridadDeVoz otra;
+    CHECK_FALSE(prioridad.marcar(voz, destino));
+    MESSAGE("qWAVE hacia afuera: " << otra.marcar(hacia_afuera, afuera));
+    REQUIRE(enviar_a(voz, destino, datos));
+    REQUIRE(esperar(escucha, true, false, 2s) == Espera::lista);
+    CHECK(recibir_de(escucha, recibido)->largo == 3);
+    prioridad.soltar();
+    REQUIRE(enviar_a(voz, destino, datos));
+    REQUIRE(esperar(escucha, true, false, 2s) == Espera::lista);
+    CHECK(recibir_de(escucha, recibido)->largo == 3);
+  }
+}
+
 TEST_CASE("Una espera se corta enseguida cuando suena el despertador de cancelar") {
   const ventrik::red::Despertador cancelar;
   const auto escucha = ventrik::red::escuchar({kLocal, 0});

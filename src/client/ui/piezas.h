@@ -42,7 +42,7 @@ enum class Icono {
 using Campo = std::array<char, 128>;
 enum class Estilo { biselado, esquineros, contorneado, principal };
 
-bool preparar_interfaz(float escala);
+bool preparar_interfaz(float escala, ImTextureFormat letras = ImTextureFormat_RGBA32);
 void pantalla_completa(const std::function<void()>& dibujar);
 
 float px(float medida);

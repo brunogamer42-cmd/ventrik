@@ -2,12 +2,12 @@
 
 #include <atomic>
 #include <bitset>
-#include <condition_variable>
 #include <cstdint>
 #include <functional>
-#include <mutex>
+#include <memory>
 #include <optional>
 #include <thread>
+#include <type_traits>
 
 #include <windows.h>
 
@@ -21,6 +21,7 @@ constexpr int kSegmentosDelMedidor = 10;
 using Teclas = std::bitset<256>;
 
 int tecla_nueva(const Teclas& antes, const Teclas& ahora);
+bool es_la_tecla(std::uint8_t elegida, const RAWKEYBOARD& tecla);
 
 class Vigia {
  public:
@@ -43,9 +44,8 @@ class Vigia {
   std::atomic<std::uint8_t> tecla_;
   std::atomic<bool> eligiendo_{false};
   std::atomic<int> elegida_{-1};
-  std::mutex candado_;
-  std::condition_variable despertar_;
-  bool terminar_ = false;
+  std::atomic<bool> terminar_{false};
+  std::unique_ptr<std::remove_pointer_t<HANDLE>, decltype(&CloseHandle)> despertar_;
   std::thread hilo_;
 };
 

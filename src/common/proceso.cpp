@@ -1,5 +1,8 @@
 #include "common/proceso.h"
 
+#include <initializer_list>
+
+#include <malloc.h>
 #include <windows.h>
 
 namespace ventrik {
@@ -15,12 +18,12 @@ FARPROC buscar_en_kernel32(const char* nombre) {
 }
 
 #if defined(_M_IX86)
-constexpr DWORD kDepActivo = 0x00000001;  // PROCESS_DEP_ENABLE
+constexpr DWORD kDepActivo = 0x00000001;
 #endif
 
-constexpr DWORD kSoloCarpetaDeSistema = 0x00000800;  // LOAD_LIBRARY_SEARCH_SYSTEM32
+constexpr DWORD kSoloCarpetaDeSistema = 0x00000800;
 
-}  // namespace
+}
 
 #if defined(_M_IX86)
 
@@ -29,7 +32,6 @@ void activar_dep() {
   const auto activar =
       reinterpret_cast<FuncionActivar>(buscar_en_kernel32("SetProcessDEPPolicy"));
   if (activar != nullptr) {
-    // Si Windows ya lo fuerza por su cuenta, esto falla sin cambiar nada.
     activar(kDepActivo);
   }
 }
@@ -64,7 +66,6 @@ CargaDeDll endurecer_carga_de_dll() {
   if (solo_sistema != nullptr && solo_sistema(kSoloCarpetaDeSistema)) {
     return CargaDeDll::solo_carpeta_de_sistema;
   }
-  // XP SP1 en adelante: con "" la carpeta actual deja de usarse.
   using FuncionCarpeta = BOOL(WINAPI*)(LPCWSTR);
   const auto sin_carpeta_actual =
       reinterpret_cast<FuncionCarpeta>(buscar_en_kernel32("SetDllDirectoryW"));
@@ -76,7 +77,6 @@ CargaDeDll endurecer_carga_de_dll() {
 
 bool windows_es_compatible() {
 #if defined(VENTRIK_CLASICA)
-  // Windows XP (5.1) con Service Pack 3 o posterior.
   OSVERSIONINFOEXW pedido = {};
   pedido.dwOSVersionInfoSize = sizeof(pedido);
   pedido.dwMajorVersion = 5;
@@ -94,4 +94,19 @@ bool windows_es_compatible() {
 #endif
 }
 
-}  // namespace ventrik
+void proteger_el_monton() {
+  HeapSetInformation(nullptr, HeapEnableTerminationOnCorruption, nullptr, 0);
+  ULONG baja_fragmentacion = 2;
+  for (const HANDLE monton : {GetProcessHeap(), reinterpret_cast<HANDLE>(_get_heap_handle())}) {
+    HeapSetInformation(monton, HeapCompatibilityInformation, &baja_fragmentacion,
+                       sizeof(baja_fragmentacion));
+  }
+}
+
+bool queda_poca_memoria() {
+  static const HANDLE aviso = CreateMemoryResourceNotification(LowMemoryResourceNotification);
+  BOOL poca = FALSE;
+  return aviso != nullptr && QueryMemoryResourceNotification(aviso, &poca) && poca;
+}
+
+}

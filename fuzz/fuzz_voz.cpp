@@ -48,6 +48,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   std::uint16_t anterior = 0;
   bool hay_ultimo = false;
   std::uint16_t ultimo = 0;
+  bool seguidos = true;
+  bool hay_llegado = false;
+  std::uint16_t llegado = 0;
   std::array<std::int16_t, 480> sonido{};
   std::array<std::int16_t, 480> salida{};
   while (entrada.size() >= 5) {
@@ -62,15 +65,28 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       canal.recibir(opus, ventrik::cliente::CanalVoz::Reloj::now());
       exigir(puente.perdidos <= 50u * puente.recibidos);
     } else if ((entrada[4] & 1) != 0) {
+      const bool solo = (entrada[4] & 16) != 0;
+      motor.solo_en_el_canal(solo);
       puente.bajada.poner(paquete);
       std::transform(opus.begin(), opus.begin() + std::min(opus.size(), sonido.size()),
                      sonido.begin(), [](std::uint8_t valor) { return static_cast<std::int16_t>(valor << 7); });
       motor.procesar(sonido, salida);
+      PaqueteVoz salido;
+      while (puente.subida.sacar(salido)) {
+        exigir(!solo && salido.largo > 2 && salido.largo <= salido.opus.size());
+      }
     } else {
       if (hay_ultimo && static_cast<std::int16_t>(static_cast<std::uint16_t>(paquete.numero - ultimo)) <= -64) {
         hay_anterior = false;
       }
-      buffer.llegar(paquete);
+      if ((entrada[4] & 8) == 0) {
+        buffer.llegar(paquete);
+      }
+      if ((entrada[4] & 8) == 0 && cuanto > 0) {
+        seguidos = seguidos && (!hay_llegado || paquete.numero == static_cast<std::uint16_t>(llegado + 1));
+        hay_llegado = true;
+        llegado = paquete.numero;
+      }
       PaqueteVoz sacado;
       const auto resultado = buffer.sacar(sacado);
       if (resultado != BufferVoz::Salida::nada) {
@@ -84,6 +100,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
         anterior = sacado.numero;
       }
       exigir(buffer.cantidad() <= 6);
+      exigir(!seguidos || (buffer.faltas() == 0 && buffer.recortes() == 0));
       if ((entrada[4] & 2) != 0) {
         buffer.reiniciar();
         hay_anterior = false;
@@ -91,10 +108,6 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       }
     }
     entrada = entrada.subspan(5 + cuanto);
-  }
-  PaqueteVoz sobrante;
-  while (puente.subida.sacar(sobrante)) {
-    exigir(sobrante.largo > 0 && sobrante.largo <= sobrante.opus.size());
   }
   return 0;
 }

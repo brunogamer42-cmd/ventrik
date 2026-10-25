@@ -26,10 +26,11 @@ const char* final_de(std::string_view texto) { return principio(texto) + texto.s
 
 }
 
-bool preparar_interfaz(float escala) {
+bool preparar_interfaz(float escala, ImTextureFormat letras) {
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO& io = ImGui::GetIO();
+  io.Fonts->TexDesiredFormat = letras;
   io.IniFilename = nullptr;
   io.LogFilename = nullptr;
   io.ConfigInputTextCursorBlink = false;

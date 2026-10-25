@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -16,6 +17,7 @@
 #include "common/red/red.h"
 
 struct sqlite3;
+struct sqlite3_stmt;
 
 namespace ventrik::servidor {
 enum class Retencion : std::uint8_t { siempre = 0, dias_30 = 1, dias_7 = 2, no_guardar = 3 };
@@ -39,12 +41,18 @@ class Base {
   std::optional<std::uint64_t> guardar_mensaje(std::uint32_t canal, std::uint32_t numero,
                                                const std::string& autor, std::uint64_t hora_ms,
                                                const std::string& texto, bool guardar = true);
-  protocolo::Historial historial(std::uint32_t canal, std::uint64_t antes_de,
-                                 std::size_t maximo_bytes);
+  protocolo::Historial historial(const protocolo::PedirHistorial& pedido, std::size_t maximo_bytes);
 
   Retencion retencion();
   bool cambiar_retencion(Retencion retencion);
   void borrar_viejos(std::uint64_t ahora_ms);
+
+  bool empezar_tanda();
+  bool en_tanda() const;
+  bool confirmar_tanda();
+  void deshacer_lo_abierto();
+  bool asentar();
+  bool hay_sin_asentar() const;
 
  private:
   struct Llave {
@@ -55,10 +63,28 @@ class Base {
   Base(Llave, sqlite3* base);
 
  private:
+  enum class Sentencia : std::size_t {
+    empezar,
+    confirmar,
+    deshacer,
+    marcar,
+    soltar,
+    volver,
+    contador,
+    insertar,
+    viejos,
+    nuevos,
+    total
+  };
+
   bool es_su_hilo() const;
+  sqlite3_stmt* preparada(Sentencia cual);
+  bool correr(Sentencia cual);
 
   sqlite3* base_;
   unsigned long hilo_;
+  std::array<sqlite3_stmt*, static_cast<std::size_t>(Sentencia::total)> preparadas_{};
+  std::int64_t cambios_asentados_ = 0;
 };
 
 class ServicioBase {

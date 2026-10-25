@@ -3,7 +3,6 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <map>
 #include <optional>
 #include <string>
@@ -13,16 +12,32 @@
 #include "client/sesion.h"
 
 namespace ventrik::cliente {
-constexpr std::size_t kTopeMensajesPorChat = 10000;
-constexpr std::size_t kTopeBytesPorChat = 2 * 1024 * 1024;
+constexpr std::size_t kVentanaChat = 300;
+constexpr std::size_t kTopeBytesPorChat = 512 * 1024;
+constexpr std::uint16_t kMensajesAlEntrar = 64;
+constexpr std::uint16_t kMensajesAlMoverse = 128;
 constexpr std::chrono::seconds kEsperaTrasRechazo{1};
+
+struct MensajeDeChat {
+  std::uint64_t id = 0;
+  std::uint64_t hora_ms = 0;
+  std::uint32_t numero = 0;
+  std::uint32_t autor = 0;
+  std::string texto;
+};
 
 struct Chat {
   std::uint32_t canal = 0;
-  std::deque<protocolo::MensajeGuardado> mensajes;
+  std::vector<MensajeDeChat> mensajes;
+  std::vector<std::string> autores;
   std::size_t bytes = 0;
   bool hay_mas = false;
+  bool hay_nuevos = false;
   bool pidiendo = false;
+  protocolo::PedirHistorial pedido;
+  std::uint64_t ancla = 0;
+
+  const std::string& autor(const MensajeDeChat& mensaje) const { return autores[mensaje.autor]; }
 };
 
 class Sala {
@@ -39,6 +54,10 @@ class Sala {
   std::vector<Orden> elegir_texto(std::uint32_t canal);
   std::optional<Orden> enviar(const std::string& texto);
   std::optional<Orden> pedir_mas_viejos();
+  std::optional<Orden> pedir_mas_nuevos();
+  std::optional<Orden> ir_a_lo_ultimo();
+  void a_la_vista(std::uint64_t id) { visible().ancla = id; }
+  void soltar_lejanos();
 
   std::uint32_t tu_id() const { return tu_id_; }
   bool dueno() const { return dueno_; }
@@ -75,6 +94,7 @@ class Sala {
   std::vector<Orden> cambiar_voz(std::uint32_t canal);
   Chat& visible() { return texto_.canal != 0 ? texto_ : voz_; }
   Chat* chat_de(std::uint32_t canal);
+  bool puede_pedir(const Chat& chat) const;
   void subir(std::uint32_t canal, std::uint32_t contador);
   void marcar_leido();
 

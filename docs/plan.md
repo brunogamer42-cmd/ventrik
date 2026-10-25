@@ -90,7 +90,7 @@ Terminada cuando: la demora en red local está cerca de las 80 ms de la meta y l
    - Parte 3b (hecha): hasta dónde leíste guardado en la PC (programa.dat versión 2), los botones + y el clic derecho del dueño para crear, cambiar y borrar canales, el panel de diagnóstico que abre el gráfico, y borrar la consola de prueba.
    - Medición del consumo (hecha): `ventrik.exe --registro`.
    - Consumo de la ventana y microcortes en XP (hecho): dibujar solo lo que cambia, teclas repetidas y mouse quieto sin dibujos, hacia los parlantes se tira solo lo callado.
-   - Optimización integral de lo que ya existe, de un solo tirón: docs/optimizacion.md, sección 17.
+   - Optimización integral de lo que ya existe, de un solo tirón (hecha; falta la prueba en la HP): docs/optimizacion.md, sección 17.
    - Entrar a un servidor sin entrar a la voz (delicado: cambia el protocolo y el servidor): estar en el servidor y estar en la voz quedan separados, con el ajuste "Al entrar a un servidor", "Salir de la voz", el panel "Sin canal de voz" y el grupo "Sin canal de voz · N"; sin voz no se abren el micrófono, la salida de la voz ni el UDP (docs/diseno.md, "Entrar a un servidor y a la voz"). Captura comparada con docs/pantallas/Rendimiento-sin-voz.png y Rendimiento.png.
 6. Prueba en check.ps1 que levanta servidor y programa en las cuatro combinaciones (clásica y moderna en cada lado) y verifica conexión, chat y voz.
 

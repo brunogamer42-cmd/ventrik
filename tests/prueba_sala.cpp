@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 #include <thread>
 #include <variant>
@@ -5,6 +6,7 @@
 
 #include "client/sala.h"
 #include "client/vigia.h"
+#include "servidor_de_prueba.h"
 #include <doctest/doctest.h>
 
 using namespace ventrik::protocolo;
@@ -52,6 +54,18 @@ std::vector<std::uint64_t> ids(const Sala& sala) {
   }
   return lista;
 }
+
+Historial pagina(std::uint32_t canal, std::uint64_t desde, Sentido sentido, std::uint64_t primero,
+                 std::uint64_t ultimo, bool hay_mas) {
+  Historial historial{canal, desde, sentido, hay_mas, {}};
+  for (std::uint64_t id = primero; id <= ultimo; ++id) {
+    historial.mensajes.push_back({id, static_cast<std::uint32_t>(id), id % 2 == 0 ? "Ana" : "Beto", 1000, "hola"});
+  }
+  if (sentido == Sentido::viejos) {
+    std::reverse(historial.mensajes.begin(), historial.mensajes.end());
+  }
+  return historial;
+}
 }
 
 TEST_CASE("La sala arranca con lo presentado, todo leído, y pide el historial de tu canal") {
@@ -64,7 +78,9 @@ TEST_CASE("La sala arranca con lo presentado, todo leído, y pide el historial d
   const auto ordenes = sala.empezar();
   REQUIRE(ordenes.size() == 1);
   CHECK(como<PedirHistorial>(ordenes[0]).canal == 1);
-  CHECK(como<PedirHistorial>(ordenes[0]).antes_de == 0);
+  CHECK(como<PedirHistorial>(ordenes[0]).desde == 0);
+  CHECK(como<PedirHistorial>(ordenes[0]).sentido == Sentido::viejos);
+  CHECK(como<PedirHistorial>(ordenes[0]).cantidad == ventrik::cliente::kMensajesAlEntrar);
   CHECK(sala.chat().canal == 1);
   CHECK(sala.chat().pidiendo);
   sala.aplicar(PingMedido{20});
@@ -184,22 +200,174 @@ TEST_CASE("El historial se junta sin repetir, en orden y de a un pedido") {
   sala.elegir_texto(3);
   CHECK_FALSE(sala.pedir_mas_viejos());
   sala.aplicar(mensaje(50, 3, 6));
-  sala.aplicar(Historial{3, true, {{50, 6, "Beto", 1, "c"}, {40, 5, "Ana", 1, "b"}, {30, 4, "Beto", 1, "a"}}});
+  sala.aplicar(Historial{3, 0, Sentido::viejos, true,
+                         {{50, 6, "Beto", 1, "c"}, {40, 5, "Ana", 1, "b"}, {30, 4, "Beto", 1, "a"}}});
   CHECK(ids(sala) == std::vector<std::uint64_t>{30, 40, 50});
   CHECK(sala.chat().hay_mas);
   CHECK_FALSE(sala.chat().pidiendo);
   const auto pedido = sala.pedir_mas_viejos();
   REQUIRE(pedido);
   CHECK(como<PedirHistorial>(*pedido).canal == 3);
-  CHECK(como<PedirHistorial>(*pedido).antes_de == 30);
+  CHECK(como<PedirHistorial>(*pedido).desde == 30);
+  CHECK(como<PedirHistorial>(*pedido).sentido == Sentido::viejos);
+  CHECK(como<PedirHistorial>(*pedido).cantidad == ventrik::cliente::kMensajesAlMoverse);
   CHECK_FALSE(sala.pedir_mas_viejos());
-  sala.aplicar(Historial{2, false, {{5, 1, "Ana", 1, "otro canal"}}});
-  sala.aplicar(Historial{3, false, {{20, 3, "Ana", 1, "z"}}});
+  sala.aplicar(Historial{2, 30, Sentido::viejos, false, {{5, 1, "Ana", 1, "otro canal"}}});
+  sala.aplicar(Historial{3, 0, Sentido::viejos, false, {{15, 1, "Ana", 1, "otro pedido"}}});
+  sala.aplicar(Historial{3, 30, Sentido::nuevos, false, {{31, 1, "Ana", 1, "otro sentido"}}});
+  CHECK(sala.chat().pidiendo);
+  sala.aplicar(Historial{3, 30, Sentido::viejos, false, {{20, 3, "Ana", 1, "z"}}});
   CHECK(ids(sala) == std::vector<std::uint64_t>{20, 30, 40, 50});
   CHECK_FALSE(sala.pedir_mas_viejos());
-  sala.aplicar(Historial{3, true, {{10, 2, "Ana", 1, "sin pedir"}}});
+  sala.aplicar(Historial{3, 20, Sentido::viejos, true, {{10, 2, "Ana", 1, "sin pedir"}}});
   CHECK(ids(sala) == std::vector<std::uint64_t>{20, 30, 40, 50});
   CHECK_FALSE(sala.chat().hay_mas);
+}
+
+TEST_CASE("Cada nombre se guarda una sola vez por chat") {
+  Sala sala(presentado());
+  sala.empezar();
+  sala.aplicar(Historial{1, 0, Sentido::viejos, false,
+                         {{4, 4, "Ana", 1, "d"}, {3, 3, "Beto", 1, "c"}, {2, 2, "Ana", 1, "b"}, {1, 1, "Ana", 1, "a"}}});
+  sala.aplicar(mensaje(5, 1, 5));
+  const auto& chat = sala.chat();
+  REQUIRE(chat.mensajes.size() == 5);
+  CHECK(chat.autores.size() == 2);
+  CHECK(chat.autor(chat.mensajes[0]) == "Ana");
+  CHECK(chat.autor(chat.mensajes[2]) == "Beto");
+  CHECK(chat.autor(chat.mensajes[4]) == "Beto");
+  CHECK(chat.mensajes[0].autor == chat.mensajes[3].autor);
+  CHECK(chat.bytes == 4 + 4);
+}
+
+TEST_CASE("Al entrar se piden 64; al subir se piden más y, pasada la ventana, se sueltan los más nuevos") {
+  using ventrik::cliente::kVentanaChat;
+  Sala sala(presentado());
+  sala.empezar();
+  sala.aplicar(pagina(1, 0, Sentido::viejos, 937, 1000, true));
+  CHECK(sala.chat().mensajes.size() == 64);
+  CHECK_FALSE(sala.pedir_mas_nuevos());
+  for (std::uint64_t primero = 937; primero > 553; primero -= 128) {
+    sala.a_la_vista(primero);
+    const auto pedido = sala.pedir_mas_viejos();
+    REQUIRE(pedido);
+    CHECK(como<PedirHistorial>(*pedido).desde == primero);
+    sala.aplicar(pagina(1, primero, Sentido::viejos, primero - 128, primero - 1, true));
+  }
+  CHECK(sala.chat().mensajes.size() == kVentanaChat);
+  CHECK(sala.chat().mensajes.front().id == 553);
+  CHECK(sala.chat().mensajes.back().id == 852);
+  CHECK(sala.chat().hay_mas);
+  CHECK(sala.chat().hay_nuevos);
+  sala.aplicar(mensaje(1001, 1, 1001));
+  CHECK(sala.chat().mensajes.back().id == 852);
+  CHECK(sala.canal(1)->contador == 1001);
+
+  sala.a_la_vista(840);
+  const auto nuevos = sala.pedir_mas_nuevos();
+  REQUIRE(nuevos);
+  CHECK(como<PedirHistorial>(*nuevos).desde == 852);
+  CHECK(como<PedirHistorial>(*nuevos).sentido == Sentido::nuevos);
+  CHECK(como<PedirHistorial>(*nuevos).cantidad == ventrik::cliente::kMensajesAlMoverse);
+  sala.aplicar(pagina(1, 852, Sentido::nuevos, 853, 980, true));
+  CHECK(sala.chat().mensajes.size() == kVentanaChat);
+  CHECK(sala.chat().mensajes.back().id == 980);
+  CHECK(sala.chat().hay_nuevos);
+  sala.a_la_vista(970);
+  REQUIRE(sala.pedir_mas_nuevos());
+  sala.aplicar(pagina(1, 980, Sentido::nuevos, 981, 1001, false));
+  CHECK_FALSE(sala.chat().hay_nuevos);
+  sala.a_la_vista(0);
+  sala.aplicar(mensaje(1002, 1, 1002));
+  CHECK(sala.chat().mensajes.back().id == 1002);
+  CHECK(sala.chat().mensajes.size() == kVentanaChat);
+  CHECK(sala.chat().mensajes.front().id == 703);
+}
+
+TEST_CASE("Ir a lo último descarta la ventana y pide la última página") {
+  Sala sala(presentado());
+  sala.empezar();
+  CHECK_FALSE(sala.ir_a_lo_ultimo());
+  sala.aplicar(pagina(1, 0, Sentido::viejos, 937, 1000, true));
+  sala.a_la_vista(937);
+  for (std::uint64_t primero = 937; primero > 553; primero -= 128) {
+    REQUIRE(sala.pedir_mas_viejos());
+    sala.aplicar(pagina(1, primero, Sentido::viejos, primero - 128, primero - 1, true));
+    sala.a_la_vista(primero - 128);
+  }
+  REQUIRE(sala.chat().hay_nuevos);
+  const auto ultimo = sala.ir_a_lo_ultimo();
+  REQUIRE(ultimo);
+  CHECK(como<PedirHistorial>(*ultimo).desde == 0);
+  CHECK(como<PedirHistorial>(*ultimo).cantidad == ventrik::cliente::kMensajesAlEntrar);
+  CHECK(sala.chat().mensajes.empty());
+  CHECK_FALSE(sala.chat().hay_nuevos);
+  sala.aplicar(mensaje(1001, 1, 1001));
+  sala.aplicar(pagina(1, 0, Sentido::viejos, 938, 1001, true));
+  CHECK(sala.chat().mensajes.size() == 64);
+  CHECK(sala.chat().mensajes.back().id == 1001);
+}
+
+TEST_CASE("Soltar lo lejano deja una página alrededor de lo que se ve y en el otro chat lo último") {
+  Sala sala(presentado());
+  sala.empezar();
+  sala.aplicar(pagina(1, 0, Sentido::viejos, 701, 1000, true));
+  sala.elegir_texto(3);
+  sala.aplicar(pagina(3, 0, Sentido::viejos, 1, 200, false));
+  sala.a_la_vista(100);
+  sala.soltar_lejanos();
+  const auto& texto = sala.chat();
+  CHECK(texto.mensajes.size() == ventrik::cliente::kMensajesAlEntrar);
+  CHECK(texto.mensajes.front().id == 68);
+  CHECK(texto.mensajes.back().id == 131);
+  CHECK(texto.hay_mas);
+  CHECK(texto.hay_nuevos);
+  CHECK(texto.autores.size() == 2);
+  sala.elegir_voz(1);
+  CHECK(sala.chat().mensajes.size() == ventrik::cliente::kMensajesAlEntrar);
+  CHECK(sala.chat().mensajes.back().id == 1000);
+  CHECK_FALSE(sala.chat().hay_nuevos);
+}
+
+TEST_CASE("Si el servidor rechaza pedir los más nuevos, se vuelven a pedir y no se toman como más viejos") {
+  Sala sala(presentado());
+  sala.empezar();
+  sala.aplicar(pagina(1, 0, Sentido::viejos, 1, 64, false));
+  sala.a_la_vista(1);
+  for (std::uint64_t id = 65; id < 400; ++id) {
+    sala.aplicar(mensaje(id, 1, static_cast<std::uint32_t>(id)));
+  }
+  REQUIRE(sala.chat().hay_nuevos);
+  CHECK_FALSE(sala.chat().hay_mas);
+  REQUIRE(sala.pedir_mas_nuevos());
+  sala.aplicar(Negado{TipoMensaje::pedir_historial, MotivoNegado::demasiado_rapido});
+  CHECK(sala.chat().hay_nuevos);
+  CHECK_FALSE(sala.chat().hay_mas);
+  CHECK_FALSE(sala.pedir_mas_nuevos());
+  std::this_thread::sleep_for(ventrik::cliente::kEsperaTrasRechazo + std::chrono::milliseconds(50));
+  REQUIRE(sala.pedir_mas_nuevos());
+}
+
+TEST_CASE("Una respuesta que ya no toca el borde del tramo se descarta y se vuelve a pedir, sin dejar huecos") {
+  Sala sala(presentado());
+  sala.empezar();
+  sala.aplicar(pagina(1, 0, Sentido::viejos, 1, 64, false));
+  sala.a_la_vista(1);
+  for (std::uint64_t id = 65; id < 400; ++id) {
+    sala.aplicar(mensaje(id, 1, static_cast<std::uint32_t>(id)));
+  }
+  const auto pedido = sala.pedir_mas_nuevos();
+  REQUIRE(pedido);
+  const std::uint64_t borde = como<PedirHistorial>(*pedido).desde;
+  sala.soltar_lejanos();
+  REQUIRE(sala.chat().mensajes.back().id < borde);
+  sala.aplicar(pagina(1, borde, Sentido::nuevos, borde + 1, borde + 50, true));
+  CHECK(sala.chat().mensajes.back().id < borde);
+  CHECK_FALSE(sala.chat().pidiendo);
+  CHECK(sala.chat().hay_nuevos);
+  const auto otra = sala.pedir_mas_nuevos();
+  REQUIRE(otra);
+  CHECK(como<PedirHistorial>(*otra).desde == sala.chat().mensajes.back().id);
 }
 
 TEST_CASE("Borrar el canal que mirabas vuelve al chat de voz, y borrar tu canal de voz te pasa al que dice") {
@@ -300,7 +468,8 @@ TEST_CASE("Si el servidor rechaza el historial, se vuelve a pedir después de un
   const auto pedido = sala.pedir_mas_viejos();
   REQUIRE(pedido);
   CHECK(como<PedirHistorial>(*pedido).canal == 3);
-  CHECK(como<PedirHistorial>(*pedido).antes_de == 0);
+  CHECK(como<PedirHistorial>(*pedido).desde == 0);
+  CHECK(como<PedirHistorial>(*pedido).cantidad == ventrik::cliente::kMensajesAlEntrar);
 }
 
 TEST_CASE("La sala no guarda más personas ni canales que los topes del protocolo") {
@@ -327,17 +496,90 @@ TEST_CASE("Un rechazo con un motivo que no se conoce se explica como falta de pe
 
 TEST_CASE("El chat de un canal tiene tope de mensajes y de bytes") {
   Sala sala(presentado());
-  for (std::uint64_t id = 1; id <= ventrik::cliente::kTopeMensajesPorChat + 5; ++id) {
+  for (std::uint64_t id = 1; id <= ventrik::cliente::kVentanaChat + 5; ++id) {
     sala.aplicar(mensaje(id, 1, static_cast<std::uint32_t>(id)));
   }
-  CHECK(sala.chat().mensajes.size() == ventrik::cliente::kTopeMensajesPorChat);
+  CHECK(sala.chat().mensajes.size() == ventrik::cliente::kVentanaChat);
   CHECK(sala.chat().mensajes.front().id == 6);
   CHECK(sala.chat().hay_mas);
-  CHECK_FALSE(sala.pedir_mas_viejos());
+  CHECK_FALSE(sala.chat().hay_nuevos);
+  const auto pedido = sala.pedir_mas_viejos();
+  REQUIRE(pedido);
+  CHECK(como<PedirHistorial>(*pedido).desde == 6);
   Sala grande(presentado());
   for (std::uint64_t id = 1; id <= 600; ++id) {
     grande.aplicar(mensaje(id, 1, static_cast<std::uint32_t>(id), std::string(4000, 'x')));
   }
   CHECK(grande.chat().bytes <= ventrik::cliente::kTopeBytesPorChat);
   CHECK(grande.chat().mensajes.back().id == 600);
+}
+
+TEST_CASE("Con un servidor de verdad, la sala vuelve a pedir lo que soltó hacia los dos lados") {
+  ventrik::servidor::Opciones opciones;
+  opciones.rafaga_chat = opciones.chat_por_segundo = 1000;
+  opciones.rafaga_pedidos = opciones.pedidos_por_segundo = 1000;
+  opciones.rafaga_historial = opciones.historial_por_segundo = 1000;
+  opciones.proteccion.rafaga_chat_por_ip = opciones.proteccion.chat_por_segundo_por_ip = 1000;
+  prueba::ServidorDePrueba servidor(opciones);
+  ventrik::cliente::Sesion sesion(servidor.direccion(), servidor.huella(), {"Ana", std::nullopt});
+  std::optional<Sala> sala;
+  const auto ordenar = [&](std::vector<Orden> ordenes) {
+    for (auto& orden : ordenes) {
+      sesion.ordenar(std::move(orden));
+    }
+  };
+  const auto hasta = [&](const std::function<bool()>& listo) {
+    const auto limite = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!listo() && std::chrono::steady_clock::now() < limite) {
+      for (const auto& novedad : sesion.esperar_novedades(std::chrono::milliseconds(20))) {
+        if (const auto* intento = std::get_if<ventrik::cliente::IntentoDeConexion>(&novedad)) {
+          REQUIRE(intento->presentado);
+          sala.emplace(*intento->presentado);
+          ordenar(sala->empezar());
+        } else if (sala) {
+          ordenar(sala->aplicar(novedad));
+        }
+      }
+    }
+    return listo();
+  };
+  const auto pedir = [&](std::optional<Orden> orden) {
+    REQUIRE(orden);
+    ordenar({*orden});
+    REQUIRE(hasta([&] { return !sala->chat().pidiendo; }));
+  };
+  REQUIRE(hasta([&] { return sala && !sala->chat().pidiendo; }));
+  for (int i = 1; i <= 200; ++i) {
+    sesion.ordenar(EnviarChat{1, "m " + std::to_string(i)});
+  }
+  REQUIRE(hasta([&] { return sala->chat().mensajes.size() == 200; }));
+  CHECK(sala->chat().mensajes.back().id == 200);
+
+  sala->soltar_lejanos();
+  REQUIRE(sala->chat().mensajes.size() == ventrik::cliente::kMensajesAlEntrar);
+  CHECK(sala->chat().mensajes.front().id == 137);
+  sala->a_la_vista(137);
+  pedir(sala->pedir_mas_viejos());
+  CHECK(sala->chat().mensajes.front().id == 9);
+  CHECK(sala->chat().hay_mas);
+  pedir(sala->pedir_mas_viejos());
+  CHECK(sala->chat().mensajes.size() == 200);
+  CHECK_FALSE(sala->chat().hay_mas);
+
+  sala->a_la_vista(1);
+  sala->soltar_lejanos();
+  REQUIRE(sala->chat().hay_nuevos);
+  CHECK(sala->chat().mensajes.back().id == 64);
+  sala->a_la_vista(50);
+  pedir(sala->pedir_mas_nuevos());
+  CHECK(sala->chat().mensajes.back().id == 192);
+  CHECK(sala->chat().hay_nuevos);
+  sala->a_la_vista(180);
+  pedir(sala->pedir_mas_nuevos());
+  CHECK(sala->chat().mensajes.back().id == 200);
+  CHECK_FALSE(sala->chat().hay_nuevos);
+  CHECK(sala->chat().mensajes.size() == 200);
+  CHECK(sala->chat().autores.size() == 1);
+  sesion.ordenar(EnviarChat{1, "otro"});
+  REQUIRE(hasta([&] { return sala->chat().mensajes.back().id == 201; }));
 }

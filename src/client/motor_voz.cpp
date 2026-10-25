@@ -16,6 +16,7 @@ VENTRIK_PENDIENTE("una sola voz por vez y espera fija de 40 ms: mezcla y buffer 
 namespace ventrik::cliente {
 namespace {
 constexpr unsigned kQuietosParaCambiar = 50;
+constexpr opus_int32 kSoloCabecera = 2;
 }
 
 Calidad calidad_automatica() {
@@ -59,10 +60,17 @@ MotorVoz::MotorVoz(PuenteVoz& puente, const Calidad& calidad)
   }
   opus_encoder_ctl(codificador_.get(), OPUS_SET_BITRATE(calidad_.kbps * 1000));
   opus_encoder_ctl(codificador_.get(), OPUS_SET_COMPLEXITY(calidad_.complejidad));
+  opus_encoder_ctl(codificador_.get(), OPUS_SET_VBR_CONSTRAINT(1));
+  opus_encoder_ctl(codificador_.get(), OPUS_SET_DTX(1));
   decodificador_.reset(opus_decoder_create(static_cast<opus_int32>(calidad_.frecuencia), 1, &error));
   if (error != OPUS_OK) {
     decodificador_.reset();
+    return;
   }
+  fija_.fijar({{this, sizeof(*this)},
+               {&puente_, sizeof(puente_)},
+               {codificador_.get(), static_cast<std::size_t>(opus_encoder_get_size(1))},
+               {decodificador_.get(), static_cast<std::size_t>(opus_decoder_get_size(1))}});
 }
 
 void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
@@ -71,15 +79,16 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     std::fill(salida.begin(), salida.end(), std::int16_t{0});
     return;
   }
-  if (!transmitiendo_) {
-    capturadas_ = 0;
-    entrada = {};
-  }
+  const bool transmitiendo = transmitiendo_;
   int pico = 0;
-  for (const std::int16_t muestra : entrada) {
+  for (const std::int16_t muestra : transmitiendo ? entrada : gsl::span<const std::int16_t>()) {
     pico = std::max(pico, std::abs(static_cast<int>(muestra)));
   }
   pico_.store(pico, std::memory_order_relaxed);
+  if (!transmitiendo || solo_) {
+    capturadas_ = 0;
+    entrada = {};
+  }
   while (!entrada.empty()) {
     const auto parte = entrada.first(std::min(entrada.size(), por_paquete_ - capturadas_));
     std::copy(parte.begin(), parte.end(), capturado_.begin() + static_cast<std::ptrdiff_t>(capturadas_));
@@ -112,7 +121,9 @@ void MotorVoz::codificar() {
   const opus_int32 largo =
       opus_encode(codificador_.get(), capturado_.data(), static_cast<int>(por_paquete_),
                   paquete.opus.data(), static_cast<opus_int32>(paquete.opus.size()));
-  if (largo <= 0) {
+  opus_int32 en_silencio = 0;
+  opus_encoder_ctl(codificador_.get(), OPUS_GET_IN_DTX(&en_silencio));
+  if (largo <= kSoloCabecera || en_silencio != 0) {
     return;
   }
   paquete.numero = numero_++;
@@ -157,8 +168,9 @@ void MotorVoz::decodificar() {
   quietos_ = salida == BufferVoz::Salida::nada ? quietos_ + 1 : 0;
   if (quietos_ > kQuietosParaCambiar) {
     hablante_ = 0;
+    quietos_ = 0;
   }
-  puente_.hablando = salida == BufferVoz::Salida::nada ? 0 : hablante_;
+  puente_.cambiar(puente_.hablando, salida == BufferVoz::Salida::nada ? std::uint32_t{0} : hablante_);
 }
 
 }

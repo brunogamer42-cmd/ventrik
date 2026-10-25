@@ -8,6 +8,8 @@ struct Medicion {
   double procesador = 0;
   double ventana = 0;
   double sistema = 0;
+  std::uint64_t memoria_propia = 0;
+  double fallas = 0;
   std::uint64_t ram_bytes = 0;
 };
 
@@ -21,6 +23,7 @@ class Diagnostico {
   std::uint64_t ventana_anterior_ = 0;
   std::pair<std::uint64_t, std::uint64_t> sistema_anterior_;
   std::uint64_t reloj_anterior_ = 0;
+  std::uint32_t fallas_anteriores_ = 0;
 };
 
 }

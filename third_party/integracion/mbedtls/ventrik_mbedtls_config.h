@@ -11,6 +11,15 @@
 #define MBEDTLS_THREADING_C
 #define MBEDTLS_THREADING_ALT
 
+/*
+ * Salida de cada conexión de 4 KiB en vez de 16 (unos 13 MB menos con el
+ * servidor lleno). SesionTls::escribir ya parte lo que manda según
+ * mbedtls_ssl_get_max_out_record_payload; lo más grande del saludo es el
+ * certificado (unos 300 bytes) y en DTLS la voz (unos 410). La entrada queda
+ * en 16 KiB porque el otro lado puede mandar registros enteros.
+ */
+#define MBEDTLS_SSL_OUT_CONTENT_LEN 4096
+
 #if defined(VENTRIK_MBEDTLS_RTLGENRANDOM)
 /*
  * Mbed TLS saca los números aleatorios de BCryptGenRandom, que no existe en

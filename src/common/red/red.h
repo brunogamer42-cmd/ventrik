@@ -70,6 +70,20 @@ Socket conectar_udp(const Direccion& destino);
 bool enviar_a(const Socket& cual, const Direccion& destino, gsl::span<const std::uint8_t> datos);
 std::optional<Recibido> recibir_de(const Socket& cual, gsl::span<std::uint8_t> destino);
 
+class PrioridadDeVoz {
+ public:
+  PrioridadDeVoz() = default;
+  ~PrioridadDeVoz() { soltar(); }
+  PrioridadDeVoz(const PrioridadDeVoz&) = delete;
+  PrioridadDeVoz& operator=(const PrioridadDeVoz&) = delete;
+
+  bool marcar(const Socket& cual, const Direccion& destino);
+  void soltar();
+
+ private:
+  void* manija_ = nullptr;
+};
+
 enum class Espera { lista, tiempo_vencido, error };
 Espera esperar(const Socket& cual, bool para_leer, bool para_escribir,
                std::chrono::milliseconds tiempo, const Socket* cancelar = nullptr);

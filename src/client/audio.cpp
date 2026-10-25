@@ -1,23 +1,34 @@
 #include "client/audio.h"
 
 #include <algorithm>
+#include <initializer_list>
+#include <utility>
 
 #include <process.h>
 
 #include <miniaudio.h>
 
 #include "common/pendiente.h"
+#include "common/sistema.h"
 
 VENTRIK_PENDIENTE("puente de audio WinMM para XP: falta una prueba larga (hubo cortes esporadicos en el paso 1.1)")
+VENTRIK_PENDIENTE("cerrar los parlantes tras un rato sin voz (12.2): falta medir en una PC real cuanto tardan en volver")
 
 namespace ventrik::cliente {
 namespace {
+#if defined(VENTRIK_CLASICA)
+constexpr unsigned kPeriodoMs = 20;
+#else
 constexpr unsigned kPeriodoMs = 10;
-constexpr unsigned kPedazosDeEntrada = 8;
-constexpr unsigned kPedazosAdelantados = 3;
-constexpr std::size_t kLugaresDeSalida = 64;
-constexpr std::ptrdiff_t kMaximoEnEspera = 12;
-constexpr std::ptrdiff_t kTopeEnEspera = 25;
+#endif
+constexpr unsigned kEntradaMs = 80;
+constexpr unsigned kAdelantoMs = 30;
+constexpr unsigned kSalidaMs = 640;
+constexpr unsigned kPedazosDeEntrada = kEntradaMs / kPeriodoMs;
+constexpr unsigned kPedazosAdelantados = (kAdelantoMs + kPeriodoMs - 1) / kPeriodoMs;
+constexpr std::size_t kLugaresDeSalida = kSalidaMs / kPeriodoMs;
+constexpr std::uint32_t kMaximoEnEsperaMs = 120;
+constexpr std::uint32_t kTopeEnEsperaMs = 250;
 constexpr int kCasiSilencio = 1000;
 
 bool es_windows_xp() {
@@ -43,8 +54,8 @@ bool callado(gsl::span<const std::int16_t> pedazo) {
 
 }
 
-bool tirar_pedazo(std::ptrdiff_t en_espera, gsl::span<const std::int16_t> pedazo) {
-  return en_espera >= kTopeEnEspera || (en_espera >= kMaximoEnEspera && callado(pedazo));
+bool tirar_pedazo(std::uint32_t espera_ms, gsl::span<const std::int16_t> pedazo) {
+  return espera_ms >= kTopeEnEsperaMs || (espera_ms >= kMaximoEnEsperaMs && callado(pedazo));
 }
 
 Audio::Audio() : dispositivo_(std::make_unique<ma_device>()) {}
@@ -68,12 +79,18 @@ bool Audio::abrir(unsigned frecuencia, Procesar procesar, void* datos) {
   config.sampleRate = frecuencia;
   config.periodSizeInMilliseconds = kPeriodoMs;
   config.performanceProfile = ma_performance_profile_low_latency;
+  config.wasapi.usage = ma_wasapi_usage_pro_audio;
   config.dataCallback = &Audio::desde_miniaudio;
   config.pUserData = this;
+  for (const wchar_t* dll : {L"avrt.dll", L"mmdevapi.dll", L"dsound.dll"}) {
+    cargar_de_sistema(dll);
+  }
   if (ma_device_init(nullptr, &config, dispositivo_.get()) != MA_SUCCESS) {
     return false;
   }
   hay_miniaudio_ = true;
+  hilo_listo_ = false;
+  fija_.fijar({{this, sizeof(*this)}, {dispositivo_.get(), sizeof(ma_device)}});
   if (ma_device_start(dispositivo_.get()) != MA_SUCCESS) {
     cerrar();
     return false;
@@ -98,16 +115,23 @@ bool Audio::abrir_puente(unsigned frecuencia) {
     return false;
   }
   const std::size_t muestras = frecuencia / 1000 * kPeriodoMs;
-  borrador_.assign(muestras, 0);
   pedazos_entrada_.resize(kPedazosDeEntrada);
   pedazos_salida_.resize(kLugaresDeSalida);
+  muestras_.assign(muestras * (kPedazosDeEntrada + kLugaresDeSalida + 1), 0);
+  gsl::span<std::int16_t> libres(muestras_);
   for (auto* lista : {&pedazos_entrada_, &pedazos_salida_}) {
     for (Pedazo& pedazo : *lista) {
-      pedazo.muestras.assign(muestras, 0);
+      pedazo.muestras = libres.first(muestras);
+      libres = libres.subspan(muestras);
       pedazo.cabecera.lpData = reinterpret_cast<LPSTR>(pedazo.muestras.data());
       pedazo.cabecera.dwBufferLength = static_cast<DWORD>(muestras * sizeof(std::int16_t));
     }
   }
+  borrador_ = libres;
+  fija_.fijar({{this, sizeof(*this)},
+               {muestras_.data(), muestras_.size() * sizeof(std::int16_t)},
+               {pedazos_entrada_.data(), pedazos_entrada_.size() * sizeof(Pedazo)},
+               {pedazos_salida_.data(), pedazos_salida_.size() * sizeof(Pedazo)}});
   for (Pedazo& pedazo : pedazos_entrada_) {
     waveInPrepareHeader(entrada_, &pedazo.cabecera, sizeof(WAVEHDR));
     waveInAddBuffer(entrada_, &pedazo.cabecera, sizeof(WAVEHDR));
@@ -130,6 +154,7 @@ bool Audio::abrir_puente(unsigned frecuencia) {
 }
 
 void Audio::cerrar() {
+  fija_.soltar();
   if (hay_miniaudio_) {
     ma_device_uninit(dispositivo_.get());
     hay_miniaudio_ = false;
@@ -172,8 +197,10 @@ unsigned __stdcall Audio::hilo(void* yo) {
 }
 
 void Audio::atender() {
+  no_frenar_este_hilo();
   while (seguir_) {
     WaitForSingleObject(aviso_, 100);
+    despertares_.fetch_add(1, std::memory_order_relaxed);
     while (seguir_ && terminado(pedazos_entrada_[siguiente_entrada_].cabecera)) {
       Pedazo& llego = pedazos_entrada_[siguiente_entrada_];
       const std::size_t grabadas = std::min<std::size_t>(
@@ -191,10 +218,9 @@ void Audio::atender() {
       espera_maxima_ms_.store(std::max(espera_maxima_ms_.load(std::memory_order_relaxed), espera_ms),
                               std::memory_order_relaxed);
       Pedazo* sale = libre_para_salida();
-      const gsl::span<std::int16_t> destino =
-          sale != nullptr ? gsl::span<std::int16_t>(sale->muestras) : gsl::span<std::int16_t>(borrador_);
+      const gsl::span<std::int16_t> destino = sale != nullptr ? sale->muestras : borrador_;
       procesar_(datos_, gsl::span<const std::int16_t>(llego.muestras).first(grabadas), destino);
-      if (sale != nullptr && !tirar_pedazo(en_espera, destino)) {
+      if (sale != nullptr && !tirar_pedazo(espera_ms, destino)) {
         escribir(*sale);
       } else {
         descartados_.fetch_add(1, std::memory_order_relaxed);
@@ -230,6 +256,10 @@ void Audio::desde_miniaudio(ma_device* dispositivo, void* salida, const void* en
     return;
   }
   auto* yo = static_cast<Audio*>(dispositivo->pUserData);
+  if (!std::exchange(yo->hilo_listo_, true)) {
+    no_frenar_este_hilo();
+  }
+  yo->despertares_.fetch_add(1, std::memory_order_relaxed);
   yo->procesar_(yo->datos_,
                 gsl::span<const std::int16_t>(static_cast<const std::int16_t*>(entrada), cuadros),
                 gsl::span<std::int16_t>(static_cast<std::int16_t*>(salida), cuadros));

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <limits>
 
 #include <intrin.h>
@@ -38,6 +39,16 @@ const std::uint16_t kFirmas[] = {MBEDTLS_TLS1_3_SIG_ECDSA_SECP256R1_SHA256,
 constexpr char kEtiquetaVoz[] = "EXPERIMENTAL ventrik voz";
 constexpr std::size_t kPresupuestoPorLlamada = 32 * 1024;
 constexpr int kLecturasPorLlamada = 64;
+
+std::atomic<std::uint64_t> tcp_enviados{0};
+std::atomic<std::uint64_t> tcp_recibidos{0};
+std::atomic<std::uint64_t> udp_enviados{0};
+std::atomic<std::uint64_t> udp_recibidos{0};
+
+void contar(bool datagrama, bool enviado, std::size_t bytes) {
+  (datagrama ? (enviado ? udp_enviados : udp_recibidos) : (enviado ? tcp_enviados : tcp_recibidos))
+      .fetch_add(bytes, std::memory_order_relaxed);
+}
 
 int largo_para_winsock(std::size_t largo) {
   return static_cast<int>(std::min<std::size_t>(largo, std::numeric_limits<int>::max()));
@@ -223,6 +234,11 @@ bool SesionTls::exportar(gsl::span<const std::uint8_t> contexto, gsl::span<std::
                                                    contexto.size(), 1) == 0;
 }
 
+Trafico trafico() {
+  return {tcp_enviados.load(std::memory_order_relaxed), tcp_recibidos.load(std::memory_order_relaxed),
+          udp_enviados.load(std::memory_order_relaxed), udp_recibidos.load(std::memory_order_relaxed)};
+}
+
 void SesionTls::exigir_huella(const Huella& esperada) {
   esperada_ = esperada;
 }
@@ -232,11 +248,13 @@ int SesionTls::enviar(void* contexto, const unsigned char* datos, std::size_t la
   if (canal.enviar_a != nullptr) {
     (*canal.enviar_a)(canal.otro, gsl::make_span(datos, largo));
     ++canal.enviados;
+    contar(true, true, largo);
     return largo_para_winsock(largo);
   }
   const int enviados = send(static_cast<SOCKET>(canal.socket), reinterpret_cast<const char*>(datos),
                             largo_para_winsock(largo), 0);
   if (enviados >= 0) {
+    contar(canal.datagrama, true, static_cast<std::size_t>(enviados));
     return enviados;
   }
   return canal.datagrama ? largo_para_winsock(largo) : error_de_winsock(MBEDTLS_ERR_SSL_WANT_WRITE);
@@ -256,6 +274,7 @@ int SesionTls::recibir(void* contexto, unsigned char* destino, std::size_t largo
     }
     std::copy(copia.begin(), copia.end(), gsl::make_span(destino, largo).begin());
     canal.total += copia.size();
+    contar(true, false, copia.size());
     return largo_para_winsock(copia.size());
   }
   const int recibidos = recv(static_cast<SOCKET>(canal.socket), reinterpret_cast<char*>(destino),
@@ -268,6 +287,7 @@ int SesionTls::recibir(void* contexto, unsigned char* destino, std::size_t largo
   }
   canal.presupuesto -= static_cast<std::size_t>(recibidos);
   canal.total += static_cast<std::size_t>(recibidos);
+  contar(canal.datagrama, false, static_cast<std::size_t>(recibidos));
   return recibidos;
 }
 

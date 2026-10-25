@@ -751,9 +751,8 @@ void Servidor::pedir_historial(Conexion& conexion, const protocolo::Marco& marco
     return;
   }
   const std::uint32_t quien = conexion.id;
-  const bool pedido_aceptado = base_.pedir([this, quien, canal = pedido->canal,
-                                            antes_de = pedido->antes_de](Base& base) {
-    auto historial = base.historial(canal, antes_de, kMaximoHistorial);
+  const bool pedido_aceptado = base_.pedir([this, quien, cual = *pedido](Base& base) {
+    auto historial = base.historial(cual, kMaximoHistorial);
     return std::function<void()>([this, quien, historial = std::move(historial)]() {
       Conexion* conexion = buscar_conectada(quien);
       if (conexion != nullptr && !puede_leer(conexion->persona(), canales_, historial.canal)) {

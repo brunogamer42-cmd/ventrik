@@ -37,6 +37,13 @@ std::pair<std::uint64_t, std::uint64_t> tiempos_del_sistema() {
   return {a_entero(ocioso), a_entero(nucleo) + a_entero(usuario)};
 }
 
+PROCESS_MEMORY_COUNTERS_EX memoria_del_proceso() {
+  PROCESS_MEMORY_COUNTERS_EX memoria = {};
+  memoria.cb = sizeof(memoria);
+  GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memoria), sizeof(memoria));
+  return memoria;
+}
+
 std::uint64_t reloj() {
   FILETIME ahora = {};
   GetSystemTimeAsFileTime(&ahora);
@@ -47,7 +54,8 @@ std::uint64_t reloj() {
 
 Diagnostico::Diagnostico()
     : proceso_anterior_(tiempo_del_proceso()), ventana_anterior_(tiempo_del_hilo()),
-      sistema_anterior_(tiempos_del_sistema()), reloj_anterior_(reloj()) {}
+      sistema_anterior_(tiempos_del_sistema()), reloj_anterior_(reloj()),
+      fallas_anteriores_(memoria_del_proceso().PageFaultCount) {}
 
 Medicion Diagnostico::medir() {
   Medicion medicion;
@@ -59,6 +67,14 @@ Medicion Diagnostico::medir() {
     medicion.procesador = 100.0 * static_cast<double>(proceso - proceso_anterior_) / lapso;
     medicion.ventana = 100.0 * static_cast<double>(ventana - ventana_anterior_) / lapso;
   }
+  const PROCESS_MEMORY_COUNTERS_EX memoria = memoria_del_proceso();
+  if (ahora > reloj_anterior_ && memoria.PageFaultCount >= fallas_anteriores_) {
+    medicion.fallas = 1e7 * static_cast<double>(memoria.PageFaultCount - fallas_anteriores_) /
+                      static_cast<double>(ahora - reloj_anterior_);
+  }
+  fallas_anteriores_ = memoria.PageFaultCount;
+  medicion.ram_bytes = memoria.WorkingSetSize;
+  medicion.memoria_propia = memoria.PrivateUsage;
   const auto sistema = tiempos_del_sistema();
   if (sistema.second > sistema_anterior_.second && sistema.first >= sistema_anterior_.first) {
     const std::uint64_t total = sistema.second - sistema_anterior_.second;
@@ -69,10 +85,6 @@ Medicion Diagnostico::medir() {
   proceso_anterior_ = proceso;
   ventana_anterior_ = ventana;
   reloj_anterior_ = ahora;
-  PROCESS_MEMORY_COUNTERS memoria = {};
-  if (GetProcessMemoryInfo(GetCurrentProcess(), &memoria, sizeof(memoria))) {
-    medicion.ram_bytes = memoria.WorkingSetSize;
-  }
   return medicion;
 }
 

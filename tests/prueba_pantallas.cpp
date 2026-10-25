@@ -1,7 +1,12 @@
+#include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <imgui.h>
@@ -9,6 +14,7 @@
 #include <imgui_internal.h>
 
 #include "client/sala.h"
+#include "client/ui/dibujante.h"
 #include "client/ui/inicio.h"
 #include "client/ui/piezas.h"
 #include "client/ui/servidor.h"
@@ -37,6 +43,9 @@ class SinPantalla {
     io.DisplaySize = tamano_;
     io.AddMousePosEvent(mouse.x, mouse.y);
     io.AddMouseButtonEvent(boton_, clic);
+    if (rueda_ != 0) {
+      io.AddMouseWheelEvent(0, std::exchange(rueda_, 0.0f));
+    }
     io.AddInputCharactersUTF8(texto_.c_str());
     texto_.clear();
     if (soltar_ != ImGuiKey_None) {
@@ -71,9 +80,11 @@ class SinPantalla {
   void teclear(std::string texto) { texto_ = std::move(texto); }
   void apretar(ImGuiKey tecla) { tecla_ = tecla; }
   void usar_boton(int boton) { boton_ = boton; }
+  void rodar(float cuanto) { rueda_ = cuanto; }
 
  private:
   ImVec2 tamano_;
+  float rueda_ = 0;
   std::string texto_;
   ImGuiKey tecla_ = ImGuiKey_None;
   ImGuiKey soltar_ = ImGuiKey_None;
@@ -180,7 +191,8 @@ TEST_CASE("en Inicio, \"Entrar como dueño\" del menú de una tarjeta completa e
 namespace {
 using namespace ventrik::protocolo;
 
-ventrik::cliente::Sala sala_llena(bool dueno, std::size_t canales, std::size_t personas, std::size_t mensajes) {
+ventrik::cliente::Sala sala_llena(bool dueno, std::size_t canales, std::size_t personas, std::size_t mensajes,
+                                  const std::string& largo = std::string(4000, 'w')) {
   Presentado presentado;
   presentado.tu_id = 1;
   presentado.dueno = dueno;
@@ -194,10 +206,10 @@ ventrik::cliente::Sala sala_llena(bool dueno, std::size_t canales, std::size_t p
   }
   ventrik::cliente::Sala sala(presentado);
   sala.empezar();
-  Historial historial{sala.tu_canal(), true, {}};
+  Historial historial{sala.tu_canal(), 0, Sentido::viejos, true, {}};
   for (std::uint64_t id = mensajes; id >= 1; --id) {
     historial.mensajes.push_back({id, static_cast<std::uint32_t>(id), "Persona con nombre largo 2",
-                                  1761234567890 + id * 3600000, id % 7 == 0 ? std::string(4000, 'w') : "hola " + std::to_string(id)});
+                                  1761234567890 + id * 3600000, id % 7 == 0 ? largo : "hola " + std::to_string(id)});
   }
   sala.aplicar(historial);
   sala.aplicar(MensajesNuevos{{{2, 50}, {4, 7}}});
@@ -415,6 +427,143 @@ TEST_CASE("El gráfico de la barra de estado abre el diagnóstico") {
   }
 }
 
+namespace {
+Historial pagina(std::uint32_t canal, std::uint64_t desde, Sentido sentido, std::uint64_t primero, std::uint64_t ultimo,
+                 bool hay_mas) {
+  Historial historial{canal, desde, sentido, hay_mas, {}};
+  for (std::uint64_t id = primero; id <= ultimo; ++id) {
+    historial.mensajes.push_back({id, static_cast<std::uint32_t>(id), id % 3 == 0 ? "Ana" : "Beto",
+                                  1761234567890 + id * 60000, "mensaje " + std::to_string(id)});
+  }
+  if (sentido == Sentido::viejos) {
+    std::reverse(historial.mensajes.begin(), historial.mensajes.end());
+  }
+  return historial;
+}
+
+ventrik::cliente::Sala sala_con_chat(std::uint64_t primero, std::uint64_t ultimo) {
+  auto sala = sala_llena(false, 4, 3, 0);
+  REQUIRE(sala.pedir_mas_viejos());
+  sala.aplicar(pagina(sala.tu_canal(), 0, Sentido::viejos, primero, ultimo, true));
+  return sala;
+}
+
+std::vector<ui::PedidoServidor> cuadros(SinPantalla& sin_pantalla, ui::PantallaServidor& pantalla,
+                                        ventrik::cliente::Sala& sala, int cuantos, float rueda = 0) {
+  std::vector<ui::PedidoServidor> pedidos;
+  sin_pantalla.rodar(rueda);
+  for (int i = 0; i < cuantos; ++i) {
+    pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(900, 400)));
+  }
+  return pedidos;
+}
+
+float borde_de(const ui::PantallaServidor& pantalla, std::uint64_t id) {
+  const ImGuiWindow* lista = nullptr;
+  for (const ImGuiWindow* ventana : ImGui::GetCurrentContext()->Windows) {
+    if (std::string_view(ventana->Name).find("##mensajes") != std::string_view::npos) {
+      lista = ventana;
+    }
+  }
+  REQUIRE(lista != nullptr);
+  const auto& ids = pantalla.alturas.ids;
+  const auto i = static_cast<std::size_t>(std::lower_bound(ids.begin(), ids.end(), id) - ids.begin());
+  REQUIRE(i < ids.size());
+  REQUIRE(ids[i] == id);
+  return pantalla.alturas.desde[i + 1] - lista->Scroll.y;
+}
+}
+
+TEST_CASE("La lista pide los más viejos arriba y los más nuevos abajo, y al cargarlos no salta") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_con_chat(1001, 1300);
+  auto pantalla = pantalla_servidor();
+  CHECK(ordenes_de<PedirHistorial>(cuadros(sin_pantalla, pantalla, sala, 3)).empty());
+  CHECK(sala.chat().ancla == 0);
+  const auto viejos = ordenes_de<PedirHistorial>(cuadros(sin_pantalla, pantalla, sala, 3, 100000));
+  REQUIRE(viejos.size() == 1);
+  CHECK(viejos[0].sentido == Sentido::viejos);
+  CHECK(viejos[0].desde == 1001);
+  CHECK(viejos[0].cantidad == ventrik::cliente::kMensajesAlMoverse);
+  CHECK(sala.chat().ancla == 1001);
+  const float arriba = borde_de(pantalla, 1001);
+  sala.aplicar(pagina(sala.tu_canal(), 1001, Sentido::viejos, 873, 1000, true));
+  REQUIRE(sala.chat().hay_nuevos);
+  cuadros(sin_pantalla, pantalla, sala, 3);
+  CHECK(std::abs(borde_de(pantalla, 1001) - arriba) < 1);
+
+  const auto nuevos = ordenes_de<PedirHistorial>(cuadros(sin_pantalla, pantalla, sala, 3, -100000));
+  REQUIRE(nuevos.size() == 1);
+  CHECK(nuevos[0].sentido == Sentido::nuevos);
+  CHECK(nuevos[0].desde == sala.chat().mensajes.back().id);
+  const auto abajo = sala.chat().ancla;
+  REQUIRE(abajo != 0);
+  const float antes = borde_de(pantalla, abajo);
+  sala.aplicar(pagina(sala.tu_canal(), nuevos[0].desde, Sentido::nuevos, nuevos[0].desde + 1, 1300, false));
+  CHECK_FALSE(sala.chat().hay_nuevos);
+  CHECK(sala.chat().mensajes.front().id > 873);
+  cuadros(sin_pantalla, pantalla, sala, 3);
+  CHECK(std::abs(borde_de(pantalla, abajo) - antes) < 1);
+  CHECK(ordenes_de<PedirHistorial>(cuadros(sin_pantalla, pantalla, sala, 3, -100000)).empty());
+  CHECK(sala.chat().ancla == 0);
+}
+
+TEST_CASE("Al escribir mientras faltan los mensajes más nuevos, la lista salta a lo último") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_con_chat(1001, 1300);
+  auto pantalla = pantalla_servidor();
+  pantalla.enfocar_mensaje = true;
+  cuadros(sin_pantalla, pantalla, sala, 2);
+  REQUIRE(ordenes_de<PedirHistorial>(cuadros(sin_pantalla, pantalla, sala, 2, 100000)).size() == 1);
+  sala.aplicar(pagina(sala.tu_canal(), 1001, Sentido::viejos, 873, 1000, true));
+  REQUIRE(sala.chat().hay_nuevos);
+  cuadros(sin_pantalla, pantalla, sala, 2);
+  sin_pantalla.teclear("hola");
+  std::vector<ui::PedidoServidor> pedidos = cuadros(sin_pantalla, pantalla, sala, 2);
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  const auto despues = cuadros(sin_pantalla, pantalla, sala, 2);
+  pedidos.insert(pedidos.end(), despues.begin(), despues.end());
+  const auto enviados = ordenes_de<EnviarChat>(pedidos);
+  REQUIRE(enviados.size() == 1);
+  CHECK(enviados[0].texto == "hola");
+  const auto pedidos_historial = ordenes_de<PedirHistorial>(pedidos);
+  REQUIRE(pedidos_historial.size() == 1);
+  CHECK(pedidos_historial[0].desde == 0);
+  CHECK(pedidos_historial[0].sentido == Sentido::viejos);
+  CHECK(sala.chat().mensajes.empty());
+  sala.aplicar(pagina(sala.tu_canal(), 0, Sentido::viejos, 1237, 1301, true));
+  cuadros(sin_pantalla, pantalla, sala, 3);
+  CHECK(sala.chat().ancla == 0);
+}
+
+TEST_CASE("Los textos guardados de la pantalla cambian con el dato y con el idioma") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(false, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  pantalla.idioma = ventrik::elegir_idioma("es");
+  cuadros(sin_pantalla, pantalla, sala, 1);
+  CHECK(pantalla.textos.conectados.texto == "3 conectados");
+  const std::string tecla = pantalla.textos.tecla.texto;
+  CHECK(tecla == ui::nombre_tecla(pantalla.idioma, 0));
+  CHECK(pantalla.textos.ping.texto == std::string(ventrik::texto(pantalla.idioma, ventrik::Clave::servidor_sin_ping)));
+  sala.aplicar(UsuarioEntro{{9, "Nueva", 1}});
+  sala.aplicar(ventrik::cliente::PingMedido{42});
+  pantalla.tecla = 0x05;
+  cuadros(sin_pantalla, pantalla, sala, 1);
+  CHECK(pantalla.textos.conectados.texto == "4 conectados");
+  CHECK(pantalla.textos.tecla.texto == ui::nombre_tecla(pantalla.idioma, 0x05));
+  CHECK(pantalla.textos.ping.texto == "Ping 42 ms");
+  const std::string subtitulo = pantalla.textos.subtitulo.texto;
+  pantalla.idioma = ventrik::elegir_idioma("en");
+  cuadros(sin_pantalla, pantalla, sala, 1);
+  CHECK(pantalla.textos.conectados.texto != "4 conectados");
+  CHECK(pantalla.textos.subtitulo.texto != subtitulo);
+  CHECK_FALSE(pantalla.caras.empty());
+  ui::soltar_lejanos(pantalla);
+  CHECK(pantalla.caras.empty());
+  CHECK(pantalla.fechas.empty());
+}
+
 TEST_CASE("Si borran el canal mientras su cuadro está abierto, el cuadro se cierra; el invitado no tiene menú") {
   SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
   auto sala = sala_llena(true, 4, 3, 5);
@@ -440,21 +589,38 @@ TEST_CASE("Si borran el canal mientras su cuadro está abierto, el cuadro se cie
   CHECK_FALSE(hay_ventana_emergente());
 }
 
-TEST_CASE("Dos cuadros iguales tienen la misma huella, y el mouse sobre una fila cambia la imagen") {
+TEST_CASE("Dos cuadros iguales no cambian nada, y el mouse sobre una fila cambia solo una zona chica") {
   SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
   auto sala = sala_llena(false, 4, 3, 5);
   auto pantalla = pantalla_servidor();
-  const auto huella = [&](ImVec2 mouse) {
+  ui::Zonas zonas;
+  const auto cambiadas = [&](ImVec2 mouse) {
     sin_pantalla.cuadro(pantalla, sala, mouse);
-    return ui::huella_del_dibujo(*ImGui::GetDrawData());
+    return zonas.cambiadas(*ImGui::GetDrawData());
   };
   for (int i = 0; i < 3; ++i) {
-    huella(ImVec2(900, 400));
+    cambiadas(ImVec2(900, 400));
   }
-  const std::size_t quieta = huella(ImVec2(900, 400));
-  CHECK(huella(ImVec2(900, 400)) == quieta);
-  CHECK(huella(ImVec2(901, 401)) == quieta);
-  CHECK(huella(ImVec2(100, 192)) != quieta);
+  CHECK(cambiadas(ImVec2(900, 400)).empty());
+  CHECK(cambiadas(ImVec2(901, 401)).empty());
+  const std::vector<RECT> fila = cambiadas(ImVec2(100, 192));
+  REQUIRE(fila.size() == 1);
+  CHECK(PtInRect(&fila.front(), POINT{100, 192}));
+  CHECK((fila.front().right - fila.front().left) * (fila.front().bottom - fila.front().top) < 1376 * 768 / 8);
+  CHECK(cambiadas(ImVec2(100, 192)).empty());
+  const std::vector<RECT> vuelta = cambiadas(ImVec2(900, 400));
+  REQUIRE(vuelta.size() == 1);
+  CHECK(PtInRect(&vuelta.front(), POINT{100, 192}));
+}
+
+TEST_CASE("Una ventana sin bordes que cubre el monitor es pantalla completa") {
+  const RECT monitor = {0, 0, 1920, 1080};
+  CHECK(ui::tapa_el_monitor({0, 0, 1920, 1080}, monitor, WS_POPUP | WS_VISIBLE, 0));
+  CHECK(ui::tapa_el_monitor({-8, -8, 1928, 1088}, monitor, WS_POPUP, 0));
+  CHECK_FALSE(ui::tapa_el_monitor({0, 0, 1920, 1040}, monitor, WS_POPUP, 0));
+  CHECK_FALSE(ui::tapa_el_monitor({-8, -8, 1928, 1088}, monitor, WS_OVERLAPPEDWINDOW | WS_MAXIMIZE, 0));
+  CHECK_FALSE(ui::tapa_el_monitor({0, 0, 1920, 1080}, monitor, WS_POPUP, WS_EX_TOOLWINDOW));
+  CHECK_FALSE(ui::tapa_el_monitor({1920, 0, 3840, 1080}, monitor, WS_POPUP, 0));
 }
 
 TEST_CASE("Las teclas repetidas no piden cuadros salvo escribiendo, y los cuadros lentos se espacian") {
@@ -473,4 +639,51 @@ TEST_CASE("Las teclas repetidas no piden cuadros salvo escribiendo, y los cuadro
   CHECK(ui::pide_cuadros(WM_MOUSEMOVE, 0, 8, false, mouse));
   CHECK(ui::espera_entre_cuadros(1.4) == 15);
   CHECK(ui::espera_entre_cuadros(16) == 80);
+}
+
+TEST_CASE("banco de las zonas que cambian" * doctest::skip()) {
+  constexpr int kVueltas = 1000;
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 60, 512, 300, "hola, este es un mensaje comun de unas cuantas palabras");
+  auto pantalla = pantalla_servidor();
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(900, 400));
+  ui::Zonas zonas;
+  const auto desde = std::chrono::steady_clock::now();
+  for (int i = 0; i < kVueltas; ++i) {
+    zonas.cambiadas(*ImGui::GetDrawData());
+  }
+  MESSAGE("zonas que cambian, servidor con 60 canales y 512 personas: "
+          << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde).count() / kVueltas
+          << " us por cuadro");
+}
+
+TEST_CASE("banco de las pantallas" * doctest::skip()) {
+  static constexpr int kCuadros = 1000;
+  const auto medir = [](const std::function<void()>& cuadro) {
+    for (int i = 0; i < 30; ++i) {
+      cuadro();
+    }
+    const auto desde = std::chrono::steady_clock::now();
+    for (int i = 0; i < kCuadros; ++i) {
+      cuadro();
+    }
+    return std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde).count() / kCuadros;
+  };
+  for (const auto& [canales, personas] : {std::make_pair(6u, 10u), std::make_pair(60u, 512u)}) {
+    SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+    auto sala = sala_llena(true, canales, personas, 300, "hola, este es un mensaje comun de unas cuantas palabras");
+    auto pantalla = pantalla_servidor();
+    const double us = medir([&] { sin_pantalla.cuadro(pantalla, sala, ImVec2(900, 400)); });
+    MESSAGE("servidor con " << canales << " canales y " << personas << " personas: " << us << " us por cuadro, "
+                            << ImGui::GetDrawData()->TotalVtxCount << " vertices");
+  }
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  ui::PantallaInicio pantalla;
+  Guardados guardados;
+  for (int i = 0; i < 10; ++i) {
+    guardados.servidores.push_back({{0x7F000001u, static_cast<std::uint16_t>(7700 + i)}, {}, "Servidor", 0, {}, 0, {}});
+  }
+  const double us = medir([&] { sin_pantalla.cuadro(pantalla, guardados, ImVec2(900, 400)); });
+  MESSAGE("inicio con 10 servidores: " << us << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount
+                                       << " vertices");
 }

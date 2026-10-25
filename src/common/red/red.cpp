@@ -5,12 +5,16 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+#include <qos2.h>
+
 #include "common/pendiente.h"
+#include "common/sistema.h"
 
 namespace ventrik::red {
 namespace {
 constexpr int kColaDeEspera = 64;
 constexpr int kBufferUdp = 256 * 1024;
+constexpr DWORD kDscpDeVoz = 46;
 constexpr DWORD kSinAvisoDePuertoCerrado = _WSAIOW(IOC_VENDOR, 12);
 constexpr DWORD kSinAvisoDeRedCaida = _WSAIOW(IOC_VENDOR, 15);
 
@@ -318,6 +322,44 @@ void Despertador::vaciar() const {
                   recv(socket_.get(), basura.data(), static_cast<int>(basura.size()), 0) > 0;
        ++i) {
   }
+}
+
+bool PrioridadDeVoz::marcar(const Socket& cual, const Direccion& destino) {
+  soltar();
+  const HMODULE qwave = cargar_de_sistema(L"qwave.dll");
+  if (qwave == nullptr) {
+    return false;
+  }
+  const auto crear = reinterpret_cast<decltype(&QOSCreateHandle)>(GetProcAddress(qwave, "QOSCreateHandle"));
+  const auto sumar = reinterpret_cast<decltype(&QOSAddSocketToFlow)>(GetProcAddress(qwave, "QOSAddSocketToFlow"));
+  const auto ajustar = reinterpret_cast<decltype(&QOSSetFlow)>(GetProcAddress(qwave, "QOSSetFlow"));
+  QOS_VERSION version = {1, 0};
+  HANDLE manija = nullptr;
+  if (crear == nullptr || sumar == nullptr || ajustar == nullptr || !crear(&version, &manija)) {
+    return false;
+  }
+  manija_ = manija;
+  sockaddr_in direccion = a_sockaddr(destino);
+  QOS_FLOWID flujo = 0;
+  if (!sumar(manija, cual.get(), reinterpret_cast<sockaddr*>(&direccion), QOSTrafficTypeVoice,
+             QOS_NON_ADAPTIVE_FLOW, &flujo)) {
+    soltar();
+    return false;
+  }
+  DWORD dscp = kDscpDeVoz;
+  ajustar(manija, flujo, QOSSetOutgoingDSCPValue, sizeof(dscp), &dscp, 0, nullptr);
+  return true;
+}
+
+void PrioridadDeVoz::soltar() {
+  if (manija_ != nullptr) {
+    const auto cerrar = reinterpret_cast<decltype(&QOSCloseHandle)>(
+        GetProcAddress(GetModuleHandleW(L"qwave.dll"), "QOSCloseHandle"));
+    if (cerrar != nullptr) {
+      cerrar(manija_);
+    }
+  }
+  manija_ = nullptr;
 }
 
 Espera esperar(const Socket& cual, bool para_leer, bool para_escribir,

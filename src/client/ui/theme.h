@@ -7,7 +7,7 @@
 
 namespace ventrik::ui {
 constexpr ImU32 rgb(std::uint32_t hex, std::uint32_t alfa = 255) {
-  return alfa << 24 | (hex & 0xFFu) << 16 | (hex & 0xFF00u) | hex >> 16;
+  return IM_COL32(hex >> 16 & 0xFFu, hex >> 8 & 0xFFu, hex & 0xFFu, alfa);
 }
 
 namespace color {

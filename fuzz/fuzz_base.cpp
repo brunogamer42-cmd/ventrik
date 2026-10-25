@@ -27,13 +27,21 @@ std::wstring archivo_de_prueba() {
          L".db";
 }
 
-void revisar(const ventrik::protocolo::Historial& historial, std::uint64_t antes_de) {
-  exigir(historial.mensajes.size() <= ventrik::protocolo::kMaximoMensajesEnHistorial);
-  std::uint64_t anterior = antes_de == 0 ? UINT64_MAX : antes_de;
+void revisar(Base& base, const ventrik::protocolo::PedirHistorial& pedido) {
+  const auto historial = base.historial(pedido, ventrik::protocolo::kMaximoCuerpo - 64);
+  exigir(historial.mensajes.size() <= pedido.cantidad);
+  exigir(historial.canal == pedido.canal && historial.desde == pedido.desde && historial.sentido == pedido.sentido);
+  const bool nuevos = pedido.sentido == ventrik::protocolo::Sentido::nuevos;
+  std::uint64_t anterior = !nuevos && pedido.desde == 0 ? UINT64_MAX : pedido.desde;
   for (const auto& mensaje : historial.mensajes) {
-    exigir(mensaje.id < anterior);
+    exigir(nuevos ? mensaje.id > anterior : mensaje.id < anterior);
     exigir(ventrik::es_nombre_valido(mensaje.autor) && ventrik::es_chat_valido(mensaje.texto));
     anterior = mensaje.id;
+  }
+  std::vector<std::uint8_t> marco;
+  exigir(ventrik::protocolo::armar_mensaje(historial, marco));
+  if (!historial.mensajes.empty() && pedido.desde == 0) {
+    revisar(base, {pedido.canal, historial.mensajes.back().id, pedido.sentido, pedido.cantidad});
   }
 }
 }
@@ -58,20 +66,21 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     exigir(canal.id > 0 && ventrik::es_nombre_valido(canal.nombre) &&
            ventrik::protocolo::es_tipo_valido(canal.tipo, canal.solo_admins));
     exigir(ventrik::protocolo::armar_mensaje(ventrik::protocolo::CanalCreado{canal}, marco));
-    const auto historial = base->historial(canal.id, 0, ventrik::protocolo::kMaximoCuerpo - 64);
-    revisar(historial, 0);
-    exigir(ventrik::protocolo::armar_mensaje(historial, marco));
-    if (!historial.mensajes.empty()) {
-      revisar(base->historial(canal.id, historial.mensajes.back().id, 65536),
-              historial.mensajes.back().id);
-    }
+    revisar(*base, {canal.id, 0, ventrik::protocolo::Sentido::viejos, 256});
+    revisar(*base, {canal.id, 0, ventrik::protocolo::Sentido::nuevos, 7});
   }
   base->retencion();
+  const bool tanda = base->empezar_tanda();
   base->crear_canal("Nuevo");
   base->crear_canal("Texto", ventrik::protocolo::TipoCanal::texto, true);
   base->cambiar_canal(ventrik::servidor::kCanalGeneral, "General", false);
   base->guardar_mensaje(ventrik::servidor::kCanalGeneral, 1, "Ana", 1, "hola");
+  base->guardar_mensaje(99, 1, "Ana", 1, "hola");
   base->guardar_mensaje(ventrik::servidor::kCanalGeneral, 2, "Ana", 1, "hola", false);
+  if (tanda) {
+    base->confirmar_tanda();
+  }
+  base->asentar();
   const auto despues = base->canales();
   for (const auto& canal : canales) {
     for (const auto& nuevo : despues) {

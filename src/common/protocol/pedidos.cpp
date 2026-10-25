@@ -139,6 +139,33 @@ void leer_medio(Lector& lector, Medio& medio) {
   medio.datos.assign(bytes.begin(), bytes.end());
 }
 
+bool es_sentido(Sentido sentido) {
+  return sentido == Sentido::viejos || sentido == Sentido::nuevos;
+}
+
+void escribir_sentido(Escritor& escritor, Sentido sentido) {
+  if (!es_sentido(sentido)) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u8(static_cast<std::uint8_t>(sentido));
+}
+
+void leer_sentido(Lector& lector, Sentido& sentido) {
+  sentido = static_cast<Sentido>(lector.leer_u8());
+  if (lector.ok() && !es_sentido(sentido)) {
+    lector.marcar_error();
+  }
+}
+
+std::uint64_t antes_del_primero(Sentido sentido, std::uint64_t desde) {
+  return sentido == Sentido::viejos && desde == 0 ? UINT64_MAX : desde;
+}
+
+bool sigue(Sentido sentido, std::uint64_t anterior, std::uint64_t id) {
+  return sentido == Sentido::nuevos ? id > anterior : id < anterior;
+}
+
 bool es_pedido(std::uint16_t tipo) {
   return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
          tipo <= static_cast<std::uint16_t>(TipoMensaje::mirar_canal);
@@ -296,19 +323,36 @@ void leer(Lector& lector, MensajeChat& mensaje) {
 
 void escribir(Escritor& escritor, const PedirHistorial& mensaje) {
   escritor.escribir_u32(mensaje.canal);
-  escritor.escribir_u64(mensaje.antes_de);
+  escritor.escribir_u64(mensaje.desde);
+  escribir_sentido(escritor, mensaje.sentido);
+  if (mensaje.cantidad == 0 || mensaje.cantidad > kMaximoMensajesEnHistorial) {
+    escritor.marcar_error();
+  }
+  escritor.escribir_u16(mensaje.cantidad);
 }
 
 void leer(Lector& lector, PedirHistorial& mensaje) {
   mensaje.canal = lector.leer_u32();
-  mensaje.antes_de = lector.leer_u64();
+  mensaje.desde = lector.leer_u64();
+  leer_sentido(lector, mensaje.sentido);
+  mensaje.cantidad = lector.leer_u16();
+  if (mensaje.cantidad == 0 || mensaje.cantidad > kMaximoMensajesEnHistorial) {
+    lector.marcar_error();
+  }
 }
 
 void escribir(Escritor& escritor, const Historial& mensaje) {
   escritor.escribir_u32(mensaje.canal);
+  escritor.escribir_u64(mensaje.desde);
+  escribir_sentido(escritor, mensaje.sentido);
   escritor.escribir_booleano(mensaje.hay_mas);
+  std::uint64_t anterior = antes_del_primero(mensaje.sentido, mensaje.desde);
   escribir_lista(escritor, mensaje.mensajes, kMaximoMensajesEnHistorial,
-                 [&escritor](const MensajeGuardado& guardado) {
+                 [&escritor, &mensaje, &anterior](const MensajeGuardado& guardado) {
+                   if (!sigue(mensaje.sentido, anterior, guardado.id)) {
+                     escritor.marcar_error();
+                   }
+                   anterior = guardado.id;
                    escritor.escribir_u64(guardado.id);
                    escritor.escribir_u32(guardado.numero);
                    escribir_nombre(escritor, guardado.autor);
@@ -319,10 +363,17 @@ void escribir(Escritor& escritor, const Historial& mensaje) {
 
 void leer(Lector& lector, Historial& mensaje) {
   mensaje.canal = lector.leer_u32();
+  mensaje.desde = lector.leer_u64();
+  leer_sentido(lector, mensaje.sentido);
   mensaje.hay_mas = lector.leer_booleano();
+  std::uint64_t anterior = antes_del_primero(mensaje.sentido, mensaje.desde);
   leer_lista(lector, mensaje.mensajes, kMaximoMensajesEnHistorial,
-             [&lector](MensajeGuardado& guardado) {
+             [&lector, &mensaje, &anterior](MensajeGuardado& guardado) {
                guardado.id = lector.leer_u64();
+               if (lector.ok() && !sigue(mensaje.sentido, anterior, guardado.id)) {
+                 lector.marcar_error();
+               }
+               anterior = guardado.id;
                guardado.numero = lector.leer_u32();
                leer_nombre(lector, guardado.autor);
                guardado.hora_ms = lector.leer_u64();

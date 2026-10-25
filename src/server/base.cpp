@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iterator>
 #include <limits>
 #include <utility>
 
@@ -16,10 +17,32 @@
 namespace ventrik::servidor {
 namespace {
 constexpr std::size_t kMaximoPedidosEnCola = 4096;
+constexpr std::size_t kPedidosPorTanda = 64;
 constexpr std::chrono::hours kCadaCuantoLimpiar{1};
+constexpr std::chrono::minutes kCadaCuantoAsentar{1};
 constexpr std::uint64_t kMsPorDia = 24ull * 60 * 60 * 1000;
 constexpr int kVersionEsquema = 2;
 constexpr int kMaximoFila = 64 * 1024;
+
+const char kAjustes[] =
+    "PRAGMA journal_mode=WAL;"
+    "PRAGMA synchronous=NORMAL;"
+    "PRAGMA cache_size=-2048;";
+
+constexpr const char* kSentencias[] = {
+    "BEGIN",
+    "COMMIT",
+    "ROLLBACK",
+    "SAVEPOINT paso",
+    "RELEASE paso",
+    "ROLLBACK TO paso",
+    "UPDATE canales SET contador = MAX(contador, ?2) WHERE id = ?1",
+    "INSERT INTO mensajes(canal, numero, autor, hora, texto) VALUES (?1, ?2, ?3, ?4, ?5)",
+    "SELECT id, numero, autor, hora, texto FROM mensajes WHERE canal = ?1"
+    " AND id < ?2 AND numero BETWEEN 0 AND 4294967295 ORDER BY id DESC LIMIT ?3",
+    "SELECT id, numero, autor, hora, texto FROM mensajes WHERE canal = ?1"
+    " AND id > ?2 AND numero BETWEEN 0 AND 4294967295 ORDER BY id ASC LIMIT ?3",
+};
 
 const char kEsquema[] =
     "PRAGMA secure_delete=ON;"
@@ -49,13 +72,14 @@ const char kMigrarDe1[] =
 
 class Consulta {
  public:
-  Consulta(sqlite3* base, const char* sql) {
+  Consulta(sqlite3* base, const char* sql) : propia_(true) {
     if (sqlite3_prepare_v2(base, sql, -1, &consulta_, nullptr) != SQLITE_OK) {
       sqlite3_finalize(consulta_);
       consulta_ = nullptr;
     }
   }
-  ~Consulta() { sqlite3_finalize(consulta_); }
+  explicit Consulta(sqlite3_stmt* preparada) : consulta_(preparada) {}
+  ~Consulta() { propia_ ? sqlite3_finalize(consulta_) : sqlite3_reset(consulta_); }
   Consulta(const Consulta&) = delete;
   Consulta& operator=(const Consulta&) = delete;
 
@@ -91,6 +115,7 @@ class Consulta {
 
  private:
   sqlite3_stmt* consulta_ = nullptr;
+  bool propia_ = false;
   bool bien_ = true;
 };
 
@@ -137,20 +162,73 @@ std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string
   Consulta general(abierta,
                    "INSERT OR IGNORE INTO canales(id, nombre, comparable, orden) VALUES (?1, ?2, ?3, 0)");
   general.entero(1, kCanalGeneral).texto(2, nombre_general).texto(3, comparable(nombre_general));
-  if (!es_nombre_valido(nombre_general) || general.paso() != SQLITE_DONE) {
+  if (!es_nombre_valido(nombre_general) || general.paso() != SQLITE_DONE || !ejecutar(abierta, kAjustes)) {
     return nullptr;
   }
+  base->cambios_asentados_ = sqlite3_total_changes64(abierta);
   return base;
 }
 
 Base::Base(Llave, sqlite3* base) : base_(base), hilo_(GetCurrentThreadId()) {}
 
 Base::~Base() {
+  for (sqlite3_stmt* preparada : preparadas_) {
+    sqlite3_finalize(preparada);
+  }
   sqlite3_close(base_);
 }
 
 bool Base::es_su_hilo() const {
   return GetCurrentThreadId() == hilo_;
+}
+
+sqlite3_stmt* Base::preparada(Sentencia cual) {
+  static_assert(std::size(kSentencias) == static_cast<std::size_t>(Sentencia::total), "Falta una sentencia");
+  sqlite3_stmt*& lugar = gsl::at(preparadas_, static_cast<std::size_t>(cual));
+  if (lugar == nullptr && sqlite3_prepare_v3(base_, gsl::at(kSentencias, static_cast<std::size_t>(cual)), -1,
+                                             SQLITE_PREPARE_PERSISTENT, &lugar, nullptr) != SQLITE_OK) {
+    sqlite3_finalize(lugar);
+    lugar = nullptr;
+  }
+  return lugar;
+}
+
+bool Base::correr(Sentencia cual) {
+  return Consulta(preparada(cual)).paso() == SQLITE_DONE;
+}
+
+bool Base::empezar_tanda() {
+  return es_su_hilo() && correr(Sentencia::empezar);
+}
+
+bool Base::en_tanda() const {
+  return sqlite3_get_autocommit(base_) == 0;
+}
+
+bool Base::confirmar_tanda() {
+  if (en_tanda() && correr(Sentencia::confirmar)) {
+    return true;
+  }
+  deshacer_lo_abierto();
+  return false;
+}
+
+void Base::deshacer_lo_abierto() {
+  if (en_tanda()) {
+    correr(Sentencia::deshacer);
+  }
+}
+
+bool Base::asentar() {
+  if (!es_su_hilo() || !ejecutar(base_, "PRAGMA wal_checkpoint(TRUNCATE)")) {
+    return false;
+  }
+  cambios_asentados_ = sqlite3_total_changes64(base_);
+  return true;
+}
+
+bool Base::hay_sin_asentar() const {
+  return sqlite3_total_changes64(base_) != cambios_asentados_;
 }
 
 std::vector<protocolo::CanalInfo> Base::canales() {
@@ -210,7 +288,7 @@ bool Base::cambiar_canal(std::uint32_t id, const std::string& nombre, bool solo_
 }
 
 bool Base::borrar_canal(std::uint32_t id) {
-  if (!es_su_hilo() || id == kCanalGeneral || !ejecutar(base_, "BEGIN")) {
+  if (!es_su_hilo() || id == kCanalGeneral || !correr(Sentencia::marcar)) {
     return false;
   }
   Consulta mensajes(base_, "DELETE FROM mensajes WHERE canal = ?1");
@@ -218,8 +296,9 @@ bool Base::borrar_canal(std::uint32_t id) {
   mensajes.entero(1, id);
   canal.entero(1, id);
   if (mensajes.paso() != SQLITE_DONE || canal.paso() != SQLITE_DONE ||
-      sqlite3_changes(base_) != 1 || !ejecutar(base_, "COMMIT")) {
-    ejecutar(base_, "ROLLBACK");
+      sqlite3_changes(base_) != 1 || !correr(Sentencia::soltar)) {
+    correr(Sentencia::volver);
+    correr(Sentencia::soltar);
     return false;
   }
   return true;
@@ -231,16 +310,15 @@ std::optional<std::uint64_t> Base::guardar_mensaje(std::uint32_t canal, std::uin
                                                    const std::string& texto, bool guardar) {
   if (!es_su_hilo() || numero == 0 || !es_nombre_valido(autor) || !es_chat_valido(texto) ||
       hora_ms > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
-      !ejecutar(base_, "BEGIN")) {
+      !correr(Sentencia::marcar)) {
     return std::nullopt;
   }
-  Consulta contador(base_, "UPDATE canales SET contador = MAX(contador, ?2) WHERE id = ?1");
+  Consulta contador(preparada(Sentencia::contador));
   contador.entero(1, canal).entero(2, numero);
   bool hecho = contador.paso() == SQLITE_DONE && sqlite3_changes(base_) == 1;
   std::optional<std::uint64_t> id;
   if (hecho && guardar) {
-    Consulta consulta(base_, "INSERT INTO mensajes(canal, numero, autor, hora, texto)"
-                             " VALUES (?1, ?2, ?3, ?4, ?5)");
+    Consulta consulta(preparada(Sentencia::insertar));
     consulta.entero(1, canal)
         .entero(2, numero)
         .texto(3, autor)
@@ -249,31 +327,28 @@ std::optional<std::uint64_t> Base::guardar_mensaje(std::uint32_t canal, std::uin
     hecho = consulta.paso() == SQLITE_DONE;
     id = static_cast<std::uint64_t>(sqlite3_last_insert_rowid(base_));
   }
-  if (!hecho || !ejecutar(base_, "COMMIT")) {
-    ejecutar(base_, "ROLLBACK");
+  if (!hecho || !correr(Sentencia::soltar)) {
+    correr(Sentencia::volver);
+    correr(Sentencia::soltar);
     return std::nullopt;
   }
   return id;
 }
 
-protocolo::Historial Base::historial(std::uint32_t canal, std::uint64_t antes_de,
-                                     std::size_t maximo_bytes) {
-  protocolo::Historial historial;
-  historial.canal = canal;
-  if (!es_su_hilo()) {
+protocolo::Historial Base::historial(const protocolo::PedirHistorial& pedido, std::size_t maximo_bytes) {
+  protocolo::Historial historial{pedido.canal, pedido.desde, pedido.sentido};
+  const bool nuevos = pedido.sentido == protocolo::Sentido::nuevos;
+  if (!es_su_hilo() || (!nuevos && pedido.sentido != protocolo::Sentido::viejos)) {
     return historial;
   }
-  const auto tope = antes_de == 0 || antes_de > static_cast<std::uint64_t>(
-                                                     std::numeric_limits<std::int64_t>::max())
-                        ? std::numeric_limits<std::int64_t>::max()
-                        : static_cast<std::int64_t>(antes_de);
-  Consulta consulta(base_,
-                    "SELECT id, numero, autor, hora, texto FROM mensajes WHERE canal = ?1"
-                    " AND id < ?2 AND numero BETWEEN 0 AND 4294967295 ORDER BY id DESC LIMIT ?3");
-  consulta.entero(1, canal)
-      .entero(2, tope)
-      .entero(3, static_cast<std::int64_t>(protocolo::kMaximoMensajesEnHistorial) + 1);
-  std::size_t bytes = 4 + 1 + 2;
+  constexpr auto kMaximoId = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+  const auto tope = static_cast<std::int64_t>(!nuevos && pedido.desde == 0 ? kMaximoId
+                                                                           : std::min(pedido.desde, kMaximoId));
+  const std::size_t cantidad =
+      std::clamp<std::size_t>(pedido.cantidad, 1, protocolo::kMaximoMensajesEnHistorial);
+  Consulta consulta(preparada(nuevos ? Sentencia::nuevos : Sentencia::viejos));
+  consulta.entero(1, pedido.canal).entero(2, tope).entero(3, static_cast<std::int64_t>(cantidad) + 1);
+  std::size_t bytes = 4 + 8 + 1 + 1 + 2;
   auto anterior = static_cast<std::uint64_t>(tope);
   while (consulta.paso() == SQLITE_ROW) {
     protocolo::MensajeGuardado guardado;
@@ -282,14 +357,13 @@ protocolo::Historial Base::historial(std::uint32_t canal, std::uint64_t antes_de
     guardado.autor = consulta.columna_texto(2);
     guardado.hora_ms = static_cast<std::uint64_t>(consulta.columna_entero(3));
     guardado.texto = consulta.columna_texto(4);
-    if (guardado.id == 0 || guardado.id >= anterior || !es_nombre_valido(guardado.autor) ||
-        !es_chat_valido(guardado.texto)) {
+    if (guardado.id == 0 || (nuevos ? guardado.id <= anterior : guardado.id >= anterior) ||
+        !es_nombre_valido(guardado.autor) || !es_chat_valido(guardado.texto)) {
       continue;
     }
     anterior = guardado.id;
     const std::size_t ocupa = 8 + 4 + 2 + guardado.autor.size() + 8 + 2 + guardado.texto.size();
-    if (historial.mensajes.size() == protocolo::kMaximoMensajesEnHistorial ||
-        bytes + ocupa > maximo_bytes) {
+    if (historial.mensajes.size() == cantidad || bytes + ocupa > maximo_bytes) {
       historial.hay_mas = true;
       break;
     }
@@ -403,16 +477,25 @@ void ServicioBase::trabajar(std::wstring archivo, std::string nombre_general) {
   if (!base) {
     return;
   }
-  auto proxima_limpieza = std::chrono::steady_clock::now();
+  using Reloj = std::chrono::steady_clock;
+  auto proxima_limpieza = Reloj::now();
+  auto asentar_en = Reloj::time_point::max();
+  std::vector<Trabajo> tanda;
+  std::vector<std::function<void()>> listas;
   std::unique_lock<std::mutex> candado(candado_);
   for (;;) {
-    if (std::chrono::steady_clock::now() >= proxima_limpieza) {
+    const auto ahora = Reloj::now();
+    if (ahora >= std::min(proxima_limpieza, asentar_en)) {
       candado.unlock();
-      base->borrar_viejos(ahora_ms());
+      if (ahora >= proxima_limpieza) {
+        base->borrar_viejos(ahora_ms());
+        proxima_limpieza = ahora + kCadaCuantoLimpiar;
+      }
+      base->asentar();
+      asentar_en = Reloj::time_point::max();
       candado.lock();
-      proxima_limpieza = std::chrono::steady_clock::now() + kCadaCuantoLimpiar;
     }
-    hay_pedidos_.wait_until(candado, proxima_limpieza,
+    hay_pedidos_.wait_until(candado, std::min(proxima_limpieza, asentar_en),
                             [this] { return terminar_ || !pedidos_.empty(); });
     if (pedidos_.empty()) {
       if (terminar_) {
@@ -420,13 +503,40 @@ void ServicioBase::trabajar(std::wstring archivo, std::string nombre_general) {
       }
       continue;
     }
-    Trabajo trabajo = std::move(pedidos_.front());
-    pedidos_.pop_front();
+    tanda.clear();
+    while (!pedidos_.empty() && tanda.size() < kPedidosPorTanda) {
+      tanda.push_back(std::move(pedidos_.front()));
+      pedidos_.pop_front();
+    }
     candado.unlock();
-    auto respuesta = trabajo(*base);
+    listas.clear();
+    const bool junta = tanda.size() > 1 && base->empezar_tanda();
+    for (auto& trabajo : tanda) {
+      listas.push_back(trabajo(*base));
+      if (junta && !base->en_tanda()) {
+        break;
+      }
+    }
+    if (junta && !base->confirmar_tanda()) {
+      listas.clear();
+      for (auto& trabajo : tanda) {
+        listas.push_back(trabajo(*base));
+        base->deshacer_lo_abierto();
+      }
+    }
+    base->deshacer_lo_abierto();
+    if (asentar_en == Reloj::time_point::max() && base->hay_sin_asentar()) {
+      asentar_en = Reloj::now() + kCadaCuantoAsentar;
+    }
     candado.lock();
-    if (respuesta) {
-      respuestas_.push_back(std::move(respuesta));
+    bool avisar = false;
+    for (auto& respuesta : listas) {
+      if (respuesta) {
+        respuestas_.push_back(std::move(respuesta));
+        avisar = true;
+      }
+    }
+    if (avisar) {
       despertador_->despertar();
     }
   }

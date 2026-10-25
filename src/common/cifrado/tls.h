@@ -17,6 +17,15 @@
 #include "common/red/red.h"
 
 namespace ventrik::cifrado {
+struct Trafico {
+  std::uint64_t tcp_enviados = 0;
+  std::uint64_t tcp_recibidos = 0;
+  std::uint64_t udp_enviados = 0;
+  std::uint64_t udp_recibidos = 0;
+};
+
+Trafico trafico();
+
 class SesionTls;
 
 using EnviarDatagrama = std::function<void(const red::Direccion&, gsl::span<const std::uint8_t>)>;

@@ -24,11 +24,23 @@ struct UsoVentana {
   double direct3d_ms = 0;
   std::uint32_t presentados = 0;
   int vertices_max = 0;
+  std::uint32_t despertares = 0;
+  std::uint64_t pixeles = 0;
 };
 
-std::size_t huella_del_dibujo(const ImDrawData& dibujo);
+struct Situacion {
+  bool con_foco = true;
+  bool minimizada = false;
+  bool tapada = false;
+  bool juego = false;
+  bool bloqueada = false;
+  bool ahorro = false;
+  bool dibuja() const { return !minimizada && !tapada && !juego && !bloqueada; }
+};
+
 bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, std::optional<LPARAM>& ultimo_mouse);
 DWORD espera_entre_cuadros(double ultimo_ms);
+bool tapa_el_monitor(const RECT& ventana, const RECT& monitor, LONG estilo, LONG extendido);
 
 class Ventana {
  public:
@@ -41,9 +53,14 @@ class Ventana {
   HWND hwnd() const { return ventana_; }
   ImTextureID logo() const;
   std::string placa() const;
+  std::string grafica() const;
   bool por_procesador() const;
+  const Situacion& situacion() const { return situacion_; }
+  bool por_partes() const { return por_partes_; }
+  void por_partes(bool si) { por_partes_ = si; }
   UsoVentana tomar_uso() { return std::exchange(uso_, {}); }
-  int correr(const std::function<void()>& atender, const std::function<void()>& dibujar);
+  std::uint32_t arranque_ms() const { return arranque_ms_; }
+  int correr(const std::function<bool()>& atender, const std::function<void()>& dibujar);
   void al_terminar_la_sesion(std::function<void()> terminar) { al_terminar_ = std::move(terminar); }
 
  private:
@@ -51,6 +68,8 @@ class Ventana {
   static LRESULT CALLBACK procesar(HWND ventana, UINT mensaje, WPARAM wparam, LPARAM lparam);
   bool preparar_dispositivo();
   void cargar_logo(float escala);
+  void escuchar_a_windows();
+  void mirar_situacion();
   bool recuperar_dispositivo();
   bool dibujar_cuadro(const std::function<void()>& dibujar);
 
@@ -61,8 +80,12 @@ class Ventana {
   bool lista_ = false;
   bool perdido_ = false;
   bool presentar_igual_ = true;
-  std::size_t huella_ = 0;
+  bool por_partes_ = true;
+  bool bloqueo_ = false;
+  bool protector_ = false;
+  Situacion situacion_;
   UsoVentana uso_;
+  std::uint32_t arranque_ms_ = 0;
   UINT ancho_nuevo_ = 0;
   UINT alto_nuevo_ = 0;
   std::function<void()> al_terminar_;

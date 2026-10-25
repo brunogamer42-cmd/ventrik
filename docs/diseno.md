@@ -417,7 +417,7 @@ El mínimo del programa es TLS 1.3 o DTLS 1.2, con AES-GCM o ChaCha20. Sin ese m
 - **Se ata a la conexión:** el servidor sabe de quién es cada sesión de voz por la clave, y además exige que el UDP llegue desde la misma IP que la conexión TCP. Así decide quién habla según la conexión, y el paquete no dice quién es.
 - **Se renueva cada hora:** el servidor manda una identificación nueva; la vieja deja de servir para conectar.
 - **Antes de gastar nada:** el servidor solo atiende UDP de una IP que tiene una conexión presentada, pide una cookie antes del saludo (así nadie lo usa para atacar a otros), tiene tope de saludos a medio hacer por IP y en total, tope de paquetes por persona y descarta los repetidos.
-- **Formato de los medios, dentro de DTLS:** `u16 tipo` y el cuerpo. Los paquetes de medios llevan el tipo de flujo (1 = voz; el 2 queda reservado para compartir pantalla) y el número de flujo (la voz va en el 0). El servidor reenvía según el tipo, descarta los tipos y flujos que no conoce sin cortar la sesión, y manda primero la voz. El programa manda `MedioSubida` (tipo, flujo, número de paquete de 16 bits y hasta 400 bytes de Opus); el servidor reenvía `MedioBajada` (quién habla, que lo pone el servidor, y el mismo medio) a los demás del mismo canal. `Ping` y `Pong` cada 5 segundos mantienen abierto el camino (NAT) y miden la conexión.
+- **Formato de los medios, dentro de DTLS:** `u16 tipo` y el cuerpo. Los paquetes de medios llevan el tipo de flujo (1 = voz; el 2 queda reservado para compartir pantalla) y el número de flujo (la voz va en el 0). El servidor reenvía según el tipo, descarta los tipos y flujos que no conoce sin cortar la sesión, y manda primero la voz. El programa manda `MedioSubida` (tipo, flujo, número de paquete de 16 bits y hasta 400 bytes de Opus); el servidor reenvía `MedioBajada` (quién habla, que lo pone el servidor, y el mismo medio) a los demás del mismo canal. `Ping` y `Pong` cada 5 segundos (cada 15 en ahorro: ventana minimizada, juego en pantalla completa o PC bloqueada) mantienen abierto el camino (NAT) y miden la conexión.
 - **Límites conocidos de la regla de la IP:** casas con dos salidas a internet, algunos CGNAT y servidores con varias placas de red pueden quedarse sin voz. Se revisan con el relay (etapa 6).
 
 La invitación lleva la huella del servidor. Si al conectar no coincide, el programa avisa y no se conecta; conviene pasar la huella por otro medio, como WhatsApp o en persona.
@@ -458,7 +458,7 @@ El servidor no confía en nada de lo que dice un programa: cualquiera puede modi
 | Inyección SQL | Siempre consultas preparadas en SQLite |
 | Conexiones que nunca terminan de saludar | Tiempo máximo para el saludo inicial y tope de conexiones pendientes por IP |
 | Un programa que no lee lo que recibe | Colas con tope: si no lee, se descarta su voz en vez de acumularla en la memoria. Si lo pendiente de chat y control pasa de 1 MiB, se lo desconecta |
-| Conexiones muertas | Ping cada 5 segundos; sin datos recibidos ni enviados durante 30 segundos, se cortan |
+| Conexiones muertas | Ping cada 5 segundos (cada 15 con la ventana minimizada, un juego en pantalla completa o la PC bloqueada); sin datos recibidos ni enviados durante 30 segundos, se cortan |
 | Imagen "bomba" (1 MB que declara 50.000 × 50.000 píxeles) | Se leen las dimensiones antes de decodificar, con tope de píxeles y de cuadros |
 | Nombres de archivo con trampas | Cada archivo se guarda con un nombre aleatorio; el nombre original es solo texto |
 
@@ -829,6 +829,18 @@ En modo Rendimiento, el programa apunta a usar como máximo 50 MB de RAM y casi 
 
 Estas metas son para PCs comunes. En la netbook de referencia (HP 2133, VIA C7-M) se midió en la etapa 1, en el nivel de consumo Bajo: unos 7 % de un núcleo mientras hablás y 2,4 % por cada voz que escuchás. Ahí la meta de 2 % con 3 personas hablando no se puede cumplir; con el nivel Bajo la netbook aguanta igual (ver "Consumo de la voz" y docs/mediciones.md).
 
+Metas propias de la netbook de referencia, en Rendimiento (decididas por el dueño con el plan de optimización, docs/optimizacion.md):
+
+| Situación | Meta |
+| --- | --- |
+| Quieta, sin nadie hablando | Hasta 1 % |
+| Escuchando | Hasta 3 % más la voz |
+| Con el mouse encima | Hasta 10 % |
+| Hablando | La voz más 5 % |
+| Memoria del programa | Hasta 20 MB |
+
+En las dos versiones, con la ventana quieta y nadie hablando, menos de 20 despertares por segundo, y nada que impida dormir a la PC si no hay una llamada en curso.
+
 **Cómo se logra:**
 
 - La interfaz la dibuja el propio programa con la placa de video, como un juego. Solo se redibuja cuando algo cambia; con la ventana minimizada no se dibuja nada.
@@ -903,7 +915,7 @@ El programa y el servidor se escriben en C++17 nativo para Windows, con bibliote
 | Ventana | Win32 | La base de los programas nativos de Windows |
 | Dibujo y animación | Direct3D 9 + Dear ImGui, con diseño propio | Direct3D 9 existe desde XP y sigue en 11. Todo se dibuja por código, así el aspecto es 100 % propio |
 | Fuentes | Barlow y Barlow Semi Condensed para la interfaz; Bungee, Pacifico, Press Start 2P, Permanent Marker y Righteous para los nombres | Van dentro del programa: nadie descarga fuentes ajenas |
-| Audio | miniaudio (Vista en adelante) y un puente propio con WinMM (XP) | miniaudio usa WASAPI desde Vista. En XP, donde WASAPI no existe, miniaudio o consume mucho procesador (DirectSound: consulta cada 1 ms) o suma mucha demora (WinMM: esperas de 40 ms como mínimo), así que Ventrik habla directo con WinMM, con esperas de 10 ms y avisos de Windows (medido en la etapa 1) |
+| Audio | miniaudio (Vista en adelante) y un puente propio con WinMM (XP) | miniaudio usa WASAPI desde Vista. En XP, donde WASAPI no existe, miniaudio o consume mucho procesador (DirectSound: consulta cada 1 ms) o suma mucha demora (WinMM: esperas de 40 ms como mínimo), así que Ventrik habla directo con WinMM, con pedazos de 20 ms y avisos de Windows (medido en la etapa 1 con 10 ms; la clásica usa 20 para despertarse la mitad de veces) |
 | Compresión de voz | Opus | El estándar actual para voz por internet |
 | Limpieza de ruido | RNNoise | Quita el ruido de fondo con poco procesador |
 | Cancelación de eco | SpeexDSP | Liviana, en C y funciona en XP |

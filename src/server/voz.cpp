@@ -175,9 +175,9 @@ void Voz::atender(Persona& persona, gsl::span<const std::uint8_t> datagrama, Ins
       continue;
     }
     if (marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::medio_subida)) {
-      const auto subida = protocolo::leer_mensaje<protocolo::MedioSubida>(marco->cuerpo);
+      auto subida = protocolo::leer_mensaje<protocolo::MedioSubida>(marco->cuerpo);
       if (subida && persona.paquetes.tomar(ahora)) {
-        reenviar(persona, subida->medio);
+        reenviar(persona, std::move(subida->medio));
       }
       return;
     } else if (marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::ping)) {
@@ -190,14 +190,13 @@ void Voz::atender(Persona& persona, gsl::span<const std::uint8_t> datagrama, Ins
   }
 }
 
-void Voz::reenviar(const Persona& hablante, const protocolo::Medio& medio) {
-  std::vector<std::uint8_t> datagrama;
-  if (!protocolo::armar_datagrama(protocolo::MedioBajada{hablante.id, medio}, datagrama)) {
+void Voz::reenviar(const Persona& hablante, protocolo::Medio medio) {
+  if (!protocolo::armar_datagrama(protocolo::MedioBajada{hablante.id, std::move(medio)}, datagrama_)) {
     return;
   }
   for (auto& oyente : personas_) {
     if (oyente.id != hablante.id && oyente.canal == hablante.canal && oyente.sesion) {
-      escribir(*oyente.sesion, datagrama);
+      escribir(*oyente.sesion, datagrama_);
     }
   }
 }

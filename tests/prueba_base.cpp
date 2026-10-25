@@ -1,5 +1,6 @@
 #include <atomic>
 #include <chrono>
+#include <future>
 #include <string>
 #include <thread>
 
@@ -36,21 +37,26 @@ void armar_base(const std::wstring& archivo, const char* sql) {
   sqlite3_close(base);
 }
 
-int leer_numero(const std::wstring& archivo, const char* sql) {
+std::string leer_texto(const std::wstring& archivo, const char* sql) {
   sqlite3* base = nullptr;
-  int valor = -1;
-  if (sqlite3_open_v2(ventrik::a_utf8(archivo).c_str(), &base, SQLITE_OPEN_READONLY, nullptr) ==
+  std::string valor;
+  if (sqlite3_open_v2(ventrik::a_utf8(archivo).c_str(), &base, SQLITE_OPEN_READWRITE, nullptr) ==
       SQLITE_OK) {
     sqlite3_exec(
         base, sql,
         [](void* destino, int, char** valores, char**) {
-          *static_cast<int*>(destino) = std::atoi(valores[0]);
+          *static_cast<std::string*>(destino) = valores[0] != nullptr ? valores[0] : "";
           return 0;
         },
         &valor, nullptr);
   }
   sqlite3_close(base);
   return valor;
+}
+
+int leer_numero(const std::wstring& archivo, const char* sql) {
+  const std::string texto = leer_texto(archivo, sql);
+  return texto.empty() ? -1 : std::atoi(texto.c_str());
 }
 
 std::wstring archivo_temporal() {
@@ -82,7 +88,7 @@ TEST_CASE("La base arranca con General y administra canales") {
   REQUIRE(base->guardar_mensaje(*juegos, 1, "Ana", 1, "hola"));
   CHECK(base->borrar_canal(*juegos));
   CHECK_FALSE(base->borrar_canal(*juegos));
-  CHECK(base->historial(*juegos, 0, 65536).mensajes.empty());
+  CHECK(base->historial({*juegos, 0}, 65536).mensajes.empty());
   CHECK(base->canales().size() == 1);
 }
 
@@ -113,7 +119,7 @@ TEST_CASE("El contador de cada canal solo sube, aunque no se guarden los mensaje
   CHECK_FALSE(base->guardar_mensaje(kCanalGeneral, 0, "Ana", 3, "sin número"));
   REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 3, "atrasado"));
   CHECK(base->canales()[0].contador == 2);
-  const auto historial = base->historial(kCanalGeneral, 0, 65536);
+  const auto historial = base->historial({kCanalGeneral, 0}, 65536);
   REQUIRE(historial.mensajes.size() == 2);
   CHECK(historial.mensajes[0].texto == "atrasado");
   CHECK(historial.mensajes[1].numero == 1);
@@ -128,7 +134,7 @@ TEST_CASE("Un canal borrado no deja su número ni recibe mensajes") {
   const auto nuevo = base->crear_canal("Nuevo");
   REQUIRE(nuevo);
   CHECK(*nuevo != *juegos);
-  CHECK(base->historial(*juegos, 0, 65536).mensajes.empty());
+  CHECK(base->historial({*juegos, 0}, 65536).mensajes.empty());
   CHECK_FALSE(base->guardar_mensaje(99, 1, "Ana", 1, "hola"));
 }
 
@@ -139,18 +145,100 @@ TEST_CASE("El historial sale de a partes, del más nuevo al más viejo") {
                                   static_cast<std::uint64_t>(i),
                                   "mensaje " + std::to_string(i)));
   }
-  const auto primera = base->historial(kCanalGeneral, 0, 65536);
+  const auto primera = base->historial({kCanalGeneral, 0}, 65536);
   REQUIRE(primera.mensajes.size() == ventrik::protocolo::kMaximoMensajesEnHistorial);
   CHECK(primera.hay_mas);
   CHECK(primera.mensajes.front().texto == "mensaje 300");
-  const auto segunda = base->historial(kCanalGeneral, primera.mensajes.back().id, 65536);
+  const auto segunda = base->historial({kCanalGeneral, primera.mensajes.back().id}, 65536);
   REQUIRE(segunda.mensajes.size() == 44);
   CHECK_FALSE(segunda.hay_mas);
   CHECK(segunda.mensajes.back().texto == "mensaje 1");
-  const auto chica = base->historial(kCanalGeneral, 0, 100);
+  const auto chica = base->historial({kCanalGeneral, 0}, 100);
   CHECK(chica.mensajes.size() == 2);
   CHECK(chica.hay_mas);
-  CHECK(base->historial(2, 0, 65536).mensajes.empty());
+  CHECK(base->historial({2, 0}, 65536).mensajes.empty());
+}
+
+TEST_CASE("El historial también sale hacia lo más nuevo, y de a tantos mensajes como se pidan") {
+  using ventrik::protocolo::Sentido;
+  auto base = base_en_memoria();
+  for (int i = 1; i <= 300; ++i) {
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, static_cast<std::uint32_t>(i), "Ana", 1, "m " + std::to_string(i)));
+  }
+  const auto primeros = base->historial({kCanalGeneral, 0, Sentido::nuevos, 10}, 65536);
+  CHECK(primeros.sentido == Sentido::nuevos);
+  REQUIRE(primeros.mensajes.size() == 10);
+  CHECK(primeros.hay_mas);
+  CHECK(primeros.mensajes.front().texto == "m 1");
+  CHECK(primeros.mensajes.back().texto == "m 10");
+  const auto desde = primeros.mensajes.back().id;
+  const auto siguientes = base->historial({kCanalGeneral, desde, Sentido::nuevos, 256}, 65536);
+  CHECK(siguientes.desde == desde);
+  REQUIRE(siguientes.mensajes.size() == 256);
+  CHECK(siguientes.mensajes.front().texto == "m 11");
+  CHECK(siguientes.hay_mas);
+  const auto resto = base->historial({kCanalGeneral, siguientes.mensajes.back().id, Sentido::nuevos, 256}, 65536);
+  CHECK(resto.mensajes.size() == 34);
+  CHECK_FALSE(resto.hay_mas);
+  CHECK(base->historial({kCanalGeneral, resto.mensajes.back().id, Sentido::nuevos, 5}, 65536).mensajes.empty());
+  const auto ultimos = base->historial({kCanalGeneral, 0, Sentido::viejos, 64}, 65536);
+  REQUIRE(ultimos.mensajes.size() == 64);
+  CHECK(ultimos.hay_mas);
+  CHECK(ultimos.mensajes.front().texto == "m 300");
+  const auto anteriores = base->historial({kCanalGeneral, ultimos.mensajes.back().id, Sentido::viejos, 1}, 65536);
+  REQUIRE(anteriores.mensajes.size() == 1);
+  CHECK(anteriores.mensajes.front().texto == "m 236");
+  std::vector<std::uint8_t> marco;
+  for (const auto& armado : {primeros, siguientes, resto, ultimos, anteriores}) {
+    CHECK(ventrik::protocolo::armar_mensaje(armado, marco));
+  }
+  CHECK(base->historial({kCanalGeneral, 0, static_cast<Sentido>(3), 5}, 65536).mensajes.empty());
+}
+
+TEST_CASE("En una tanda, un mensaje que falla no deshace a los demás") {
+  auto base = base_en_memoria();
+  REQUIRE(base->empezar_tanda());
+  CHECK(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1, "uno"));
+  CHECK_FALSE(base->guardar_mensaje(99, 1, "Ana", 1, "canal que no existe"));
+  CHECK_FALSE(base->guardar_mensaje(kCanalGeneral, 2, "Ana", 1, ""));
+  CHECK(base->guardar_mensaje(kCanalGeneral, 3, "Ana", 1, "tres"));
+  const auto juegos = base->crear_canal("Juegos");
+  REQUIRE(juegos);
+  CHECK(base->borrar_canal(*juegos));
+  CHECK_FALSE(base->borrar_canal(*juegos));
+  REQUIRE(base->confirmar_tanda());
+  const auto historial = base->historial({kCanalGeneral, 0}, 65536);
+  REQUIRE(historial.mensajes.size() == 2);
+  CHECK(historial.mensajes[0].texto == "tres");
+  CHECK(base->canales().size() == 1);
+  CHECK(base->canales()[0].contador == 3);
+}
+
+TEST_CASE("En un archivo la base usa WAL, se asienta cuando se pide y al cerrarse no deja archivos de más") {
+  const std::wstring archivo = archivo_temporal();
+  DeleteFileW(archivo.c_str());
+  const auto existe = [&](const wchar_t* sufijo) {
+    return GetFileAttributesW((archivo + sufijo).c_str()) != INVALID_FILE_ATTRIBUTES;
+  };
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    CHECK_FALSE(base->hay_sin_asentar());
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1, "hola"));
+    CHECK(base->hay_sin_asentar());
+    CHECK(existe(L"-wal"));
+    CHECK(existe(L"-shm"));
+    REQUIRE(base->asentar());
+    CHECK_FALSE(base->hay_sin_asentar());
+    WIN32_FILE_ATTRIBUTE_DATA datos{};
+    REQUIRE(GetFileAttributesExW((archivo + L"-wal").c_str(), GetFileExInfoStandard, &datos));
+    CHECK(datos.nFileSizeLow == 0);
+    CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM mensajes") == 1);
+  }
+  CHECK_FALSE(existe(L"-wal"));
+  CHECK_FALSE(existe(L"-shm"));
+  CHECK(leer_texto(archivo, "PRAGMA journal_mode") == "wal");
+  CHECK(DeleteFileW(archivo.c_str()));
 }
 
 TEST_CASE("La retención borra lo viejo y por defecto se guarda siempre") {
@@ -159,7 +247,7 @@ TEST_CASE("La retención borra lo viejo y por defecto se guarda siempre") {
   REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", ahora - 40 * kDia, "muy viejo"));
   REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", ahora - 10 * kDia, "viejo"));
   REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", ahora - 1000, "nuevo"));
-  const auto cuantos = [&] { return base->historial(kCanalGeneral, 0, 65536).mensajes.size(); };
+  const auto cuantos = [&] { return base->historial({kCanalGeneral, 0}, 65536).mensajes.size(); };
   CHECK(base->retencion() == Retencion::siempre);
   base->borrar_viejos(ahora);
   CHECK(cuantos() == 3);
@@ -182,7 +270,7 @@ TEST_CASE("Comillas y SQL en los textos se guardan tal cual") {
   const auto id = base->crear_canal(canal);
   REQUIRE(id);
   REQUIRE(base->guardar_mensaje(*id, 1, "O'Brien", 1, texto));
-  const auto historial = base->historial(*id, 0, 65536);
+  const auto historial = base->historial({*id, 0}, 65536);
   REQUIRE(historial.mensajes.size() == 1);
   CHECK(historial.mensajes[0].texto == texto);
   CHECK(historial.mensajes[0].autor == "O'Brien");
@@ -218,7 +306,7 @@ TEST_CASE("La base guarda en el archivo y se vuelve a abrir igual") {
     const auto canales = base->canales();
     REQUIRE(canales.size() == 2);
     CHECK(canales[0].nombre == "General");
-    CHECK(base->historial(kCanalGeneral, 0, 65536).mensajes.size() == 1);
+    CHECK(base->historial({kCanalGeneral, 0}, 65536).mensajes.size() == 1);
   }
   CHECK(DeleteFileW(archivo.c_str()));
   CHECK_FALSE(Base::abrir(L"", " mal"));
@@ -251,11 +339,11 @@ TEST_CASE("Una base de la versión 1 se actualiza: canales de voz y mensajes num
       CHECK(canal.tipo == TipoCanal::voz);
       CHECK_FALSE(canal.solo_admins);
     }
-    const auto general = base->historial(kCanalGeneral, 0, 65536);
+    const auto general = base->historial({kCanalGeneral, 0}, 65536);
     REQUIRE(general.mensajes.size() == 2);
     CHECK(general.mensajes[0].numero == 2);
     CHECK(general.mensajes[1].numero == 1);
-    const auto juegos = base->historial(2, 0, 65536);
+    const auto juegos = base->historial({2, 0}, 65536);
     REQUIRE(juegos.mensajes.size() == 1);
     CHECK(juegos.mensajes[0].numero == 1);
     REQUIRE(base->guardar_mensaje(kCanalGeneral, 3, "Ana", 4, "d"));
@@ -264,7 +352,7 @@ TEST_CASE("Una base de la versión 1 se actualiza: canales de voz y mensajes num
     auto base = Base::abrir(archivo, "General");
     REQUIRE(base);
     CHECK(base->canales()[0].contador == 3);
-    CHECK(base->historial(kCanalGeneral, 0, 65536).mensajes.size() == 3);
+    CHECK(base->historial({kCanalGeneral, 0}, 65536).mensajes.size() == 3);
   }
   CHECK(DeleteFileW(archivo.c_str()));
 }
@@ -313,6 +401,41 @@ TEST_CASE("Al cerrarse, el servicio de la base termina los pedidos que quedaron 
     }
   }
   CHECK(leer_numero(archivo, "SELECT contador FROM canales WHERE id = 1") == 100);
+  CHECK(DeleteFileW(archivo.c_str()));
+}
+
+TEST_CASE("Si SQLite deshace la tanda en el medio, ningún trabajo queda hecho dos veces") {
+  ventrik::red::Inicio red;
+  REQUIRE(red.ok());
+  ventrik::red::Despertador despertador;
+  REQUIRE(despertador.ok());
+  const std::wstring archivo = archivo_temporal();
+  DeleteFileW(archivo.c_str());
+  {
+    ServicioBase servicio;
+    REQUIRE(servicio.arrancar(archivo, "General", despertador));
+    std::promise<void> seguir;
+    const std::shared_future<void> esperar = seguir.get_future().share();
+    REQUIRE(servicio.pedir([esperar](Base&) -> std::function<void()> {
+      esperar.wait();
+      return {};
+    }));
+    const auto guardar = [](std::uint32_t numero) {
+      return [numero](Base& base) -> std::function<void()> {
+        base.guardar_mensaje(kCanalGeneral, numero, "Ana", 1, "hola");
+        return {};
+      };
+    };
+    REQUIRE(servicio.pedir(guardar(1)));
+    REQUIRE(servicio.pedir([](Base& base) -> std::function<void()> {
+      base.deshacer_lo_abierto();
+      return {};
+    }));
+    REQUIRE(servicio.pedir(guardar(2)));
+    REQUIRE(servicio.pedir(guardar(3)));
+    seguir.set_value();
+  }
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM mensajes") == 3);
   CHECK(DeleteFileW(archivo.c_str()));
 }
 

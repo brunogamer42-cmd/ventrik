@@ -564,6 +564,8 @@ Pedido del dueño: **todo lo de este plan que se puede hacer con lo que ya exist
    - con un programa pesado abierto, para la memoria.
 7. **Un commit** con todo, y GitHub.
 
+**Resultado (2026-10-25):** aplicado todo lo que existe hoy, salvo lo que espera una medición o una pantalla que todavía no está: la imagen parcial (5.3) queda solo si gana en la HP; los pedazos de 20 ms en la moderna (4.4), cerrar los parlantes (12.2), el modo de red liviano (10.4), el gráfico con el ping de la voz (10.6), las cachés descartables y la prioridad de memoria baja (9.1, 9.4, 9.5: todavía no hay cachés ni tareas pesadas; quedan como reglas en docs/estado.md), los temporizadores con tolerancia de la sesión (4.6: la sesión espera eventos, no tiene temporizadores) y el modo Visual (sección 6, etapa 10). El detalle está en docs/estado.md.
+
 ## 18. Decisiones del dueño
 
 | # | Pregunta | Recomendación |

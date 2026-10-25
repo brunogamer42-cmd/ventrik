@@ -2,11 +2,14 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
 #include <utility>
 
 #include <winsock2.h>
 
 #include <gsl/gsl>
+
+#include "client/voz_primero.h"
 
 namespace ventrik::cliente {
 namespace {
@@ -88,6 +91,23 @@ void Sesion::ordenar(Orden orden) {
     ordenes_.push_back(std::move(orden));
   }
   despertador_.despertar();
+}
+
+void Sesion::ordenar(std::vector<Orden> ordenes) {
+  if (ordenes.empty()) {
+    return;
+  }
+  {
+    const std::lock_guard<std::mutex> candado(candado_);
+    std::move(ordenes.begin(), ordenes.end(), std::back_inserter(ordenes_));
+  }
+  despertador_.despertar();
+}
+
+void Sesion::ahorrar(bool si) {
+  if (ahorrando_.exchange(si) != si) {
+    despertador_.despertar();
+  }
 }
 
 std::vector<Novedad> Sesion::esperar_novedades(std::chrono::milliseconds tiempo) {
@@ -192,20 +212,21 @@ void Sesion::correr() {
     return;
   }
   SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+  no_frenar_este_hilo();
   if (opciones_.voz && opciones_.voz->despertador.ok()) {
     canal_voz_ = std::make_unique<CanalVoz>(destino_, *opciones_.voz);
   }
   const auto cerrar_voz = gsl::finally([this] {
     canal_voz_.reset();
     if (opciones_.voz) {
-      opciones_.voz->estado = EstadoVoz::sin_conexion;
+      opciones_.voz->cambiar(opciones_.voz->estado, EstadoVoz::sin_conexion);
     }
   });
   ConexionAbierta& abierta = *resultado.abierta;
   cifrado::SesionTls& tls = abierta.tls();
   tls_ = &tls;
   std::vector<std::uint8_t> salida;
-  auto proximo_ping = Reloj::now();
+  auto ultimo_ping = Reloj::now() - opciones_.cada_cuanto_ping;
   auto ultimo_dato = Reloj::now();
 
   const auto procesar_bytes = [&](gsl::span<const std::uint8_t> datos) {
@@ -231,10 +252,12 @@ void Sesion::correr() {
         return;
       }
     }
+    const bool ahorrando = ahorrando_;
+    const auto cada_ping = ahorrando ? opciones_.cada_cuanto_ping_ahorrando : opciones_.cada_cuanto_ping;
     const auto ahora = Reloj::now();
-    if (ahora >= proximo_ping) {
+    if (ahora >= ultimo_ping + cada_ping) {
       agregar(salida, protocolo::Ping{milisegundos_desde_arranque()});
-      proximo_ping = ahora + opciones_.cada_cuanto_ping;
+      ultimo_ping = ahora;
     }
 
     bool quiere_escribir = false;
@@ -284,6 +307,7 @@ void Sesion::correr() {
       return;
     }
     if (canal_voz_) {
+      canal_voz_->ahorrar(ahorrando);
       canal_voz_->atender(Reloj::now());
     }
 
@@ -304,16 +328,17 @@ void Sesion::correr() {
       }
     }
     const auto hasta_el_ping = std::chrono::duration_cast<std::chrono::milliseconds>(
-        proximo_ping - Reloj::now());
+        ultimo_ping + cada_ping - Reloj::now());
     const auto hasta_la_voz = canal_voz_ ? canal_voz_->hasta_lo_proximo(Reloj::now()) : hasta_el_ping;
     const auto espera = tls.hay_datos_guardados()
                             ? std::chrono::milliseconds{0}
                             : std::clamp(std::min(hasta_el_ping, hasta_la_voz), std::chrono::milliseconds{0},
-                                         opciones_.cada_cuanto_ping);
+                                         cada_ping);
     timeval tiempo = {};
     tiempo.tv_sec = static_cast<long>(espera.count() / 1000);
     tiempo.tv_usec = static_cast<long>((espera.count() % 1000) * 1000);
     const int listos = select(0, &lectura, &escritura, nullptr, &tiempo);
+    despertares_.fetch_add(1, std::memory_order_relaxed);
     if (listos < 0) {
       Sleep(10);
     }

@@ -12,13 +12,14 @@
 #include <atomic>
 #include <initializer_list>
 #include <limits>
-#include <string>
 #include <type_traits>
 
 #include <windows.h>
 
 #include <gsl/gsl>
 #include <mbedtls/entropy.h>
+
+#include "common/sistema.h"
 
 #if !defined(MBEDTLS_NO_PLATFORM_ENTROPY) || !defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
 #error "La versión clásica necesita MBEDTLS_NO_PLATFORM_ENTROPY y MBEDTLS_ENTROPY_HARDWARE_ALT (ver ventrik_mbedtls_config.h)"
@@ -36,21 +37,6 @@ namespace {
 // RtlGenRandom se exporta con el nombre SystemFunction036.
 using FuncionRtlGenRandom = BOOLEAN(WINAPI*)(PVOID, ULONG);
 
-// Carga una DLL de la carpeta de sistema de Windows con su ruta completa.
-// Con LOAD_WITH_ALTERED_SEARCH_PATH, lo que esa DLL necesite se busca
-// primero en su misma carpeta y no al lado del .exe.
-HMODULE cargar_de_sistema(const wchar_t* dll) noexcept {
-  wchar_t carpeta[MAX_PATH] = {};
-  const UINT largo = GetSystemDirectoryW(carpeta, MAX_PATH);
-  if (largo == 0 || largo >= MAX_PATH) {
-    return nullptr;
-  }
-  std::wstring ruta(carpeta, largo);
-  ruta += L'\\';
-  ruta += dll;
-  return LoadLibraryExW(ruta.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-}
-
 // Desde Windows 7, advapi32.dll no tiene RtlGenRandom adentro: la reenvía a
 // cryptbase.dll, que no es una de las DLL protegidas de Windows y podría
 // buscarse al lado del .exe. Por eso se carga primero cryptbase.dll con su
@@ -58,7 +44,7 @@ HMODULE cargar_de_sistema(const wchar_t* dll) noexcept {
 // y la función está en advapi32.dll.
 FuncionRtlGenRandom buscar_rtlgenrandom() noexcept {
   for (const wchar_t* dll : {L"cryptbase.dll", L"advapi32.dll"}) {
-    const HMODULE modulo = cargar_de_sistema(dll);
+    const HMODULE modulo = ventrik::cargar_de_sistema(dll);
     if (modulo == nullptr) {
       continue;
     }

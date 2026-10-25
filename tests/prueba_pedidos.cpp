@@ -65,7 +65,12 @@ TEST_CASE("Los pedidos nuevos tienen bytes fijos") {
         Bytes{2, 0, 3, 0, 0, 0, 7, 0, 0, 0, 4, 0, 0, 0, 0, 1, 0, 0});
   CHECK(en_bytes(Negado{TipoMensaje::mirar_canal, MotivoNegado::tipo_de_canal}) == Bytes{18, 0, 7});
   CHECK(en_bytes(Negado{TipoMensaje::crear_canal, MotivoNegado::sin_permiso}) == Bytes{14, 0, 1});
-  CHECK(en_bytes(PedirHistorial{5, 9}) == Bytes{5, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0});
+  CHECK(en_bytes(PedirHistorial{5, 9}) == Bytes{5, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1});
+  CHECK(en_bytes(PedirHistorial{5, 0x0102, Sentido::nuevos, 64}) ==
+        Bytes{5, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 2, 64, 0});
+  CHECK(en_bytes(Historial{2, 9, Sentido::nuevos, true, {{10, 3, "Ana", 5, "hola"}}}) ==
+        Bytes{2, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 0, 10, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0,
+              3, 0, 'A', 'n', 'a', 5, 0, 0, 0, 0, 0, 0, 0, 4, 0, 'h', 'o', 'l', 'a'});
   CHECK(en_bytes(CanalBorrado{4, 1}) == Bytes{4, 0, 0, 0, 1, 0, 0, 0});
 }
 
@@ -88,7 +93,11 @@ TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con byte
   ida_y_vuelta(EnviarChat{2, "hola\nqué tal 😀"});
   ida_y_vuelta(MensajeChat{1, 2, 5, 3, "Ana", 4, "hola"});
   ida_y_vuelta(PedirHistorial{2, 100});
-  ida_y_vuelta(Historial{2, true, {{9, 2, "Ana", 5, "uno"}, {8, 1, "Beto", 4, "dos"}}});
+  ida_y_vuelta(PedirHistorial{2, 100, Sentido::nuevos, 1});
+  ida_y_vuelta(Historial{2, 0, Sentido::viejos, true, {{9, 2, "Ana", 5, "uno"}, {8, 1, "Beto", 4, "dos"}}});
+  ida_y_vuelta(Historial{2, 10, Sentido::viejos, false, {{9, 2, "Ana", 5, "uno"}}});
+  ida_y_vuelta(Historial{2, 7, Sentido::nuevos, true, {{8, 1, "Beto", 4, "dos"}, {9, 2, "Ana", 5, "uno"}}});
+  ida_y_vuelta(Historial{2, 7, Sentido::nuevos, false, {}});
   ida_y_vuelta(CrearCanal{"Juegos"});
   ida_y_vuelta(CrearCanal{"Avisos", TipoCanal::texto, true});
   ida_y_vuelta(CambiarCanal{2, "Juegos 2", true});
@@ -113,7 +122,52 @@ TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 8}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{19, 0, 1}));
   CHECK_FALSE(leer_mensaje<Presentado>(Bytes{1, 0, 0, 0, 2, 0, 0, 0, 0}));
-  CHECK_FALSE(leer_mensaje<Historial>(Bytes{1, 0, 0, 0, 0, 1, 1}));
+  CHECK_FALSE(leer_mensaje<Historial>(Bytes{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1}));
+}
+
+TEST_CASE("El pedido de historial tiene un sentido conocido y de 1 a 256 mensajes") {
+  const auto pedido = [](std::uint8_t sentido, std::uint8_t bajo, std::uint8_t alto) {
+    return leer_mensaje<PedirHistorial>(Bytes{1, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, sentido, bajo, alto});
+  };
+  CHECK(pedido(1, 1, 0));
+  CHECK(pedido(2, 0, 1));
+  CHECK(pedido(2, 0, 1)->cantidad == kMaximoMensajesEnHistorial);
+  CHECK_FALSE(pedido(0, 1, 0));
+  CHECK_FALSE(pedido(3, 1, 0));
+  CHECK_FALSE(pedido(1, 0, 0));
+  CHECK_FALSE(pedido(1, 1, 1));
+  CHECK_FALSE(se_escribe(PedirHistorial{1, 0, static_cast<Sentido>(0), 1}));
+  CHECK_FALSE(se_escribe(PedirHistorial{1, 0, static_cast<Sentido>(3), 1}));
+  CHECK_FALSE(se_escribe(PedirHistorial{1, 0, Sentido::viejos, 0}));
+  CHECK_FALSE(se_escribe(PedirHistorial{1, 0, Sentido::nuevos, 257}));
+}
+
+TEST_CASE("Un historial viene en el orden de su sentido y sin pasarse del número pedido") {
+  const MensajeGuardado ocho{8, 1, "Ana", 1, "a"};
+  const MensajeGuardado nueve{9, 2, "Ana", 1, "b"};
+  CHECK(se_escribe(Historial{1, 0, Sentido::viejos, false, {nueve, ocho}}));
+  CHECK_FALSE(se_escribe(Historial{1, 0, Sentido::viejos, false, {ocho, nueve}}));
+  CHECK_FALSE(se_escribe(Historial{1, 0, Sentido::viejos, false, {ocho, ocho}}));
+  CHECK_FALSE(se_escribe(Historial{1, 9, Sentido::viejos, false, {nueve}}));
+  CHECK(se_escribe(Historial{1, 7, Sentido::nuevos, false, {ocho, nueve}}));
+  CHECK_FALSE(se_escribe(Historial{1, 7, Sentido::nuevos, false, {nueve, ocho}}));
+  CHECK_FALSE(se_escribe(Historial{1, 8, Sentido::nuevos, false, {ocho}}));
+  CHECK_FALSE(se_escribe(Historial{1, 0, static_cast<Sentido>(3), false, {}}));
+  const auto con_ids = [](std::uint8_t sentido, std::uint8_t desde, std::uint8_t primero, std::uint8_t segundo) {
+    Bytes bytes{1, 0, 0, 0, desde, 0, 0, 0, 0, 0, 0, 0, sentido, 0, 2, 0};
+    for (const std::uint8_t id : {primero, segundo}) {
+      const Bytes uno{id, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 'a', 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 'b'};
+      bytes.insert(bytes.end(), uno.begin(), uno.end());
+    }
+    return leer_mensaje<Historial>(bytes).has_value();
+  };
+  CHECK(con_ids(1, 0, 9, 8));
+  CHECK_FALSE(con_ids(1, 0, 8, 9));
+  CHECK_FALSE(con_ids(1, 9, 9, 8));
+  CHECK(con_ids(2, 7, 8, 9));
+  CHECK_FALSE(con_ids(2, 8, 8, 9));
+  CHECK_FALSE(con_ids(2, 7, 9, 9));
+  CHECK_FALSE(con_ids(0, 7, 8, 9));
 }
 
 TEST_CASE("Nombres y chats con trampas no se escriben ni se leen") {

@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <utility>
 #include <variant>
 
@@ -22,6 +23,8 @@
 #include "client/ui/servidor.h"
 #include "client/ui/ventana.h"
 #include "common/cifrado/inicio.h"
+#include "common/cifrado/tls.h"
+#include "common/proceso.h"
 #include "common/texto.h"
 #include "common/utf.h"
 
@@ -29,6 +32,7 @@ namespace ventrik::ui {
 namespace {
 using namespace std::chrono_literals;
 using Reloj = std::chrono::steady_clock;
+constexpr std::uint32_t kSegundosPorPrueba = 20;
 
 template <typename... Valores>
 void anotar(std::ostream& salida, const Valores&... valores) {
@@ -71,14 +75,17 @@ class Programa {
                   a_utf16(texto(pantalla_.idioma, Clave::titulo_ventana)).c_str(), MB_OK | MB_ICONWARNING);
       return;
     }
-    registro_ << std::fixed << std::setprecision(1) << "# placa=" << ventana_.placa()
-              << ";vertices_por_procesador=" << ventana_.por_procesador() << ";frecuencia=" << calidad_.frecuencia
+    registro_ << std::fixed << std::setprecision(1) << "# placa=" << ventana_.placa() << ";grafica="
+              << ventana_.grafica() << ";vertices_por_procesador=" << ventana_.por_procesador()
+              << ";frecuencia=" << calidad_.frecuencia
               << ";complejidad=" << calidad_.complejidad << '\n'
               << "ms,ping_ms,ping_voz_ms,cpu_total,cpu_ventana,cpu_sistema,ocupado_ms,pasada_max_ms,imgui_ms,"
                  "direct3d_ms,presentados,vertices_max,cuadros,colchon_ms,recortes_total,perdidos,recibidos,salida_ms,"
                  "salida_max_ms,descartes_salida_total,descartes_con_voz_total,vacios_salida_total,"
                  "vaciados_colchon_total,faltas_colchon_total,transmitiendo,hablando,voz_lista,avisos,mensajes,"
-                 "mensaje_comun,ram_mb"
+                 "mensaje_comun,ram_mb,despertares_ventana,despertares_audio,despertares_red,tcp_sube,tcp_baja,"
+                 "udp_sube,udp_baja,memoria_propia_kb,fallas_por_segundo,arranque_ms,pixeles,por_partes,foco,juego,"
+                 "bloqueada,ahorro,atlas_kb"
               << std::endl;
   }
 
@@ -95,10 +102,12 @@ class Programa {
     puente_.reset();
   }
 
-  void atender() {
+  bool atender() {
     avisado_ = false;
+    bool cambio = false;
     if (sesion_) {
       for (const cliente::Novedad& novedad : sesion_->esperar_novedades(0ms)) {
+        cambio = true;
         if (const auto* intento = std::get_if<cliente::IntentoDeConexion>(&novedad)) {
           conectado(*intento);
         } else if (const auto* fin = std::get_if<cliente::Fin>(&novedad)) {
@@ -108,9 +117,13 @@ class Programa {
         }
       }
     }
-    if (sala_) {
-      mirar_voz();
+    const Situacion& situacion = ventana_.situacion();
+    const bool ahorrar = situacion.minimizada || situacion.juego || situacion.bloqueada;
+    if (sesion_ && ahorrar != ahorrando_) {
+      ahorrando_ = ahorrar;
+      sesion_->ahorrar(ahorrar);
     }
+    return (sala_ && mirar_voz()) || cambio;
   }
 
   void cuadro() {
@@ -159,11 +172,7 @@ class Programa {
     }
   }
 
-  void ordenar(std::vector<cliente::Orden> ordenes) {
-    for (auto& orden : ordenes) {
-      sesion_->ordenar(std::move(orden));
-    }
-  }
+  void ordenar(std::vector<cliente::Orden> ordenes) { sesion_->ordenar(std::move(ordenes)); }
 
   void entrar_con_formulario() {
     const auto direccion = red::leer_direccion(pantalla_.direccion.data());
@@ -199,6 +208,7 @@ class Programa {
     opciones.voz = puente_;
     opciones.al_haber_novedades = [this] { avisar(); };
     sesion_ = std::make_unique<cliente::Sesion>(direccion, huella, std::move(quien), std::move(opciones));
+    ahorrando_ = false;
   }
 
   void conectado(const cliente::IntentoDeConexion& intento) {
@@ -241,14 +251,23 @@ class Programa {
     diagnostico_ = cliente::Diagnostico();
     cuadros_ = 0;
     ventana_.tomar_uso();
+    despertares_audio_ = audio_->despertares();
+    despertares_red_ = sesion_->despertares();
+    trafico_ = cifrado::trafico();
     ordenar(sala_->empezar());
   }
 
-  void mirar_voz() {
+  bool mirar_voz() {
+    const auto& en_mi_canal = sala_->en_canal(sala_->tu_canal());
+    motor_->solo_en_el_canal(std::none_of(en_mi_canal.begin(), en_mi_canal.end(),
+                                          [this](const auto* usuario) { return usuario->id != sala_->tu_id(); }));
+    const auto antes = std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
     servidor_.transmitiendo = motor_->transmitiendo();
     servidor_.hablando = puente_->hablando;
     servidor_.nivel = motor_->nivel(cliente::kSegmentosDelMedidor);
+    bool cambio = antes != std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
     if (const auto elegida = vigia_->tomar_elegida()) {
+      cambio = true;
       servidor_.eligiendo_tecla = false;
       if (*elegida != 0) {
         guardados_.tecla_hablar = *elegida;
@@ -259,9 +278,15 @@ class Programa {
     }
     const auto ahora = Reloj::now();
     if (ahora < proxima_muestra_) {
-      return;
+      return cambio;
     }
     proxima_muestra_ = ahora + 1s;
+    const bool tenia_poca_memoria = std::exchange(poca_memoria_, queda_poca_memoria());
+    if (poca_memoria_ && !tenia_poca_memoria) {
+      ImGui::GetIO().Fonts->CompactCache();
+      sala_->soltar_lejanos();
+      soltar_lejanos(servidor_);
+    }
     const std::uint64_t perdidos = puente_->perdidos;
     const std::uint64_t recibidos = puente_->recibidos;
     const Muestra muestra{sala_->ping().value_or(0), static_cast<std::uint32_t>(perdidos - perdidos_),
@@ -277,7 +302,10 @@ class Programa {
                              medicion.ram_bytes, motor_->espera_ms(), motor_->recortes(), audio_->espera_de_salida_ms()};
     if (registro_.is_open()) {
       const DatosDiagnostico& datos = servidor_.diagnostico;
+      const Situacion& situacion = ventana_.situacion();
+      const ImTextureData& atlas = *ImGui::GetIO().Fonts->TexData;
       UsoVentana uso = ventana_.tomar_uso();
+      const cifrado::Trafico trafico = cifrado::trafico();
       auto& mensajes = uso.mensajes;
       const std::uint32_t avisos = mensajes[kMensajeNovedades];
       mensajes.erase(kMensajeNovedades);
@@ -295,12 +323,24 @@ class Programa {
              datos.colchon_ms, datos.recortes, muestra.perdidos, muestra.recibidos, datos.salida_ms,
              audio_->tomar_espera_maxima_ms(), audio_->descartados(), audio_->descartados_con_voz(), audio_->vacios(),
              motor_->vaciados(), motor_->faltas(), servidor_.transmitiendo, servidor_.hablando, datos.voz_lista, avisos,
-             otros, comun.first, medicion.ram_bytes / (1024 * 1024));
+             otros, comun.first, medicion.ram_bytes / (1024 * 1024), uso.despertares,
+             audio_->despertares() - std::exchange(despertares_audio_, audio_->despertares()),
+             sesion_->despertares() - std::exchange(despertares_red_, sesion_->despertares()),
+             trafico.tcp_enviados - trafico_.tcp_enviados, trafico.tcp_recibidos - trafico_.tcp_recibidos,
+             trafico.udp_enviados - trafico_.udp_enviados, trafico.udp_recibidos - trafico_.udp_recibidos,
+             medicion.memoria_propia / 1024, medicion.fallas, ventana_.arranque_ms(), uso.pixeles,
+             ventana_.por_partes(), situacion.con_foco, situacion.juego, situacion.bloqueada, situacion.ahorro,
+             atlas.Width * atlas.Height * atlas.BytesPerPixel / 1024);
+      trafico_ = trafico;
+      if (segundos_ % kSegundosPorPrueba == 0) {
+        ventana_.por_partes(!ventana_.por_partes());
+      }
     }
     cuadros_ = 0;
     if (servidor_.grafico.size() > kMuestrasDelGrafico) {
       servidor_.grafico.pop_front();
     }
+    return true;
   }
 
   void terminar(std::string mensaje) {
@@ -336,9 +376,14 @@ class Programa {
   Reloj::time_point proxima_muestra_{};
   Muestra acumulada_{};
   std::uint32_t segundos_ = 0;
+  std::uint32_t despertares_audio_ = 0;
+  std::uint32_t despertares_red_ = 0;
+  cifrado::Trafico trafico_;
   cliente::Diagnostico diagnostico_;
   const Reloj::time_point inicio_ = Reloj::now();
   std::uint32_t cuadros_ = 0;
+  bool poca_memoria_ = false;
+  bool ahorrando_ = false;
   std::ofstream registro_;
   std::shared_ptr<cliente::PuenteVoz> puente_;
   std::unique_ptr<cliente::MotorVoz> motor_;
@@ -365,7 +410,7 @@ int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar,
     programa.registrar(registro);
   }
   ventana.al_terminar_la_sesion([&programa] { programa.cerrar(); });
-  return ventana.correr([&programa] { programa.atender(); }, [&programa] { programa.cuadro(); });
+  return ventana.correr([&programa] { return programa.atender(); }, [&programa] { programa.cuadro(); });
 }
 
 }

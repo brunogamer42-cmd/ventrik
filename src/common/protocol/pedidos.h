@@ -121,10 +121,14 @@ struct MensajeChat {
   std::string texto;
 };
 
+enum class Sentido : std::uint8_t { viejos = 1, nuevos = 2 };
+
 struct PedirHistorial {
   static constexpr TipoMensaje kTipo = TipoMensaje::pedir_historial;
   std::uint32_t canal = 0;
-  std::uint64_t antes_de = 0;
+  std::uint64_t desde = 0;
+  Sentido sentido = Sentido::viejos;
+  std::uint16_t cantidad = static_cast<std::uint16_t>(kMaximoMensajesEnHistorial);
 };
 
 struct MensajeGuardado {
@@ -138,6 +142,8 @@ struct MensajeGuardado {
 struct Historial {
   static constexpr TipoMensaje kTipo = TipoMensaje::historial;
   std::uint32_t canal = 0;
+  std::uint64_t desde = 0;
+  Sentido sentido = Sentido::viejos;
   bool hay_mas = false;
   std::vector<MensajeGuardado> mensajes;
 };
@@ -280,13 +286,13 @@ template <typename Mensaje>
 
 template <typename Mensaje>
 [[nodiscard]] bool armar_datagrama(const Mensaje& mensaje, std::vector<std::uint8_t>& salida) {
-  Escritor escritor;
+  Escritor escritor(std::move(salida));
   escritor.escribir_u16(static_cast<std::uint16_t>(Mensaje::kTipo));
   escribir(escritor, mensaje);
   if (!escritor.ok() || escritor.datos().size() > kMaximoDatagrama) {
     return false;
   }
-  salida = escritor.datos();
+  salida = std::move(escritor).soltar();
   return true;
 }
 

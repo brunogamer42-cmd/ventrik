@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <windows.h>
+
 #include "common/protocol/pedidos.h"
 #include "common/red/red.h"
 
@@ -48,10 +50,36 @@ class ColaVoz {
 
 enum class EstadoVoz : std::uint8_t { sin_clave, conectando, lista, sin_conexion };
 
+class Aviso {
+ public:
+  Aviso() : evento_(CreateEventW(nullptr, FALSE, FALSE, nullptr)) {}
+  ~Aviso() {
+    if (evento_ != nullptr) {
+      CloseHandle(evento_);
+    }
+  }
+  Aviso(const Aviso&) = delete;
+  Aviso& operator=(const Aviso&) = delete;
+
+  void avisar() const { SetEvent(evento_); }
+  HANDLE evento() const { return evento_; }
+
+ private:
+  HANDLE evento_;
+};
+
 struct PuenteVoz {
+  template <typename T>
+  void cambiar(std::atomic<T>& valor, T nuevo) {
+    if (valor.exchange(nuevo) != nuevo) {
+      cambio.avisar();
+    }
+  }
+
   ColaVoz<8> subida;
   ColaVoz<64> bajada;
   red::Despertador despertador;
+  Aviso cambio;
   std::atomic<EstadoVoz> estado{EstadoVoz::sin_clave};
   std::atomic<std::uint32_t> hablando{0};
   std::atomic<std::uint32_t> recibidos{0};

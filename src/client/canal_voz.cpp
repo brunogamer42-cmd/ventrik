@@ -11,7 +11,9 @@ namespace {
 using namespace std::chrono_literals;
 
 constexpr std::chrono::seconds kCadaCuantoPing{5};
+constexpr std::chrono::seconds kCadaCuantoPingAhorrando{20};
 constexpr std::chrono::seconds kSinRespuesta{15};
+constexpr std::chrono::seconds kSinRespuestaAhorrando{45};
 constexpr std::chrono::seconds kPlazoSaludo{10};
 constexpr std::chrono::milliseconds kPrimeraEspera{2000};
 constexpr std::chrono::milliseconds kEsperaMaxima{60000};
@@ -42,14 +44,26 @@ std::chrono::milliseconds CanalVoz::hasta_lo_proximo(Reloj::time_point ahora) co
   const auto hasta = [ahora](Reloj::time_point cuando) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(cuando - ahora);
   };
-  return lista_    ? std::min(hasta(proximo_ping_), hasta(ultimo_dato_ + kSinRespuesta))
+  return lista_    ? std::min(hasta(ultimo_ping_ + cada_ping()), hasta(ultimo_dato_ + sin_respuesta()))
          : sesion_ ? kDuranteElSaludo
          : clave_  ? hasta(reintentar_en_)
                    : kEsperaMaxima;
 }
 
+std::chrono::seconds CanalVoz::cada_ping() const {
+  return ahorrando_ ? kCadaCuantoPingAhorrando : kCadaCuantoPing;
+}
+
+std::chrono::seconds CanalVoz::sin_respuesta() const {
+  return ahorrando_ ? kSinRespuestaAhorrando : kSinRespuesta;
+}
+
 void CanalVoz::atender(Reloj::time_point ahora) {
   PaqueteVoz paquete;
+  if (ahorrar_ != ahorrando_) {
+    ahorrando_ = !ahorrando_;
+    ultimo_dato_ = std::max(ultimo_dato_, ahora - kCadaCuantoPing);
+  }
   if (clave_ && !sesion_ && ahora >= reintentar_en_) {
     empezar(ahora);
   }
@@ -57,9 +71,9 @@ void CanalVoz::atender(Reloj::time_point ahora) {
     const auto paso = sesion_->apreton();
     if (paso == cifrado::Paso::listo) {
       lista_ = true;
-      puente_.estado = EstadoVoz::lista;
+      puente_.cambiar(puente_.estado, EstadoVoz::lista);
       ultimo_dato_ = ahora;
-      proximo_ping_ = ahora;
+      ultimo_ping_ = ahora - cada_ping();
       espera_ = kPrimeraEspera;
     } else if (paso == cifrado::Paso::error || paso == cifrado::Paso::cerrado ||
                ahora - inicio_saludo_ > kPlazoSaludo) {
@@ -73,25 +87,24 @@ void CanalVoz::atender(Reloj::time_point ahora) {
   }
   leer(ahora);
   while (lista_ && puente_.subida.sacar(paquete)) {
-    enviar(protocolo::MedioSubida{
-        {protocolo::TipoFlujo::voz, 0, paquete.numero,
-         std::vector<std::uint8_t>(paquete.opus.begin(), paquete.opus.begin() + paquete.largo)}});
+    subida_.medio.numero = paquete.numero;
+    subida_.medio.datos.assign(paquete.opus.begin(), paquete.opus.begin() + paquete.largo);
+    enviar(subida_);
   }
-  if (lista_ && ahora >= proximo_ping_) {
+  if (lista_ && ahora >= ultimo_ping_ + cada_ping()) {
     enviar(protocolo::Ping{milisegundos(ahora)});
-    proximo_ping_ = ahora + kCadaCuantoPing;
+    ultimo_ping_ = ahora;
   }
-  if (lista_ && ahora - ultimo_dato_ > kSinRespuesta) {
+  if (lista_ && ahora - ultimo_dato_ > sin_respuesta()) {
     fallar(ahora);
   }
 }
 
 template <typename Mensaje>
 void CanalVoz::enviar(const Mensaje& mensaje) {
-  std::vector<std::uint8_t> datagrama;
   std::size_t escritos = 0;
-  if (protocolo::armar_datagrama(mensaje, datagrama)) {
-    sesion_->escribir(datagrama, escritos);
+  if (protocolo::armar_datagrama(mensaje, datagrama_)) {
+    sesion_->escribir(datagrama_, escritos);
   }
 }
 
@@ -99,6 +112,7 @@ void CanalVoz::empezar(Reloj::time_point ahora) {
   config_ = cifrado::ConfigTls::para_voz_programa(clave_->identidad, secreto_.bytes());
   socket_ = red::conectar_udp(servidor_);
   if (config_ && socket_.valido()) {
+    prioridad_.marcar(socket_, servidor_);
     sesion_ = std::make_unique<cifrado::SesionTls>(*config_, socket_.get());
   }
   if (!sesion_ || !sesion_->ok()) {
@@ -106,14 +120,15 @@ void CanalVoz::empezar(Reloj::time_point ahora) {
     return;
   }
   inicio_saludo_ = ahora;
-  puente_.estado = EstadoVoz::conectando;
+  puente_.cambiar(puente_.estado, EstadoVoz::conectando);
 }
 
 void CanalVoz::fallar(Reloj::time_point ahora) {
   sesion_.reset();
+  prioridad_.soltar();
   socket_ = red::Socket();
   lista_ = false;
-  puente_.estado = EstadoVoz::sin_conexion;
+  puente_.cambiar(puente_.estado, EstadoVoz::sin_conexion);
   unsigned char azar = 0;
   cifrado::aleatorio(nullptr, &azar, 1);
   reintentar_en_ = ahora + espera_ + espera_ * azar / 1024;
@@ -172,6 +187,9 @@ void CanalVoz::contar(const protocolo::MedioBajada& bajada) {
     }
   }
   ++puente_.recibidos;
+  if (anterior == siguiente_.end() && siguiente_.size() >= protocolo::kMaximoUsuariosEnLista) {
+    siguiente_.clear();
+  }
   siguiente_[bajada.origen] = static_cast<std::uint16_t>(bajada.medio.numero + 1);
 }
 

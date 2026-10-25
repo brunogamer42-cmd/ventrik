@@ -11,10 +11,12 @@
 
 #include <gsl/gsl>
 
+#include "client/voz_primero.h"
+
 struct ma_device;
 
 namespace ventrik::cliente {
-bool tirar_pedazo(std::ptrdiff_t en_espera, gsl::span<const std::int16_t> pedazo);
+bool tirar_pedazo(std::uint32_t espera_ms, gsl::span<const std::int16_t> pedazo);
 
 class Audio {
  public:
@@ -33,11 +35,13 @@ class Audio {
   std::uint32_t descartados() const { return descartados_.load(std::memory_order_relaxed); }
   std::uint32_t descartados_con_voz() const { return descartados_con_voz_.load(std::memory_order_relaxed); }
   std::uint32_t vacios() const { return vacios_.load(std::memory_order_relaxed); }
+  std::uint32_t despertares() const { return despertares_.load(std::memory_order_relaxed); }
+  std::size_t memoria_fija() const { return fija_.fijada(); }
 
  private:
   struct Pedazo {
     WAVEHDR cabecera = {};
-    std::vector<std::int16_t> muestras;
+    gsl::span<std::int16_t> muestras;
   };
 
   bool abrir_puente(unsigned frecuencia);
@@ -53,13 +57,15 @@ class Audio {
   void* datos_ = nullptr;
   std::unique_ptr<ma_device> dispositivo_;
   bool hay_miniaudio_ = false;
+  bool hilo_listo_ = false;
   HWAVEIN entrada_ = nullptr;
   HWAVEOUT salida_ = nullptr;
   HANDLE aviso_ = nullptr;
   HANDLE hilo_ = nullptr;
+  std::vector<std::int16_t> muestras_;
   std::vector<Pedazo> pedazos_entrada_;
   std::vector<Pedazo> pedazos_salida_;
-  std::vector<std::int16_t> borrador_;
+  gsl::span<std::int16_t> borrador_;
   std::size_t siguiente_entrada_ = 0;
   std::atomic<bool> seguir_{false};
   std::atomic<std::uint32_t> espera_de_salida_ms_{0};
@@ -67,6 +73,8 @@ class Audio {
   std::atomic<std::uint32_t> descartados_{0};
   std::atomic<std::uint32_t> descartados_con_voz_{0};
   std::atomic<std::uint32_t> vacios_{0};
+  std::atomic<std::uint32_t> despertares_{0};
+  MemoriaFija fija_;
 };
 
 }

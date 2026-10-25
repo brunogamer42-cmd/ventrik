@@ -1,6 +1,7 @@
 #include "client/ui/ventana.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -11,11 +12,12 @@ struct IUnknown;
 #include <d3d9.h>
 
 #include <imgui.h>
-#include <imgui_impl_dx9.h>
 #include <imgui_impl_win32.h>
 
+#include "client/ui/dibujante.h"
 #include "client/ui/piezas.h"
 #include "client/ui/theme.h"
+#include "common/sistema.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND ventana, UINT mensaje, WPARAM wparam,
                                                              LPARAM lparam);
@@ -29,31 +31,63 @@ constexpr int kAnchoMinimo = 1100;
 constexpr int kAltoMinimo = 640;
 constexpr int kCuadrosTrasEvento = 3;
 constexpr DWORD kMilisegundosPorCuadro = 15;
+constexpr DWORD kMilisegundosConMouse = 66;
 constexpr DWORD kEsperaConMouseEncima = 100;
 constexpr DWORD kTiempoParaCarteles = 1500;
 constexpr DWORD kVecesElCuadroEntreCuadros = 4;
+constexpr UINT_PTR kTic = 1;
+constexpr UINT kMilisegundosPorTic = 1000;
+constexpr ULONG kToleranciaDelTic = 50;
+constexpr UINT kCambioDeEnergia = 0x8013;
+constexpr int kJuegoDeDirect3D = 3;
+constexpr GUID kAhorroDeBateria = {0xE00958C0, 0xC213, 0x4ACE, {0xAC, 0x77, 0xFE, 0xCC, 0xED, 0x2E, 0xEE, 0xA5}};
+const std::vector<RECT> kEntera;
 
 using Reloj = std::chrono::steady_clock;
+using Registrar = BOOL(WINAPI*)(HWND, DWORD);
+using Desregistrar = BOOL(WINAPI*)(HWND);
+using AvisarEnergia = HANDLE(WINAPI*)(HANDLE, const GUID*, DWORD);
+using CallarEnergia = BOOL(WINAPI*)(HANDLE);
+using PonerTic = UINT_PTR(WINAPI*)(HWND, UINT_PTR, UINT, TIMERPROC, ULONG);
+using ConsultarAvisos = HRESULT(WINAPI*)(int*);
+
+struct Region {
+  RGNDATAHEADER cabecera;
+  std::array<RECT, kZonasMaximas> rectangulos;
+};
+
+template <typename Funcion>
+Funcion buscar(HMODULE modulo, const char* nombre) {
+  return modulo != nullptr ? reinterpret_cast<Funcion>(GetProcAddress(modulo, nombre)) : nullptr;
+}
+
+template <typename Funcion>
+Funcion buscar(const wchar_t* modulo, const char* nombre) {
+  return buscar<Funcion>(GetModuleHandleW(modulo), nombre);
+}
+
+std::uint32_t ms_desde_que_arranco() {
+  FILETIME creado = {};
+  FILETIME terminado = {};
+  FILETIME sistema = {};
+  FILETIME usuario = {};
+  FILETIME ahora = {};
+  GetSystemTimeAsFileTime(&ahora);
+  if (!GetProcessTimes(GetCurrentProcess(), &creado, &terminado, &sistema, &usuario)) {
+    return 0;
+  }
+  const auto entero = [](const FILETIME& tiempo) {
+    return (static_cast<std::uint64_t>(tiempo.dwHighDateTime) << 32) | tiempo.dwLowDateTime;
+  };
+  return static_cast<std::uint32_t>((entero(ahora) - std::min(entero(ahora), entero(creado))) / 10000);
+}
 
 double ms_desde(Reloj::time_point desde) {
   return std::chrono::duration<double, std::milli>(Reloj::now() - desde).count();
 }
 
-template <typename T>
-std::string_view como_bytes(const ImVector<T>& datos) {
-  return std::string_view(reinterpret_cast<const char*>(datos.Data), static_cast<std::size_t>(datos.size_in_bytes()));
-}
-
-struct Soltar {
-  void operator()(IUnknown* objeto) const { objeto->Release(); }
-};
-
 float escala_de_pantalla() {
-  using Avisar = BOOL(WINAPI*)();
-  const HMODULE user32 = GetModuleHandleW(L"user32.dll");
-  const auto avisar =
-      user32 != nullptr ? reinterpret_cast<Avisar>(GetProcAddress(user32, "SetProcessDPIAware")) : nullptr;
-  if (avisar != nullptr) {
+  if (const auto avisar = buscar<BOOL(WINAPI*)()>(L"user32.dll", "SetProcessDPIAware")) {
     avisar();
   }
   const HDC pantalla = GetDC(nullptr);
@@ -62,15 +96,43 @@ float escala_de_pantalla() {
   return puntos > 0 ? static_cast<float>(puntos) / 96.0f : 1.0f;
 }
 
+bool hay_un_juego_adelante(HWND propia) {
+  const HWND adelante = GetForegroundWindow();
+  const HMONITOR monitor = MonitorFromWindow(propia, MONITOR_DEFAULTTONEAREST);
+  MONITORINFO datos = {};
+  datos.cbSize = sizeof(datos);
+  RECT lugar = {};
+  std::array<wchar_t, 16> clase = {};
+  if (adelante == nullptr || adelante == propia || adelante == GetShellWindow() ||
+      MonitorFromWindow(adelante, MONITOR_DEFAULTTONULL) != monitor || !GetMonitorInfoW(monitor, &datos) ||
+      !GetWindowRect(adelante, &lugar) || GetClassNameW(adelante, clase.data(), static_cast<int>(clase.size())) == 0 ||
+      std::wstring_view(clase.data()) == L"WorkerW" || std::wstring_view(clase.data()) == L"Progman") {
+    return false;
+  }
+  const auto consultar = buscar<ConsultarAvisos>(L"shell32.dll", "SHQueryUserNotificationState");
+  int estado = 0;
+  return (consultar != nullptr && SUCCEEDED(consultar(&estado)) && estado == kJuegoDeDirect3D) ||
+         tapa_el_monitor(lugar, datos.rcMonitor, GetWindowLongW(adelante, GWL_STYLE),
+                         GetWindowLongW(adelante, GWL_EXSTYLE));
+}
+
 }
 
 struct Ventana::Grafica {
   std::unique_ptr<IDirect3D9, Soltar> d3d;
   std::unique_ptr<IDirect3DDevice9, Soltar> dispositivo;
+  IDirect3DDevice9Ex* ex = nullptr;
   std::unique_ptr<IDirect3DTexture9, Soltar> logo;
+  std::unique_ptr<Dibujante> dibujante;
+  Zonas zonas;
   D3DPRESENT_PARAMETERS presentar{};
+  HANDLE aviso_de_energia = nullptr;
+  Desregistrar desregistrar_sesion = nullptr;
+  int textura_maxima = 2048;
+  bool alfa = false;
+  bool flip = false;
+  bool pura = false;
   bool win32 = false;
-  bool dx9 = false;
   bool por_procesador = false;
 };
 
@@ -100,20 +162,35 @@ Ventana::Ventana(const std::wstring& titulo, int como_mostrar)
   }
   ventana_ = CreateWindowExW(0, kClase, titulo.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                              ancho, alto, nullptr, nullptr, clase.hInstance, this);
-  if (ventana_ == nullptr || !preparar_dispositivo() || !preparar_interfaz(escala)) {
+  if (ventana_ == nullptr || !preparar_dispositivo() ||
+      !preparar_interfaz(escala, grafica_->alfa ? ImTextureFormat_Alpha8 : ImTextureFormat_RGBA32)) {
     return;
   }
   ImGui::GetIO().ConfigDebugHighlightIdConflicts = false;
+  SYSTEM_INFO sistema = {};
+  GetSystemInfo(&sistema);
+  if (sistema.dwNumberOfProcessors == 1 || grafica_->por_procesador) {
+    ImGuiStyle& estilo = ImGui::GetStyle();
+    estilo.AntiAliasedLines = estilo.AntiAliasedFill = false;
+    estilo.CurveTessellationTol *= 2;
+    estilo.CircleTessellationMaxError *= 2;
+  }
   cargar_logo(escala);
+  grafica_->dibujante = std::make_unique<Dibujante>(*grafica_->dispositivo, grafica_->textura_maxima);
   grafica_->win32 = ImGui_ImplWin32_Init(ventana_);
-  grafica_->dx9 = grafica_->win32 && ImGui_ImplDX9_Init(grafica_->dispositivo.get());
-  lista_ = grafica_->dx9;
+  lista_ = grafica_->win32;
+  escuchar_a_windows();
 }
 
 Ventana::~Ventana() {
-  if (grafica_->dx9) {
-    ImGui_ImplDX9_Shutdown();
+  if (grafica_->desregistrar_sesion != nullptr) {
+    grafica_->desregistrar_sesion(ventana_);
   }
+  if (const auto callar = buscar<CallarEnergia>(L"user32.dll", "UnregisterPowerSettingNotification");
+      callar != nullptr && grafica_->aviso_de_energia != nullptr) {
+    callar(grafica_->aviso_de_energia);
+  }
+  grafica_->dibujante.reset();
   if (grafica_->win32) {
     ImGui_ImplWin32_Shutdown();
   }
@@ -128,28 +205,77 @@ Ventana::~Ventana() {
 }
 
 bool Ventana::preparar_dispositivo() {
-  grafica_->d3d.reset(Direct3DCreate9(D3D_SDK_VERSION));
+  IDirect3D9Ex* d3d_ex = nullptr;
+  const auto crear_ex = buscar<HRESULT(WINAPI*)(UINT, IDirect3D9Ex**)>(L"d3d9.dll", "Direct3DCreate9Ex");
+  if (crear_ex == nullptr || GetEnvironmentVariableW(L"VENTRIK_SIN_9EX", nullptr, 0) != 0 ||
+      FAILED(crear_ex(D3D_SDK_VERSION, &d3d_ex))) {
+    d3d_ex = nullptr;
+  }
+  grafica_->d3d.reset(d3d_ex != nullptr ? d3d_ex : Direct3DCreate9(D3D_SDK_VERSION));
   D3DCAPS9 capacidades = {};
+  D3DDISPLAYMODE modo = {};
   if (!grafica_->d3d ||
       FAILED(grafica_->d3d->GetDeviceCaps(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, &capacidades)) ||
-      (capacidades.Caps2 & D3DCAPS2_DYNAMICTEXTURES) == 0) {
+      (capacidades.Caps2 & D3DCAPS2_DYNAMICTEXTURES) == 0 ||
+      FAILED(grafica_->d3d->GetAdapterDisplayMode(D3DADAPTER_DEFAULT, &modo))) {
     return false;
   }
+  grafica_->alfa = grafica_->d3d->CheckDeviceFormat(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, modo.Format,
+                                                    D3DUSAGE_DYNAMIC | D3DUSAGE_QUERY_FILTER |
+                                                        D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING,
+                                                    D3DRTYPE_TEXTURE, D3DFMT_A8) == D3D_OK;
+  grafica_->textura_maxima =
+      static_cast<int>(std::min<DWORD>({4096, capacidades.MaxTextureWidth, capacidades.MaxTextureHeight}));
   D3DPRESENT_PARAMETERS& presentar = grafica_->presentar;
   presentar.Windowed = TRUE;
-  presentar.SwapEffect = D3DSWAPEFFECT_DISCARD;
   presentar.BackBufferFormat = D3DFMT_UNKNOWN;
+  presentar.BackBufferCount = 1;
   presentar.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
-  for (const DWORD vertices : {D3DCREATE_HARDWARE_VERTEXPROCESSING, D3DCREATE_SOFTWARE_VERTEXPROCESSING}) {
-    IDirect3DDevice9* dispositivo = nullptr;
-    if (SUCCEEDED(grafica_->d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, ventana_,
-                                              vertices | D3DCREATE_FPU_PRESERVE, &presentar, &dispositivo))) {
-      grafica_->dispositivo.reset(dispositivo);
-      grafica_->por_procesador = vertices == D3DCREATE_SOFTWARE_VERTEXPROCESSING;
-      return true;
+  for (const D3DSWAPEFFECT efecto : {D3DSWAPEFFECT_FLIPEX, D3DSWAPEFFECT_COPY}) {
+    if (efecto == D3DSWAPEFFECT_FLIPEX && d3d_ex == nullptr) {
+      continue;
+    }
+    for (const DWORD vertices : {DWORD{D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_PUREDEVICE},
+                                 DWORD{D3DCREATE_HARDWARE_VERTEXPROCESSING}, DWORD{D3DCREATE_SOFTWARE_VERTEXPROCESSING}}) {
+      presentar.SwapEffect = efecto;
+      presentar.BackBufferCount = 1;
+      const bool por_procesador = vertices == D3DCREATE_SOFTWARE_VERTEXPROCESSING;
+      const DWORD forma =
+          vertices | D3DCREATE_FPU_PRESERVE | (d3d_ex != nullptr && por_procesador ? D3DCREATE_DISABLE_PSGP_THREADING : 0);
+      IDirect3DDevice9* dispositivo = nullptr;
+      IDirect3DDevice9Ex* dispositivo_ex = nullptr;
+      const HRESULT creado =
+          d3d_ex != nullptr
+              ? d3d_ex->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, ventana_, forma, &presentar, nullptr,
+                                       &dispositivo_ex)
+              : grafica_->d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, ventana_, forma, &presentar,
+                                            &dispositivo);
+      if (SUCCEEDED(creado)) {
+        grafica_->ex = dispositivo_ex;
+        grafica_->dispositivo.reset(dispositivo_ex != nullptr ? dispositivo_ex : dispositivo);
+        grafica_->flip = efecto == D3DSWAPEFFECT_FLIPEX;
+        grafica_->pura = (vertices & D3DCREATE_PUREDEVICE) != 0;
+        grafica_->por_procesador = por_procesador;
+        return true;
+      }
     }
   }
   return false;
+}
+
+void Ventana::escuchar_a_windows() {
+  const auto poner = buscar<PonerTic>(L"user32.dll", "SetCoalescableTimer");
+  if (poner == nullptr || poner(ventana_, kTic, kMilisegundosPorTic, nullptr, kToleranciaDelTic) == 0) {
+    SetTimer(ventana_, kTic, kMilisegundosPorTic, nullptr);
+  }
+  const HMODULE sesiones = cargar_de_sistema(L"wtsapi32.dll");
+  const auto registrar = buscar<Registrar>(sesiones, "WTSRegisterSessionNotification");
+  if (registrar != nullptr && registrar(ventana_, 0)) {
+    grafica_->desregistrar_sesion = buscar<Desregistrar>(sesiones, "WTSUnRegisterSessionNotification");
+  }
+  if (const auto avisar = buscar<AvisarEnergia>(L"user32.dll", "RegisterPowerSettingNotification")) {
+    grafica_->aviso_de_energia = avisar(ventana_, &kAhorroDeBateria, DEVICE_NOTIFY_WINDOW_HANDLE);
+  }
 }
 
 ImTextureID Ventana::logo() const {
@@ -160,6 +286,11 @@ std::string Ventana::placa() const {
   D3DADAPTER_IDENTIFIER9 placa = {};
   grafica_->d3d->GetAdapterIdentifier(D3DADAPTER_DEFAULT, 0, &placa);
   return placa.Description;
+}
+
+std::string Ventana::grafica() const {
+  return std::string(grafica_->ex != nullptr ? "9ex" : "9") + (grafica_->flip ? "-flip" : "-copia") +
+         (grafica_->pura ? "-pura" : "") + (grafica_->alfa ? "-a8" : "-argb");
 }
 
 bool Ventana::por_procesador() const { return grafica_->por_procesador; }
@@ -191,8 +322,10 @@ void Ventana::cargar_logo(float escala) {
   DeleteObject(partes.hbmMask);
   DestroyIcon(icono);
   IDirect3DTexture9* textura = nullptr;
-  if (!leido || FAILED(grafica_->dispositivo->CreateTexture(lado, lado, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED,
-                                                            &textura, nullptr))) {
+  const bool ex = grafica_->ex != nullptr;
+  if (!leido || FAILED(grafica_->dispositivo->CreateTexture(lado, lado, 1, ex ? D3DUSAGE_DYNAMIC : 0, D3DFMT_A8R8G8B8,
+                                                            ex ? D3DPOOL_DEFAULT : D3DPOOL_MANAGED, &textura,
+                                                            nullptr))) {
     return;
   }
   grafica_->logo.reset(textura);
@@ -210,34 +343,27 @@ void Ventana::cargar_logo(float escala) {
 
 bool Ventana::recuperar_dispositivo() {
   IDirect3DDevice9& dispositivo = *grafica_->dispositivo;
-  const HRESULT estado = dispositivo.TestCooperativeLevel();
-  if (estado == D3DERR_DEVICELOST) {
+  const HRESULT estado =
+      grafica_->ex != nullptr ? grafica_->ex->CheckDeviceState(ventana_) : dispositivo.TestCooperativeLevel();
+  if (estado == D3DERR_DEVICELOST || estado == D3DERR_DEVICEREMOVED) {
     return false;
   }
-  if (estado == D3DERR_DEVICENOTRESET || ancho_nuevo_ != 0) {
+  const bool colgado = estado == D3DERR_DEVICEHUNG;
+  if (estado == D3DERR_DEVICENOTRESET || colgado || ancho_nuevo_ != 0) {
     if (ancho_nuevo_ != 0) {
       grafica_->presentar.BackBufferWidth = ancho_nuevo_;
       grafica_->presentar.BackBufferHeight = alto_nuevo_;
       ancho_nuevo_ = alto_nuevo_ = 0;
     }
     grafica_->presentar.BackBufferFormat = D3DFMT_UNKNOWN;
-    ImGui_ImplDX9_InvalidateDeviceObjects();
+    if (grafica_->ex == nullptr || colgado) {
+      grafica_->dibujante->soltar();
+    }
     const bool reiniciado = SUCCEEDED(dispositivo.Reset(&grafica_->presentar));
-    ImGui_ImplDX9_CreateDeviceObjects();
+    grafica_->dibujante->preparar();
     return reiniciado;
   }
   return true;
-}
-
-std::size_t huella_del_dibujo(const ImDrawData& dibujo) {
-  std::size_t huella = 0;
-  for (const ImDrawList* lista : dibujo.CmdLists) {
-    for (const std::string_view bytes : {como_bytes(lista->VtxBuffer), como_bytes(lista->IdxBuffer),
-                                         como_bytes(lista->CmdBuffer)}) {
-      huella = huella * 31 + std::hash<std::string_view>()(bytes);
-    }
-  }
-  return huella;
 }
 
 bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, std::optional<LPARAM>& ultimo_mouse) {
@@ -252,11 +378,33 @@ bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, st
   const bool repetida = (mensaje == WM_KEYDOWN || mensaje == WM_SYSKEYDOWN) && (datos & 0x40000000) != 0;
   const bool modificador =
       tecla == VK_SHIFT || tecla == VK_CONTROL || tecla == VK_MENU || tecla == VK_LWIN || tecla == VK_RWIN;
-  return mensaje != WM_NCMOUSEMOVE && (!repetida || (escribiendo && !modificador));
+  return mensaje != WM_NCMOUSEMOVE && mensaje != WM_TIMER && mensaje != kMensajeNovedades &&
+         (!repetida || (escribiendo && !modificador));
 }
 
 DWORD espera_entre_cuadros(double ultimo_ms) {
   return std::max(kMilisegundosPorCuadro, static_cast<DWORD>(ultimo_ms * (kVecesElCuadroEntreCuadros + 1)));
+}
+
+bool tapa_el_monitor(const RECT& ventana, const RECT& monitor, LONG estilo, LONG extendido) {
+  RECT cruce = {};
+  return IntersectRect(&cruce, &ventana, &monitor) && EqualRect(&cruce, &monitor) &&
+         (estilo & (WS_DLGFRAME | WS_THICKFRAME)) == 0 && (extendido & (WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW)) == 0;
+}
+
+void Ventana::mirar_situacion() {
+  BOOL protector = FALSE;
+  SystemParametersInfoW(SPI_GETSCREENSAVERRUNNING, 0, &protector, 0);
+  protector_ = protector != FALSE;
+  situacion_.bloqueada = bloqueo_ || protector_;
+  const bool juego = hay_un_juego_adelante(ventana_);
+  if (juego != situacion_.juego) {
+    SetThreadPriority(GetCurrentThread(), juego ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_NORMAL);
+    situacion_.juego = juego;
+  }
+  if (situacion_.tapada && grafica_->ex != nullptr && grafica_->ex->CheckDeviceState(ventana_) == S_OK) {
+    situacion_.tapada = false;
+  }
 }
 
 bool Ventana::dibujar_cuadro(const std::function<void()>& dibujar) {
@@ -269,44 +417,71 @@ bool Ventana::dibujar_cuadro(const std::function<void()>& dibujar) {
   }
   perdido_ = false;
   const auto empezo = Reloj::now();
-  ImGui_ImplDX9_NewFrame();
   ImGui_ImplWin32_NewFrame();
   ImGui::NewFrame();
   pantalla_completa(dibujar);
   ImGui::Render();
   const ImDrawData& datos = *ImGui::GetDrawData();
-  const std::size_t huella = huella_del_dibujo(datos);
+  const std::vector<RECT>& zonas = grafica_->zonas.cambiadas(datos);
   uso_.imgui_ms += ms_desde(empezo);
   uso_.vertices_max = std::max(uso_.vertices_max, datos.TotalVtxCount);
-  if (huella == huella_ && !presentar_igual_) {
+  if (zonas.empty() && !presentar_igual_) {
     return false;
   }
-  huella_ = huella;
-  presentar_igual_ = false;
+  const bool forzada = std::exchange(presentar_igual_, false);
+  const bool entera = forzada || grafica_->flip || !por_partes_;
   const auto armado = Reloj::now();
   IDirect3DDevice9& dispositivo = *grafica_->dispositivo;
-  dispositivo.Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_XRGB(0x16, 0x1B, 0x1E), 1.0f, 0);
-  if (SUCCEEDED(dispositivo.BeginScene())) {
-    ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-    dispositivo.EndScene();
+  if (forzada) {
+    dispositivo.Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_XRGB(0x16, 0x1B, 0x1E), 1.0f, 0);
   }
-  perdido_ = dispositivo.Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST;
+  if (SUCCEEDED(dispositivo.BeginScene())) {
+    grafica_->dibujante->dibujar(datos, entera ? kEntera : zonas);
+    dispositivo.EndScene();
+  } else {
+    presentar_igual_ = true;
+  }
+  Region region = {};
+  const RECT pantalla = {0, 0, static_cast<LONG>(grafica_->presentar.BackBufferWidth),
+                         static_cast<LONG>(grafica_->presentar.BackBufferHeight)};
+  region.cabecera = {sizeof(RGNDATAHEADER), RDH_RECTANGLES, static_cast<DWORD>(entera ? 1 : zonas.size()), 0, {}};
+  std::copy(zonas.begin(), zonas.end(), region.rectangulos.begin());
+  if (entera) {
+    region.rectangulos[0] = pantalla;
+  }
+  for (std::size_t i = 0; i < region.cabecera.nCount; ++i) {
+    UnionRect(&region.cabecera.rcBound, &region.cabecera.rcBound, &region.rectangulos[i]);
+    uso_.pixeles += static_cast<std::uint64_t>(region.rectangulos[i].right - region.rectangulos[i].left) *
+                    static_cast<std::uint64_t>(region.rectangulos[i].bottom - region.rectangulos[i].top);
+  }
+  region.cabecera.nRgnSize = region.cabecera.nCount * sizeof(RECT);
+  const auto* sucia = entera ? nullptr : reinterpret_cast<const RGNDATA*>(&region);
+  const HRESULT resultado = grafica_->ex != nullptr ? grafica_->ex->PresentEx(nullptr, nullptr, nullptr, sucia, 0)
+                                                    : dispositivo.Present(nullptr, nullptr, nullptr, sucia);
+  perdido_ = resultado == D3DERR_DEVICELOST || resultado == D3DERR_DEVICEHUNG || resultado == D3DERR_DEVICEREMOVED;
+  situacion_.tapada = resultado == S_PRESENT_OCCLUDED;
   uso_.direct3d_ms += ms_desde(armado);
   ++uso_.presentados;
+  if (arranque_ms_ == 0) {
+    arranque_ms_ = ms_desde_que_arranco();
+  }
   if (!IsWindowVisible(ventana_)) {
     ShowWindow(ventana_, como_mostrar_);
   }
   return true;
 }
 
-int Ventana::correr(const std::function<void()>& atender, const std::function<void()>& dibujar) {
+int Ventana::correr(const std::function<bool()>& atender, const std::function<void()>& dibujar) {
   int pendientes = kCuadrosTrasEvento;
   DWORD entre_cuadros = kMilisegundosPorCuadro;
   DWORD ultimo = GetTickCount() - entre_cuadros;
   DWORD ultimo_mensaje = GetTickCount();
   std::optional<LPARAM> ultimo_mouse;
+  bool solo_mouse = false;
+  bool dibujaba = true;
   for (;;) {
     const auto empezo = Reloj::now();
+    ++uso_.despertares;
     MSG mensaje = {};
     while (PeekMessageW(&mensaje, nullptr, 0, 0, PM_REMOVE)) {
       if (mensaje.message == WM_QUIT) {
@@ -314,23 +489,41 @@ int Ventana::correr(const std::function<void()>& atender, const std::function<vo
       }
       ++uso_.mensajes[mensaje.message];
       presentar_igual_ = presentar_igual_ || mensaje.message == WM_PAINT;
+      if (mensaje.message == WM_TIMER && mensaje.wParam == kTic) {
+        mirar_situacion();
+      }
       const bool pide =
           pide_cuadros(mensaje.message, mensaje.wParam, mensaje.lParam, ImGui::GetIO().WantTextInput, ultimo_mouse);
       TranslateMessage(&mensaje);
       DispatchMessageW(&mensaje);
       if (pide) {
+        solo_mouse = (pendientes == 0 || solo_mouse) && mensaje.message == WM_MOUSEMOVE;
         pendientes = kCuadrosTrasEvento;
         ultimo_mensaje = GetTickCount();
       }
     }
-    atender();
-    const bool minimizada = IsIconic(ventana_) != FALSE;
+    if (atender()) {
+      pendientes = std::max(pendientes, 1);
+    }
+    situacion_.minimizada = IsIconic(ventana_) != FALSE;
+    const bool dibuja = situacion_.dibuja();
+    if (dibuja != dibujaba) {
+      dibujaba = dibuja;
+      grafica_->zonas.olvidar();
+      presentar_igual_ = true;
+      if (dibuja) {
+        pendientes = kCuadrosTrasEvento;
+      } else {
+        grafica_->dibujante->soltar();
+      }
+    }
     const DWORD pasado = GetTickCount() - ultimo;
+    const DWORD minimo = std::max(entre_cuadros, solo_mouse ? kMilisegundosConMouse : 0);
     DWORD espera = INFINITE;
-    if (pendientes > 0 && !minimizada) {
-      espera = pasado < entre_cuadros ? entre_cuadros - pasado : 0;
-    } else if (!minimizada && (perdido_ || (ImGui::IsAnyItemHovered() &&
-                                            GetTickCount() - ultimo_mensaje < kTiempoParaCarteles))) {
+    if (pendientes > 0 && dibuja) {
+      espera = pasado < minimo ? minimo - pasado : 0;
+    } else if (dibuja && (perdido_ || (situacion_.con_foco && ImGui::IsAnyItemHovered() &&
+                                       GetTickCount() - ultimo_mensaje < kTiempoParaCarteles))) {
       espera = kEsperaConMouseEncima;
     }
     if (espera == 0) {
@@ -338,6 +531,7 @@ int Ventana::correr(const std::function<void()>& atender, const std::function<vo
       const auto cuadro = Reloj::now();
       pendientes = dibujar_cuadro(dibujar) ? pendientes - 1 : 0;
       entre_cuadros = espera_entre_cuadros(ms_desde(cuadro));
+      solo_mouse = solo_mouse && pendientes > 0;
     }
     const double pasada = ms_desde(empezo);
     uso_.ocupado_ms += pasada;
@@ -365,6 +559,27 @@ LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LP
         yo->alto_nuevo_ = HIWORD(lparam);
       }
       return 0;
+    case WM_ACTIVATEAPP:
+      if (yo != nullptr) {
+        yo->situacion_.con_foco = wparam != FALSE;
+      }
+      break;
+    case WM_WTSSESSION_CHANGE:
+      if (yo != nullptr) {
+        if (wparam == WTS_SESSION_LOCK || wparam == WTS_CONSOLE_DISCONNECT || wparam == WTS_REMOTE_DISCONNECT) {
+          yo->bloqueo_ = true;
+        } else if (wparam == WTS_SESSION_UNLOCK || wparam == WTS_CONSOLE_CONNECT || wparam == WTS_REMOTE_CONNECT) {
+          yo->bloqueo_ = false;
+        }
+        yo->situacion_.bloqueada = yo->bloqueo_ || yo->protector_;
+      }
+      return 0;
+    case WM_POWERBROADCAST:
+      if (SYSTEM_POWER_STATUS energia = {}; yo != nullptr && wparam == kCambioDeEnergia && GetSystemPowerStatus(&energia)) {
+        [[maybe_unused]] const auto& [enchufada, bateria, carga, ahorro, queda, dura] = energia;
+        yo->situacion_.ahorro = ahorro != 0;
+      }
+      return TRUE;
     case WM_SYSCOMMAND:
       if ((wparam & 0xFFF0) == SC_KEYMENU && lparam == 0) {
         return 0;

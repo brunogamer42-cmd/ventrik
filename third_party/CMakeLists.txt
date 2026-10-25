@@ -72,18 +72,17 @@ target_include_directories(miniaudio PUBLIC miniaudio)
 target_compile_definitions(miniaudio PUBLIC MA_NO_JACK)
 target_link_libraries(miniaudio PRIVATE ventrik_opciones_terceros)
 
-# --- Dear ImGui: interfaz, con Win32 y Direct3D 9 ---
+# --- Dear ImGui: interfaz, con Win32. El dibujo con Direct3D 9 es propio (src/client/ui/dibujante.cpp) ---
 add_library(imgui STATIC
   imgui/imgui.cpp
   imgui/imgui_demo.cpp
   imgui/imgui_draw.cpp
   imgui/imgui_tables.cpp
   imgui/imgui_widgets.cpp
-  imgui/backends/imgui_impl_win32.cpp
-  imgui/backends/imgui_impl_dx9.cpp)
+  imgui/backends/imgui_impl_win32.cpp)
 target_include_directories(imgui PUBLIC imgui imgui/backends)
 target_compile_definitions(imgui
-  PUBLIC IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS
+  PUBLIC IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS IMGUI_USE_BGRA_PACKED_COLOR
   PRIVATE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
 target_link_libraries(imgui PRIVATE ventrik_opciones_terceros)
 

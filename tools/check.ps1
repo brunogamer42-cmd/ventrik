@@ -231,6 +231,11 @@ try {
         Informar 'Pruebas automáticas' ($r -eq 0)
 
         $carpeta = Join-Path $raiz "build\$version\Release"
+        $banco = Join-Path $registros "$version-banco.txt"
+        $r = Ejecutar (Join-Path $carpeta 'ventrik_pruebas.exe') @('-tc=banco*', '--no-skip') $banco
+        Informar 'Banco sin ventana' ($r -eq 0)
+        Get-Content $banco | Where-Object { $_ -match 'MESSAGE: ' } |
+            ForEach-Object { Write-Host ('         ' + ($_ -replace '.*MESSAGE: ', '')) }
         Revisar-Exe (Join-Path $carpeta 'ventrik.exe') $version
         Revisar-Exe (Join-Path $carpeta 'ventrik_servidor.exe') $version
         Revisar-Exe (Join-Path $carpeta 'ventrik_pruebas.exe') $version

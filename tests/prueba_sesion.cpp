@@ -67,6 +67,8 @@ class Cliente {
   }
 
   void ordenar(ventrik::cliente::Orden orden) { sesion_.ordenar(std::move(orden)); }
+  void ordenar_juntas(std::vector<ventrik::cliente::Orden> ordenes) { sesion_.ordenar(std::move(ordenes)); }
+  void ahorrar(bool si) { sesion_.ahorrar(si); }
 
  private:
   ventrik::cliente::Sesion sesion_;
@@ -367,6 +369,41 @@ TEST_CASE("El ping vuelve") {
   CHECK(ping->milisegundos < 1000);
 }
 
+TEST_CASE("Varias órdenes juntas salen en orden") {
+  ServidorDePrueba servidor;
+  Cliente ana(servidor, "Ana");
+  ana.entrar();
+  ana.ordenar_juntas({EnviarChat{kCanalGeneral, "uno"}, EnviarChat{kCanalGeneral, "dos"},
+                      EnviarChat{kCanalGeneral, "tres"}});
+  for (std::uint32_t numero = 1; numero <= 3; ++numero) {
+    const auto mensaje = ana.esperar<MensajeChat>([numero](const MensajeChat& m) { return m.numero == numero; });
+    REQUIRE(mensaje);
+    CHECK(mensaje->texto == (numero == 1 ? "uno" : numero == 2 ? "dos" : "tres"));
+  }
+  ana.ordenar_juntas({});
+  CHECK(ana.no_llega<MensajeChat>());
+}
+
+TEST_CASE("Ahorrando, el ping cambia de ritmo enseguida, en las dos direcciones") {
+  ServidorDePrueba servidor;
+  ventrik::cliente::OpcionesSesion opciones;
+  opciones.cada_cuanto_ping = std::chrono::hours(1);
+  opciones.cada_cuanto_ping_ahorrando = 100ms;
+  Cliente ana(servidor, "Ana", {}, opciones);
+  ana.entrar();
+  REQUIRE(ana.esperar<PingMedido>());
+  CHECK(ana.no_llega<PingMedido>());
+  ana.ahorrar(true);
+  for (int i = 0; i < 3; ++i) {
+    CHECK(ana.esperar<PingMedido>({}, 1s));
+  }
+  ana.ahorrar(false);
+  std::this_thread::sleep_for(100ms);
+  while (ana.esperar<PingMedido>({}, 50ms)) {
+  }
+  CHECK(ana.no_llega<PingMedido>());
+}
+
 TEST_CASE("Una conexión que no manda nada se corta") {
   ventrik::servidor::Opciones opciones;
   opciones.inactividad = 300ms;
@@ -476,12 +513,17 @@ TEST_CASE("La voz va por UDP solo a los del mismo canal, y sigue andando al rota
 
   carla.ordenar(EntrarACanal{ventrik::servidor::kCanalGeneral});
   REQUIRE(ana.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == carla_id; }));
+  ana.ahorrar(true);
+  carla.ahorrar(true);
   llego = false;
   for (int intento = 0; intento < 50 && !llego; ++intento) {
     hablar(*oa.voz);
     llego = escuchar(*oc.voz, 100ms).has_value();
   }
   CHECK(llego);
+  ana.ahorrar(false);
+  CHECK(oa.voz->estado == EstadoVoz::lista);
+  CHECK(oc.voz->estado == EstadoVoz::lista);
   CHECK(ob.voz->recibidos > 0);
   CHECK(ob.voz->ping_ms < 1000);
 }

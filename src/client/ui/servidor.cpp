@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <iterator>
+#include <optional>
 #include <utility>
 
 #include <windows.h>
@@ -26,6 +27,13 @@ constexpr float kAltoGrupo = 27;
 constexpr float kArribaMensajes = 28;
 constexpr std::uint64_t kMsPorDia = 24ull * 60 * 60 * 1000;
 
+std::optional<std::size_t> lugar(const std::vector<std::uint64_t>& ids, std::uint64_t id) {
+  const auto encontrado = std::lower_bound(ids.begin(), ids.end(), id);
+  return encontrado != ids.end() && *encontrado == id
+             ? std::optional<std::size_t>(static_cast<std::size_t>(encontrado - ids.begin()))
+             : std::nullopt;
+}
+
 float actualizar(Alturas& alturas, const cliente::Chat& chat, float ancho) {
   const bool mismo = alturas.canal == chat.canal && alturas.ancho == ancho;
   if (mismo && alturas.ids.size() == chat.mensajes.size() && alturas.desde.size() == chat.mensajes.size() + 1 &&
@@ -33,31 +41,41 @@ float actualizar(Alturas& alturas, const cliente::Chat& chat, float ancho) {
        (alturas.ids.front() == chat.mensajes.front().id && alturas.ids.back() == chat.mensajes.back().id))) {
     return 0;
   }
-  Alturas nuevas{chat.canal, ancho, {}, {}, {}, {0}, {}, {}, {}};
+  Alturas nuevas{chat.canal, ancho, false, {}, {}, {}, {0}, {}, {}};
   for (const auto& mensaje : chat.mensajes) {
-    const auto viejo = std::lower_bound(alturas.ids.begin(), alturas.ids.end(), mensaje.id);
-    const bool conocido = mismo && viejo != alturas.ids.end() && *viejo == mensaje.id;
-    const auto i = static_cast<std::size_t>(viejo - alturas.ids.begin());
+    const auto viejo = mismo ? lugar(alturas.ids, mensaje.id) : std::nullopt;
     nuevas.ids.push_back(mensaje.id);
-    nuevas.dias.push_back(conocido ? alturas.dias[i] : cliente::dia_local(mensaje.hora_ms));
-    nuevas.textos.push_back(conocido ? alturas.textos[i] : alto_envuelto(mensaje.texto, ancho));
-    nuevas.horas.push_back(conocido ? std::move(alturas.horas[i]) : cliente::hora_local(mensaje.hora_ms));
-    nuevas.iniciales.push_back(conocido ? std::move(alturas.iniciales[i]) : iniciales(mensaje.autor));
+    nuevas.dias.push_back(viejo ? alturas.dias[*viejo] : cliente::dia_local(mensaje.hora_ms));
+    nuevas.textos.push_back(viejo ? alturas.textos[*viejo] : alto_envuelto(mensaje.texto, ancho));
+    nuevas.horas.push_back(viejo ? std::move(alturas.horas[*viejo]) : cliente::hora_local(mensaje.hora_ms));
   }
   for (std::size_t i = 0; i < nuevas.ids.size(); ++i) {
     const bool nuevo = i == 0 || nuevas.dias[i] != nuevas.dias[i - 1];
     nuevas.nuevo_dia.push_back(nuevo);
     nuevas.desde.push_back(nuevas.desde.back() + (nuevo ? px(kAltoDia) : 0) + px(20) + nuevas.textos[i] + px(11));
   }
-  float agregado = 0;
-  if (mismo && !alturas.ids.empty()) {
-    const auto primero = std::lower_bound(nuevas.ids.begin(), nuevas.ids.end(), alturas.ids.front());
-    if (primero != nuevas.ids.end() && *primero == alturas.ids.front()) {
-      agregado = nuevas.desde[static_cast<std::size_t>(primero - nuevas.ids.begin())];
+  float corrido = 0;
+  if (mismo && !alturas.ids.empty() && !nuevas.ids.empty()) {
+    if (const auto viejo_en_nuevas = lugar(nuevas.ids, alturas.ids.front())) {
+      corrido = nuevas.desde[*viejo_en_nuevas + 1] - alturas.desde[1];
+    } else if (const auto nuevo_en_viejas = lugar(alturas.ids, nuevas.ids.front())) {
+      corrido = nuevas.desde[1] - alturas.desde[*nuevo_en_viejas + 1];
     }
   }
   alturas = std::move(nuevas);
-  return agregado;
+  return corrido;
+}
+
+template <typename Armar>
+const std::string& guardado(TextoGuardado& lugar, Idioma idioma, std::uint64_t dato, std::string_view nombre,
+                            Armar&& armar) {
+  if (lugar.idioma != idioma.indice || lugar.dato != dato || lugar.nombre != nombre) {
+    lugar.idioma = idioma.indice;
+    lugar.dato = dato;
+    lugar.nombre.assign(nombre);
+    lugar.texto = armar();
+  }
+  return lugar.texto;
 }
 
 void punteado(ImDrawList& dibujo, ImVec2 desde, ImVec2 hasta, ImU32 color) {
@@ -76,10 +94,15 @@ class Dibujo {
  public:
   Dibujo(PantallaServidor& pantalla, cliente::Sala& sala)
       : pantalla_(pantalla), sala_(sala), ancho_(ImGui::GetIO().DisplaySize.x),
-        alto_(ImGui::GetIO().DisplaySize.y), hoy_(cliente::dia_local(cliente::ahora_ms())),
-        ayer_(cliente::dia_local(cliente::ahora_ms() - kMsPorDia)) {
+        alto_(ImGui::GetIO().DisplaySize.y) {
     const auto yo = sala_.usuarios().find(sala_.tu_id());
-    mi_nombre_ = yo != sala_.usuarios().end() ? yo->second.nombre : std::string();
+    mi_nombre_ = yo != sala_.usuarios().end() ? std::string_view(yo->second.nombre) : std::string_view();
+    const std::uint64_t ahora = cliente::ahora_ms();
+    if (ahora / 60000 != pantalla_.minuto) {
+      pantalla_.minuto = ahora / 60000;
+      pantalla_.hoy = cliente::dia_local(ahora);
+      pantalla_.ayer = cliente::dia_local(ahora - kMsPorDia);
+    }
   }
 
   PedidoServidor dibujar() {
@@ -94,7 +117,29 @@ class Dibujo {
  private:
   std::string_view t(Clave clave) const { return texto(pantalla_.idioma, clave); }
 
-  std::string llega_en(std::string_view etapa) const { return con_datos(t(Clave::inicio_llega_en), {etapa}); }
+  const std::string& llega_en(std::string_view etapa) const {
+    auto& etapas = pantalla_.textos.etapas;
+    auto cual = std::find_if(etapas.begin(), etapas.end(), [etapa](const TextoGuardado& e) { return e.nombre == etapa; });
+    TextoGuardado& lugar = cual != etapas.end() ? *cual : etapas.emplace_back();
+    return guardar(lugar, 0, [&] { return con_datos(t(Clave::inicio_llega_en), {etapa}); }, etapa);
+  }
+
+  template <typename Armar>
+  const std::string& guardar(TextoGuardado& lugar, std::uint64_t dato, Armar&& armar, std::string_view nombre = {}) const {
+    return guardado(lugar, pantalla_.idioma, dato, nombre, std::forward<Armar>(armar));
+  }
+
+  const Cara& cara(const std::string& nombre) const {
+    auto& caras = pantalla_.caras;
+    auto encontrada = caras.find(nombre);
+    if (encontrada == caras.end()) {
+      if (caras.size() >= kTopeCaras) {
+        caras.clear();
+      }
+      encontrada = caras.emplace(nombre, Cara{iniciales(nombre), color_de_avatar(nombre)}).first;
+    }
+    return encontrada->second;
+  }
 
   void agregar(std::vector<cliente::Orden> ordenes) {
     std::move(ordenes.begin(), ordenes.end(), std::back_inserter(pedido_.ordenes));
@@ -131,19 +176,27 @@ class Dibujo {
     ImGui::EndPopup();
   }
 
-  std::string perdida(Clave clave) const {
+  std::uint64_t perdida_por_mil() const {
     std::uint64_t perdidos = 0;
     std::uint64_t recibidos = 0;
     for (const Muestra& muestra : pantalla_.grafico) {
       perdidos += muestra.perdidos;
       recibidos += muestra.recibidos;
     }
-    const std::uint64_t por_mil = perdidos + recibidos == 0 ? 0 : perdidos * 1000 / (perdidos + recibidos);
+    return perdidos + recibidos == 0 ? 0 : perdidos * 1000 / (perdidos + recibidos);
+  }
+
+  std::string perdida(Clave clave) const {
+    const std::uint64_t por_mil = perdida_por_mil();
     return con_datos(t(clave), {std::to_string(por_mil / 10), std::to_string(por_mil % 10)});
   }
 
   std::string personas(std::uint32_t canal) const {
     return std::to_string(sala_.en_canal(canal).size());
+  }
+
+  const std::string& nombre_de_la_tecla() const {
+    return guardar(pantalla_.textos.tecla, pantalla_.tecla, [&] { return nombre_tecla(pantalla_.idioma, pantalla_.tecla); });
   }
 
   void barra() {
@@ -168,7 +221,7 @@ class Dibujo {
     float x = ancho_ - px(6) - ancho_etiqueta;
     etiqueta_transmitiendo(ImVec2(x, (alto - px(medida::alto_transmitiendo)) / 2), ancho_etiqueta, transmite,
                            pantalla_.transmitiendo);
-    const std::string tecla_elegida = nombre_tecla(pantalla_.idioma, pantalla_.tecla);
+    const std::string& tecla_elegida = nombre_de_la_tecla();
     x -= px(9) + ancho_tecla(tecla_elegida);
     tecla(ImVec2(x, (alto - px(medida::alto_tecla)) / 2), tecla_elegida, color::pozo);
     const std::string_view hablar_con = t(Clave::servidor_hablar_con);
@@ -229,8 +282,10 @@ class Dibujo {
     dibujo.AddRectFilled(ImVec2(derecha - 1, arriba), ImVec2(derecha, abajo), tono(color::borde_oscuro));
     triangulos(dibujo, ImVec2(0, arriba), ImVec2(derecha - 1, abajo));
     escribir_en(px(12), arriba + px(24), t(Clave::servidor_canales), color::texto, Letra::titulo, medida::letra_bloque);
-    const std::string conectados =
-        con_datos(t(Clave::servidor_conectados), {std::to_string(sala_.usuarios().size())});
+    const std::size_t cuantos = sala_.usuarios().size();
+    const std::string& conectados = guardar(pantalla_.textos.conectados, cuantos, [&] {
+      return con_datos(t(Clave::servidor_conectados), {std::to_string(cuantos)});
+    });
     escribir_en(derecha - px(12) - medir(conectados, Letra::normal, medida::letra_chica).x, arriba + px(25), conectados,
                 color::apagado, Letra::normal, medida::letra_chica);
     ImGui::SetCursorScreenPos(ImVec2(px(10), arriba + px(46)));
@@ -278,7 +333,13 @@ class Dibujo {
         continue;
       }
       y = fila_voz(origen.x, y, ancho, canal);
-      for (const auto* usuario : pantalla_.plegados.count(canal.id) == 0 ? sala_.en_canal(canal.id) : nadie) {
+      const auto& adentro = pantalla_.plegados.count(canal.id) == 0 ? sala_.en_canal(canal.id) : nadie;
+      const float alto = px(medida::fila_voz) * static_cast<float>(adentro.size());
+      if (!visible(y, alto)) {
+        y += alto;
+        continue;
+      }
+      for (const auto* usuario : adentro) {
         y = fila_persona(origen.x, y, ancho, *usuario);
       }
     }
@@ -406,9 +467,9 @@ class Dibujo {
     const bool habla = yo ? pantalla_.transmitiendo : pantalla_.hablando == usuario.id;
     const ImU32 color_voz = yo ? color::naranja : color::celeste;
     const float medio = y + alto / 2;
-    avatar(ImVec2(x + px(38), medio - px(medida::avatar_lista) / 2), px(medida::avatar_lista),
-           iniciales(usuario.nombre), color_de_avatar(usuario.nombre), color::texto, medida::letra_mini,
-           habla ? color_voz : 0);
+    const Cara& su_cara = cara(usuario.nombre);
+    avatar(ImVec2(x + px(38), medio - px(medida::avatar_lista) / 2), px(medida::avatar_lista), su_cara.iniciales,
+           su_cara.color, color::texto, medida::letra_mini, habla ? color_voz : 0);
     const float derecha = x + ancho - px(15);
     if (habla) {
       dibujar_icono(dibujo, Icono::voz, ImVec2(derecha - px(8), medio), px(14), tono(color_voz));
@@ -451,8 +512,7 @@ class Dibujo {
     if (pantalla_.eligiendo_tecla) {
       escribir_en(x + px(38), fila, t(Clave::servidor_apreta_tecla), color::celeste);
     } else {
-      tecla(ImVec2(x + px(38), fila - px(medida::alto_tecla) / 2), nombre_tecla(pantalla_.idioma, pantalla_.tecla),
-            color::elevado);
+      tecla(ImVec2(x + px(38), fila - px(medida::alto_tecla) / 2), nombre_de_la_tecla(), color::elevado);
       const std::string_view cambiar = t(Clave::servidor_cambiar_tecla);
       const float ancho = ancho_boton(cambiar, Estilo::contorneado);
       ImGui::SetCursorScreenPos(ImVec2(derecha - ancho, fila - px(16)));
@@ -497,15 +557,17 @@ class Dibujo {
       x += px(19);
     }
     x = escribir_en(x, medio, canal->nombre, color::texto, Letra::fuerte, medida::letra_bloque) + px(9);
-    std::string subtitulo;
-    if (es_texto) {
-      const auto* voz = sala_.canal(sala_.tu_canal());
-      subtitulo = con_datos(t(Clave::servidor_canal_texto), {voz != nullptr ? voz->nombre : std::string()});
-    } else {
-      const std::string cuantos = personas(canal->id);
-      subtitulo = cuantos == "1" ? std::string(t(Clave::servidor_chat_voz_una))
-                                 : con_datos(t(Clave::servidor_chat_voz), {cuantos});
-    }
+    const auto* voz = sala_.canal(sala_.tu_canal());
+    const std::string_view donde = es_texto && voz != nullptr ? std::string_view(voz->nombre) : std::string_view();
+    const std::size_t cuantos = sala_.en_canal(canal->id).size();
+    const std::string& subtitulo = guardar(
+        pantalla_.textos.subtitulo, es_texto ? UINT64_MAX - 1 : cuantos,
+        [&] {
+          return es_texto       ? con_datos(t(Clave::servidor_canal_texto), {donde})
+                 : cuantos == 1 ? std::string(t(Clave::servidor_chat_voz_una))
+                                : con_datos(t(Clave::servidor_chat_voz), {std::to_string(cuantos)});
+        },
+        donde);
     const float boton_panel = hasta.x - px(40);
     const float fin_subtitulo = es_texto ? boton_panel : boton_panel - px(220);
     escribir_en(x, medio, subtitulo, color::apagado, Letra::normal, medida::letra, fin_subtitulo - x - px(8));
@@ -537,11 +599,24 @@ class Dibujo {
     });
   }
 
-  std::string dia(std::uint64_t hora_ms) const {
-    const std::uint32_t cual = cliente::dia_local(hora_ms);
-    return cual == hoy_    ? std::string(t(Clave::servidor_hoy))
-           : cual == ayer_ ? std::string(t(Clave::servidor_ayer))
-                           : cliente::fecha_local(hora_ms);
+  std::string_view dia(std::uint32_t cual, std::uint64_t hora_ms) const {
+    if (cual == pantalla_.hoy || cual == pantalla_.ayer) {
+      return t(cual == pantalla_.hoy ? Clave::servidor_hoy : Clave::servidor_ayer);
+    }
+    if (pantalla_.fechas.size() >= kTopeFechas && pantalla_.fechas.count(cual) == 0) {
+      pantalla_.fechas.clear();
+    }
+    std::string& fecha = pantalla_.fechas[cual];
+    if (fecha.empty()) {
+      fecha = cliente::fecha_local(hora_ms);
+    }
+    return fecha;
+  }
+
+  void pedir(std::optional<cliente::Orden> orden) {
+    if (orden) {
+      pedido_.ordenes.push_back(std::move(*orden));
+    }
   }
 
   void mensajes(ImVec2 desde, ImVec2 hasta) {
@@ -551,64 +626,71 @@ class Dibujo {
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, color::borde_contorneado);
     ImGui::BeginChild("##mensajes", ImVec2(hasta.x - desde.x, hasta.y - desde.y));
     const float ancho_texto = ImGui::GetContentRegionAvail().x - px(kMargenChat + kSangria + 24);
-    const bool otro_chat = pantalla_.alturas.canal != chat.canal;
-    bool abajo = otro_chat || ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - px(2);
-    const float agregado = actualizar(pantalla_.alturas, chat, ancho_texto);
+    const bool abajo = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - px(2);
+    const bool seguir = pantalla_.alturas.canal != chat.canal || (abajo && pantalla_.alturas.al_final);
+    const float corrido = actualizar(pantalla_.alturas, chat, ancho_texto);
+    pantalla_.alturas.al_final = !chat.hay_nuevos;
     float scroll = ImGui::GetScrollY();
-    if (agregado > 0 && !abajo) {
-      scroll += agregado;
+    if (corrido != 0 && !seguir) {
+      scroll = std::max(0.0f, scroll + corrido);
       ImGui::SetScrollY(scroll);
     }
     const Alturas& alturas = pantalla_.alturas;
     const float vista = ImGui::GetWindowHeight();
-    const float total = px(kArribaMensajes) + alturas.desde.back() + px(8);
+    const float total = px(kArribaMensajes) + alturas.desde.back() + px(chat.hay_nuevos ? kArribaMensajes : 8);
     const float corrimiento = std::max(0.0f, vista - total);
     const float base = ImGui::GetWindowPos().y - scroll + corrimiento + px(kArribaMensajes);
     const float x = ImGui::GetWindowPos().x + px(kMargenChat);
     if (chat.pidiendo) {
-      escribir(ImVec2(x, base - px(kArribaMensajes) + px(6)), t(Clave::servidor_cargando), color::apagado,
-               Letra::normal, medida::letra_chica);
+      const bool nuevos = chat.pedido.sentido == protocolo::Sentido::nuevos;
+      escribir(ImVec2(x, nuevos ? base + alturas.desde.back() + px(6) : base - px(kArribaMensajes) + px(6)),
+               t(nuevos ? Clave::servidor_cargando_nuevos : Clave::servidor_cargando), color::apagado, Letra::normal,
+               medida::letra_chica);
     }
     const float tope = ImGui::GetWindowPos().y + vista;
     auto primero = std::upper_bound(alturas.desde.begin(), alturas.desde.end(), ImGui::GetWindowPos().y - base);
     std::size_t i = primero == alturas.desde.begin() ? 0 : static_cast<std::size_t>(primero - alturas.desde.begin()) - 1;
+    sala_.a_la_vista(seguir || i >= chat.mensajes.size() ? 0 : chat.mensajes[i].id);
     for (; i < chat.mensajes.size() && base + alturas.desde[i] < tope; ++i) {
-      mensaje(chat.mensajes[i], i, x, base + alturas.desde[i], ancho_texto);
+      mensaje(chat, i, x, base + alturas.desde[i], ancho_texto);
     }
     ImGui::SetCursorPos(ImVec2(0, corrimiento + total - 1));
     ImGui::Dummy(ImVec2(1, 1));
-    if (abajo) {
+    if (seguir) {
       ImGui::SetScrollHereY(1.0f);
     }
     if ((corrimiento > 0 || !abajo) && scroll <= 0 && chat.hay_mas) {
-      if (auto orden = sala_.pedir_mas_viejos()) {
-        pedido_.ordenes.push_back(std::move(*orden));
-      }
+      pedir(sala_.pedir_mas_viejos());
+    }
+    if ((corrimiento > 0 || abajo) && chat.hay_nuevos) {
+      pedir(sala_.pedir_mas_nuevos());
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
   }
 
-  void mensaje(const protocolo::MensajeGuardado& guardado, std::size_t i, float x, float y, float ancho_texto) const {
+  void mensaje(const cliente::Chat& chat, std::size_t i, float x, float y, float ancho_texto) const {
     const Alturas& alturas = pantalla_.alturas;
+    const cliente::MensajeDeChat& guardado = chat.mensajes[i];
     if (alturas.nuevo_dia[i]) {
-      escribir(ImVec2(x, y + px(8)), dia(guardado.hora_ms), color::apagado, Letra::normal, medida::letra_chica);
+      escribir(ImVec2(x, y + px(8)), dia(alturas.dias[i], guardado.hora_ms), color::apagado, Letra::normal,
+               medida::letra_chica);
       y += px(kAltoDia);
     }
-    avatar(ImVec2(x, y), px(medida::avatar_chat), alturas.iniciales[i], color_de_avatar(guardado.autor), color::texto,
-           medida::letra_mini);
+    const std::string& autor = chat.autor(guardado);
+    const Cara& su_cara = cara(autor);
+    avatar(ImVec2(x, y), px(medida::avatar_chat), su_cara.iniciales, su_cara.color, color::texto, medida::letra_mini);
     const float texto_x = x + px(kSangria);
-    const std::string_view autor =
-        guardado.autor == mi_nombre_ ? t(Clave::servidor_vos) : std::string_view(guardado.autor);
-    const float fin = escribir_en(texto_x, y + px(9), autor, color::texto, Letra::fuerte);
+    const float fin = escribir_en(texto_x, y + px(9), autor == mi_nombre_ ? t(Clave::servidor_vos) : autor,
+                                  color::texto, Letra::fuerte);
     escribir_en(fin + px(8), y + px(9), alturas.horas[i], color::apagado);
     escribir_envuelto(ImVec2(texto_x, y + px(20)), guardado.texto, color::texto, ancho_texto);
   }
 
   void escribir_mensaje(float izquierda, float y) {
     const auto* canal = sala_.canal(sala_.chat().canal);
-    const std::string nombre = canal != nullptr ? canal->nombre : std::string();
+    const std::string_view nombre = canal != nullptr ? std::string_view(canal->nombre) : std::string_view();
     const bool puede = sala_.puede_escribir();
     const float alto = px(medida::alto_campo_chat);
     ImGui::SetCursorScreenPos(ImVec2(izquierda + px(14), y));
@@ -616,10 +698,11 @@ class Dibujo {
     const float enviar_ancho = px(44);
     const float campo_desde = izquierda + px(60);
     const float campo_hasta = ancho_ - px(14) - enviar_ancho - px(8);
-    const std::string pista =
-        !puede ? con_datos(t(Clave::servidor_solo_admins), {nombre})
-        : canal != nullptr && canal->tipo == TipoCanal::texto ? con_datos(t(Clave::servidor_escribi_texto), {nombre})
-                                                               : con_datos(t(Clave::servidor_escribi_voz), {nombre});
+    const Clave cual = !puede                                                 ? Clave::servidor_solo_admins
+                       : canal != nullptr && canal->tipo == TipoCanal::texto ? Clave::servidor_escribi_texto
+                                                                             : Clave::servidor_escribi_voz;
+    const std::string& pista = guardar(
+        pantalla_.textos.pista, static_cast<std::uint64_t>(cual), [&] { return con_datos(t(cual), {nombre}); }, nombre);
     ImGui::BeginDisabled(!puede);
     ImGui::SetCursorScreenPos(ImVec2(campo_desde, y));
     if (pantalla_.enfocar_mensaje && puede) {
@@ -635,6 +718,10 @@ class Dibujo {
       if (auto orden = sala_.enviar(std::string(pantalla_.mensaje.data()))) {
         pedido_.ordenes.push_back(std::move(*orden));
         std::fill(pantalla_.mensaje.begin(), pantalla_.mensaje.end(), '\0');
+        if (auto ultimo = sala_.ir_a_lo_ultimo()) {
+          pedido_.ordenes.push_back(std::move(*ultimo));
+          pantalla_.alturas = Alturas{};
+        }
       }
       pantalla_.enfocar_mensaje = true;
     }
@@ -660,8 +747,10 @@ class Dibujo {
     dibujo.AddRectFilled(ImVec2(px(12), medio - px(4.5f)), ImVec2(px(21), medio + px(4.5f)), tono(color::verde));
     float x = escribir_en(px(27), medio, t(Clave::servidor_conectado), color::texto) + px(24);
     x = escribir_en(x, medio, pantalla_.direccion, color::texto2) + px(24);
-    const std::string ping = sala_.ping() ? con_datos(t(Clave::servidor_ping), {std::to_string(*sala_.ping())})
-                                          : std::string(t(Clave::servidor_sin_ping));
+    const std::string& ping = guardar(pantalla_.textos.ping, sala_.ping() ? *sala_.ping() : 1ull << 32, [&] {
+      return sala_.ping() ? con_datos(t(Clave::servidor_ping), {std::to_string(*sala_.ping())})
+                          : std::string(t(Clave::servidor_sin_ping));
+    });
     x = escribir_en(x, medio, ping, color::texto2) + px(8);
     grafico(ImVec2(x, medio - px(7)));
     ImGui::SetCursorScreenPos(ImVec2(x - px(4), arriba));
@@ -671,7 +760,10 @@ class Dibujo {
     cartel(t(Clave::servidor_ver_diagnostico));
     diagnostico(ImVec2(x, arriba - px(6)));
     x += px(64 + 8);
-    x = escribir_en(x, medio, perdida(Clave::servidor_perdidos), color::apagado) + px(24);
+    x = escribir_en(x, medio,
+                    guardar(pantalla_.textos.perdidos, perdida_por_mil(), [&] { return perdida(Clave::servidor_perdidos); }),
+                    color::apagado) +
+        px(24);
     dibujar_icono(dibujo, Icono::candado, ImVec2(x + px(6), medio), px(13), tono(color::texto2));
     x = escribir_en(x + px(18), medio, t(Clave::servidor_cifrado), color::texto2) + px(24);
     escribir_en(x, medio,
@@ -850,9 +942,7 @@ class Dibujo {
   cliente::Sala& sala_;
   float ancho_;
   float alto_;
-  std::uint32_t hoy_;
-  std::uint32_t ayer_;
-  std::string mi_nombre_;
+  std::string_view mi_nombre_;
   PedidoServidor pedido_;
 };
 
@@ -890,6 +980,11 @@ std::string nombre_tecla(Idioma idioma, std::uint8_t tecla) {
 
 PedidoServidor dibujar_servidor(PantallaServidor& pantalla, cliente::Sala& sala) {
   return Dibujo(pantalla, sala).dibujar();
+}
+
+void soltar_lejanos(PantallaServidor& pantalla) {
+  pantalla.caras.clear();
+  pantalla.fechas.clear();
 }
 
 }

@@ -22,6 +22,7 @@ struct LiberarArgumentos {
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int como_mostrar) {
   ventrik::endurecer_carga_de_dll();
   ventrik::activar_dep();
+  ventrik::proteger_el_monton();
 
   const ventrik::Idioma idioma = ventrik::idioma_de_windows();
   const std::wstring titulo =
