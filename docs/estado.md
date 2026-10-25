@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-24, al terminar la parte 3b del paso 2.5.
+Última actualización: 2026-10-25, con el cambio de diseño "entrar a un servidor sin entrar a la voz".
 
 ## Dónde estamos
 
@@ -45,7 +45,15 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - La sesión espera hasta lo próximo que tiene que hacer la voz (`hasta_lo_proximo`) en vez de despertarse cada 100 ms; cada 100 ms solo durante el saludo.
   - El registro suma `imgui_ms`, `direct3d_ms`, `presentados`, `vertices_max`, `descartes_con_voz_total` y `ram_mb`. Medido sin ventana en la PC, un cuadro de la pantalla del servidor cuesta unos 150 µs en la parte de Dear ImGui (unos 3 ms en la HP): lo demás de los 13 ms de la HP sería Direct3D, a confirmar con el registro.
 - **Prueba en la HP del consumo de la ventana (2026-10-25):** quieta cerca de 1 %, escuchando cerca de 2 %, hablando 24 % (antes 96 %), con el mouse cerca de 14 % (antes 65 %), ningún pedazo con voz tirado hacia los parlantes, memoria 8 MB. Por imagen: 4,6 ms de Dear ImGui y 10,5 ms de Direct3D (ver docs/mediciones.md).
-- **Lo que sigue: el plan de optimización (docs/optimizacion.md),** de un solo tirón sobre lo que ya existe, con las pruebas al final (sección 17), después del commit pendiente y de las decisiones del dueño (sección 18). Después, el **paso 2.6**, la prueba en check.ps1 que levanta servidor y programa en las cuatro combinaciones (clásica y moderna en cada lado). Después, la prueba de estrés y ataques que pidió el dueño (propuesta como 2.7). Las notificaciones son el primer paso de la etapa 3.
+- **Diseño actualizado (2026-10-25): entrar a un servidor sin entrar a la voz.** Afecta el paso 2.5, que hoy al entrar te mete en un canal de voz. Ahora:
+  - por defecto quedás solo con el chat (el último canal de texto, o #general), y Ajustes → General → "Al entrar a un servidor" deja elegir volver al último canal de voz; el "Entrar" de Inicio lo respeta;
+  - tocar un canal de voz te hace entrar, y "Salir de la voz" (arriba de "Tu audio") te saca sin salir del servidor;
+  - sin voz no se abren el micrófono, la salida de audio de la voz ni la conexión UDP de la voz; la tecla no hace nada y la cabecera, la barra de abajo y el subtítulo del canal de texto lo dicen;
+  - la lista suma el grupo "Sin canal de voz · N";
+  - en el servidor, los que están sin voz cuentan para el máximo de usuarios pero no para la capacidad de voz.
+
+  Está en docs/diseno.md ("Entrar a un servidor y a la voz"). Capturas en docs/pantallas/: Rendimiento-sin-voz.png y Visual-sin-voz.png nuevas; Rendimiento.png, Visual.png, Rendimiento-canal-texto.png, Visual-canal-texto.png y Ajustes.png reemplazadas. **Falta el código** (cambia el protocolo y el servidor): va después del plan de optimización y antes del 2.6.
+- **Lo que sigue: el plan de optimización (docs/optimizacion.md),** de un solo tirón sobre lo que ya existe, con las pruebas al final (sección 17), después del commit pendiente y de las decisiones del dueño (sección 18). Después, el código de "entrar a un servidor sin entrar a la voz" (arriba). Después, el **paso 2.6**, la prueba en check.ps1 que levanta servidor y programa en las cuatro combinaciones (clásica y moderna en cada lado). Después, la prueba de estrés y ataques que pidió el dueño (propuesta como 2.7). Las notificaciones son el primer paso de la etapa 3.
 
 ## Ramas y repositorio
 

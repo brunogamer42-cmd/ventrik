@@ -58,10 +58,10 @@ La ventana tiene una sola organización y dos modos: los modos cambian cuánto h
 
 Organización de la ventana:
 
-- **Arriba:** el servidor, los botones (micrófono, audio, servidores, perfil, personalizar para los administradores, ajustes, desconectar), el selector de modo y el estado de la tecla para hablar.
-- **Izquierda:** la lista de canales en dos grupos, "Canales de texto" arriba y "Canales de voz" abajo (ver "Canales de voz y de texto"). Los de voz muestran las personas adentro y su estado: habla, micrófono apagado, audio apagado, ausente o no molestar (sin sonidos de aviso), y se pliegan. La lista se desplaza con su propia barra; abajo queda fijo tu audio: medidor, cómo transmitís (tecla o voz, con su sensibilidad) y volúmenes.
+- **Arriba:** el servidor, los botones (micrófono, audio, servidores, perfil, personalizar para los administradores, ajustes, desconectar), el selector de modo y el estado de la tecla para hablar ("Hablar con <tecla>" y "Transmitiendo"; sin canal de voz, "Sin voz · micrófono apagado").
+- **Izquierda:** la lista de canales en dos grupos, "Canales de texto" arriba y "Canales de voz" abajo (ver "Canales de voz y de texto"), y al final el grupo "Sin canal de voz". Los de voz muestran las personas adentro y su estado: habla, micrófono apagado, audio apagado, ausente o no molestar (sin sonidos de aviso), y se pliegan. La lista se desplaza con su propia barra; abajo queda fijo tu audio: tu canal de voz con el botón "Salir de la voz", medidor, cómo transmitís (tecla o voz, con su sensibilidad) y volúmenes. Sin canal de voz, en su lugar va el panel "Sin canal de voz" (ver "Entrar a un servidor y a la voz").
 - **Derecha:** el chat del canal de voz donde estás o del canal de texto que elegiste, con los archivos. Desde la etapa 12, ahí también se mira una pantalla compartida.
-- **Abajo:** la barra de estado con la conexión, el ping, el cifrado y la verificación del servidor.
+- **Abajo:** la barra de estado con la conexión, el ping, el cifrado, la voz y la verificación del servidor.
 
 |  | Modo Rendimiento | Modo Visual |
 | --- | --- | --- |
@@ -90,11 +90,11 @@ El programa abre en **Inicio**. Ventrik se organiza por servidores; desde la eta
 
 | Pantalla | Qué tiene |
 | --- | --- |
-| Inicio (en los dos modos) | Tus servidores con su estado (en línea, cuántos hay, ping, tu último canal, solicitudes pendientes, tu servidor apagado), entrar con invitación, tu estado, el aviso de copia de tu identidad y el botón Reportar. En Visual suma el encabezado y el icono animados de cada servidor y tu tarjeta |
-| Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil |
+| Inicio (en los dos modos) | Tus servidores con su estado (en línea, cuántos hay, ping, tu último canal, solicitudes pendientes, tu servidor apagado), entrar con invitación, tu estado, el aviso de copia de tu identidad y el botón Reportar. En Visual suma el encabezado y el icono animados de cada servidor y tu tarjeta. "Entrar" respeta el ajuste "Al entrar a un servidor" |
+| Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil. Capturas: docs/pantallas/Rendimiento.png y Visual.png (en un canal de voz), Rendimiento-sin-voz.png y Visual-sin-voz.png (solo con el chat), Rendimiento-canal-texto.png y Visual-canal-texto.png |
 | Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados. En Visual, al elegir un servidor se ven su fondo e icono animados |
 | Hostear un servidor | Asistente de 7 pasos (nombre y acceso, conexión, capacidad y voz, seguridad, chat y archivos, pantallas y varias PCs, revisar e iniciar) y la pantalla final Invitar gente (ver "Hostear: asistente por pasos") |
-| Ajustes | General (con el idioma), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) aparecen desactivadas y marcadas "EN DESARROLLO" |
+| Ajustes | General (con el idioma y "Al entrar a un servidor"), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) aparecen desactivadas y marcadas "EN DESARROLLO" |
 | Amigos (etapa 14) | Solicitudes, grupos y amigos; chat de a dos y de grupo; agregar amigo; llamada entrante; llamada grupal con personas, chat y cómo viaja; recuperar desde Google Drive (ver "Amigos y llamadas directas") |
 | Audio y micrófono | Dispositivos, cómo transmitís (tecla o voz) con medidor y prueba, limpieza de la voz, consumo de la voz, volúmenes y bajar otros programas cuando alguien habla (desde Windows 7) |
 | Enviar archivo con contraseña | Pide la contraseña, analiza el comprimido con ClamAV en tu PC y lo envía; la contraseña no sale de tu PC |
@@ -150,6 +150,7 @@ Recorrido de la voz:
 
 Ahorros automáticos:
 
+- Sin canal de voz no se abren el micrófono, la salida de audio de la voz ni la conexión de la voz (UDP): queda solo la conexión de control y chat (TLS). Se abren al entrar a un canal de voz y se cierran al salir (ver "Entrar a un servidor y a la voz").
 - Si silenciás a alguien, el servidor deja de mandarte su voz.
 - Si apagás el audio, no recibís voz.
 - La corrección de errores de Opus se activa solo cuando se pierden paquetes.
@@ -254,12 +255,12 @@ Cada canal tiene su chat, y los mensajes y archivos quedan guardados en el servi
 
 Hay dos tipos de canal, y el tipo no se cambia después de crearlo:
 
-- **De voz:** como siempre. Entrar te mueve, hablás ahí y tiene su chat.
-- **De texto:** solo chat. No se entra: se lee y se escribe sin salir del canal de voz donde estás.
+- **De voz:** tocarlo te hace entrar (o te mueve si estabas en otro), hablás ahí y tiene su chat.
+- **De texto:** solo chat. No se entra: se lee y se escribe sin salir del canal de voz donde estás, o sin estar en ninguno.
 
 En la lista de la izquierda van en dos grupos, "Canales de texto" arriba y "Canales de voz" abajo. Cada grupo tiene su botón + para crear un canal, solo para el dueño (y los admins desde la etapa 9). Los de texto llevan #, la cantidad de mensajes nuevos y el nombre en negrita si hay nuevos.
 
-- **Elegir un canal de texto:** se marca en la lista, el chat pasa a ese canal y el encabezado dice "Canal de texto · seguís hablando en <canal de voz>". Tu canal de voz sigue con "estás acá", y tocarlo vuelve a su chat.
+- **Elegir un canal de texto:** se marca en la lista, el chat pasa a ese canal y el encabezado dice "Canal de texto · seguís hablando en <canal de voz>", o "Canal de texto · no estás en un canal de voz". Tu canal de voz sigue con "estás acá", y tocarlo vuelve a su chat.
 - **"Solo los admins escriben":** marca opcional de cada canal de texto, por ejemplo #anuncios, con un candado en la lista. Se elige al crear el canal y el dueño la cambia después con clic derecho, junto con el nombre. El resto lo lee con el campo de mensaje bloqueado, y el servidor lo verifica en cada mensaje. Hasta la etapa 9, "admins" es solo el dueño; los permisos por rol y canal siguen en la etapa 9.
 - **Mismo chat que los de voz:** mismo guardado en SQLite, mismos topes, historial y tiempo de guardado. Para escribir en un canal de texto no hace falta estar adentro, pero el pedido pasa por los permisos del servidor (permisos.cpp) como cualquier otro.
 - **Quién recibe cada mensaje:** el programa le dice al servidor qué canal de texto está mirando, uno por vez. El mensaje completo va a quienes están en ese canal de voz o miran ese canal de texto. A los demás que pueden leerlo, el servidor solo les avisa qué canal tiene mensajes nuevos y su contador, nunca el texto: como mucho un aviso por segundo por persona, con todos los canales que cambiaron juntos.
@@ -268,6 +269,26 @@ En la lista de la izquierda van en dos grupos, "Canales de texto" arriba y "Cana
 - **Borrar un canal de texto** borra sus mensajes, y quien lo estaba mirando vuelve al chat de su canal de voz.
 - **Un servidor nuevo** arranca solo con "General", que es de voz. Los canales de texto los crea el dueño; un "general" de texto no puede convivir con "General" de voz, porque los nombres no distinguen mayúsculas.
 - **En los dos modos es igual,** porque es texto.
+
+### Entrar a un servidor y a la voz
+
+Estar en un servidor y estar en la voz son dos cosas separadas. Capturas: docs/pantallas/Rendimiento-sin-voz.png y Visual-sin-voz.png (sin voz), Rendimiento.png y Visual.png (en un canal de voz), y Ajustes.png (el ajuste).
+
+- **Al entrar a un servidor no se entra a un canal de voz:** por defecto quedás solo con el chat, en el último canal de texto que miraste ahí, o en #general si no hay. Lo elige Ajustes → General → "Al entrar a un servidor":
+  - "Quedarme solo en el chat, sin entrar a un canal de voz" (predeterminado);
+  - "Volver al último canal de voz en el que estuve".
+
+  El botón "Entrar" de Inicio respeta este ajuste.
+- **Entrar a la voz:** tocar un canal de voz te hace entrar. Con voz, arriba del panel "Tu audio" va "En <canal> · <ping>" con el botón "Salir de la voz", que te saca de la voz sin salir del servidor. "Desconectar" (en la cabecera) sigue siendo salir del servidor.
+- **Sin voz:**
+  - en lugar de "Tu audio" va el panel "Sin canal de voz", con "Volver a <último canal>";
+  - en la cabecera, en lugar de "Hablar con <tecla>" y "Transmitiendo", va "Sin voz · micrófono apagado";
+  - la tecla para hablar no hace nada;
+  - la barra de abajo dice "Voz: no estás en un canal";
+  - el subtítulo de un canal de texto dice "no estás en un canal de voz".
+- **Sin voz no se usa nada de la voz:** ni el micrófono, ni la salida de audio de la voz, ni la conexión de la voz (UDP). Solo queda la conexión de control y chat (TLS). Todo eso se abre al entrar a un canal de voz y se cierra al salir.
+- **Lista de canales:** al final, el grupo "Sin canal de voz · N" con quienes están en el servidor sin voz, sin mostrar qué canal de texto leen. "N conectados" cuenta a todos.
+- **En el servidor:** los que están sin voz cuentan para el "Máximo de usuarios", pero no para la capacidad de voz (la que se calcula con la subida, ver "Servidores grandes"). Mandar al canal AFK por inactividad sigue siendo solo para quien está en un canal de voz.
 
 ### Canales y nombres
 
@@ -866,7 +887,7 @@ Cada voz se envía una vez por cada persona que la escucha. Como la cantidad de 
 - **Reconexiones escalonadas:** si el servidor se reinicia, los programas vuelven a entrar con una espera al azar, para no llegar los 512 juntos.
 - **La subida se reparte en un solo lugar,** por prioridades: primero la voz, después lo demás. Las pantallas compartidas (etapa 12) se suman como lo de menor prioridad.
 - **Varios núcleos:** cada canal va a un hilo, así los canales llenos se reparten entre núcleos; en un canal muy grande, el envío a sus oyentes también se reparte entre varios hilos.
-- **Capacidad estimada:** al hostear, el dueño hace una prueba de velocidad (por ejemplo en speedtest.net) y anota la subida. El panel calcula cuántas personas aguanta en calidad Alta, Media y Mínima: personas ≈ subida × 0,85 ÷ (tope de voces × kbps por oyente) + 1, en el peor caso de todos hablando a la vez. Con 30 Mbps y tope de 4 da 107 personas en Alta, 213 en Media y 376 en Mínima. El máximo "Automático" usa ese número.
+- **Capacidad estimada:** al hostear, el dueño hace una prueba de velocidad (por ejemplo en speedtest.net) y anota la subida. El panel calcula cuántas personas aguanta en calidad Alta, Media y Mínima: personas ≈ subida × 0,85 ÷ (tope de voces × kbps por oyente) + 1, en el peor caso de todos hablando a la vez. Con 30 Mbps y tope de 4 da 107 personas en Alta, 213 en Media y 376 en Mínima. El máximo "Automático" usa ese número. Quienes están en el servidor sin canal de voz no cuentan para esta capacidad, pero sí para el "Máximo de usuarios" (ver "Entrar a un servidor y a la voz").
 
 Procesador y memoria (estimación, a medir): el peor caso con 512 personas y el tope de 4 voces son unos 100.000 paquetes por segundo en calidad Alta o Normal y unos 50.000 en Media, cifrados uno por uno. Es exigente pero posible para un procesador actual de varios núcleos. La memoria ronda los 100 a 200 MB para 512 conexiones.
 
