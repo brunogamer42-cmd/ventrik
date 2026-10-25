@@ -58,8 +58,8 @@ La ventana tiene una sola organización y dos modos: los modos cambian cuánto h
 
 Organización de la ventana:
 
-- **Arriba:** el servidor, los botones (micrófono, audio, servidores, perfil, personalizar para los administradores, ajustes, desconectar), el selector de modo y el estado de la tecla para hablar ("Hablar con <tecla>" y "Transmitiendo"; sin canal de voz, "Sin voz · micrófono apagado").
-- **Izquierda:** la lista de canales en dos grupos, "Canales de texto" arriba y "Canales de voz" abajo (ver "Canales de voz y de texto"), y al final el grupo "Sin canal de voz". Los de voz muestran las personas adentro y su estado: habla, micrófono apagado, audio apagado, ausente o no molestar (sin sonidos de aviso), y se pliegan. La lista se desplaza con su propia barra; abajo queda fijo tu audio: tu canal de voz con el botón "Salir de la voz", medidor, cómo transmitís (tecla o voz, con su sensibilidad) y volúmenes. Sin canal de voz, en su lugar va el panel "Sin canal de voz" (ver "Entrar a un servidor y a la voz").
+- **Arriba:** el servidor, los botones (servidores, perfil, personalizar para los administradores, ajustes, desconectar), el selector de modo y el estado de la tecla para hablar ("Hablar con <tecla>" y "Transmitiendo"; silenciado, en lugar de "Transmitiendo" un aviso rojo, "Micrófono silenciado" o "Sin audio ni micrófono"; sin canal de voz, "Sin voz · micrófono apagado"). El micrófono y el audio ya no son botones de la cabecera: están en el panel de audio (ver "Panel de audio").
+- **Izquierda:** la lista de canales en dos grupos, "Canales de texto" arriba y "Canales de voz" abajo (ver "Canales de voz y de texto"), y al final el grupo "Sin canal de voz". Los de voz muestran las personas adentro y su estado: habla, micrófono apagado, audio apagado, ausente o no molestar (sin sonidos de aviso), y se pliegan. La lista se desplaza con su propia barra; abajo queda fijo el panel de audio: tu canal con "Salir del canal", el medidor y cuatro botones (ver "Panel de audio"). Sin canal de voz, el panel dice "Sin canal de voz" (ver "Entrar a un servidor y a la voz").
 - **Derecha:** el chat del canal de voz donde estás o del canal de texto que elegiste, con los archivos. Desde la etapa 12, ahí también se mira una pantalla compartida.
 - **Abajo:** la barra de estado con la conexión, el ping, el cifrado, la voz y la verificación del servidor.
 
@@ -77,7 +77,7 @@ Organización de la ventana:
 | Marcos de avatar | No hay | Se ven alrededor de la imagen, en la lista de canales y en el chat. Pueden ser del catálogo, hechos en el editor o una imagen animada propia |
 | Transmitiendo | Etiqueta fija | La etiqueta late mientras transmitís |
 | Animaciones | Ninguna | Solo mientras se ven; en pausa con la ventana minimizada o sin foco |
-| Ritmo de la interfaz | Lo que se mueve solo (quién habla, el medidor mientras ajustás la sensibilidad) a 4 imágenes por segundo; el medidor de "Tu audio" es una barra fija (ver Voz, paso 3) | Hasta 30 imágenes por segundo, para que los elementos visuales se vean fluidos |
+| Ritmo de la interfaz | Lo que se mueve solo (quién habla, el medidor del panel "Cómo transmitís" mientras está abierto) a 4 imágenes por segundo; el medidor del panel de audio es una barra fija (ver Voz, paso 3) | Hasta 30 imágenes por segundo, para que los elementos visuales se vean fluidos |
 
 En Rendimiento todo eso se apaga, no se oculta: el programa no lo descarga ni lo procesa. Los dos modos tienen los mismos botones, canales, chat, tarjeta de perfil y controles de audio; solo cambia lo que se descarga y se anima. La única excepción es "Ocultar sus efectos" en la tarjeta de otro, que solo aparece en Visual porque en Rendimiento no hay efectos. En Ajustes hay un tercer modo, Automático: usa Visual, salvo en PCs débiles o con un juego en pantalla completa abierto, donde pasa solo a Rendimiento. Las PCs débiles arrancan en Rendimiento.
 
@@ -92,7 +92,7 @@ El programa abre en **Inicio**. Ventrik se organiza por servidores; desde la eta
 | Pantalla | Qué tiene |
 | --- | --- |
 | Inicio (en los dos modos) | Tus servidores con su estado (en línea, cuántos hay, ping, tu último canal, solicitudes pendientes, tu servidor apagado), entrar con invitación, tu estado, el aviso de copia de tu identidad y el botón Reportar. En Visual suma el encabezado y el icono animados de cada servidor y tu tarjeta. "Entrar" respeta el ajuste "Al entrar a un servidor" |
-| Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil. Capturas: docs/pantallas/Rendimiento.png y Visual.png (en un canal de voz), Rendimiento-sin-voz.png y Visual-sin-voz.png (solo con el chat), Rendimiento-por-voz.png y Visual-por-voz.png (transmitiendo por voz), Rendimiento-canal-texto.png y Visual-canal-texto.png |
+| Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil. Capturas, cada una en docs/pantallas/Rendimiento*.png y Visual*.png: la base (en un canal de voz), -sin-voz (solo con el chat), -canal-texto, -por-voz (transmitiendo por voz), -microfono y -por-voz-microfono (el panel flotante "Cómo transmitís"), -salida (el volumen de salida), -silenciado y -sin-audio |
 | Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados. En Visual, al elegir un servidor se ven su fondo e icono animados |
 | Hostear un servidor | Asistente de 7 pasos (nombre y acceso, conexión, capacidad y voz, seguridad, chat y archivos, pantallas y varias PCs, revisar e iniciar) y la pantalla final Invitar gente (ver "Hostear: asistente por pasos") |
 | Ajustes | General (con el idioma y "Al entrar a un servidor"), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) aparecen desactivadas y marcadas "EN DESARROLLO" |
@@ -143,11 +143,11 @@ Recorrido de la voz:
 
 1. El micrófono capta el sonido a 48 kHz, la calidad con la que trabaja Opus, así no hay que convertirlo. En los niveles de consumo Bajo y Mínimo capta a 16 u 8 kHz (ver "Consumo de la voz").
 2. Se limpia el ruido de fondo y, si no usás auriculares, se cancela el eco (si Windows no informa qué tipo de salida es, queda encendida). Las dos cosas son opcionales porque son lo que más procesador gasta.
-3. Se transmite solo mientras apretás la tecla para hablar, o, en el modo por voz, mientras tu voz supera la sensibilidad que marcás en el medidor. El modo se elige en el panel "Tu audio", en los dos modos de la interfaz. En silencio no se envía casi nada.
-   - **Por voz** (capturas: docs/pantallas/Rendimiento-por-voz.png y Visual-por-voz.png): la cabecera dice "Activación por voz" en lugar de "Hablar con <tecla>"; el medidor de "Tu audio" muestra una marca (el umbral), y en lugar de la tecla va el control "Sensibilidad", que mueve esa marca, con el texto "Transmite cuando tu voz pasa la marca del medidor". "Transmitiendo" se prende solo mientras el nivel pasa la marca, y sigue 0,4 s después de callarte para no cortar el final de las palabras. Con la voz pasando la marca se manda también el pedazo de 20 ms anterior, para no comerse el principio. La tecla no hace nada en este modo.
-   - **El medidor de "Tu audio" según el modo de la interfaz** (idea del dueño, 2026-10-25; las capturas de Rendimiento todavía muestran el medidor con divisiones y el deslizador a la vista: manda este texto):
-     - **Rendimiento:** en lugar del volumen va una barra naranja sin divisiones, fija: prendida mientras te escuchan y apagada si no, con la tecla y por voz. Por voz, la fila dice "Sensibilidad" con un botón "Ajustar"; al tocarlo aparecen el medidor en vivo con la marca, el deslizador y la ayuda, y el botón pasa a "Guardar". Al guardar vuelve la barra fija. Así la ventana no se redibuja por el medidor, y un deslizador a 4 imágenes por segundo no queda feo.
-     - **Visual:** el medidor con divisiones y el deslizador de "Sensibilidad" se ven siempre, como en Visual-por-voz.png, y el medidor se mueve hasta 30 imágenes por segundo.
+3. Se transmite solo mientras apretás la tecla para hablar, o, en el modo por voz, mientras tu voz supera la sensibilidad que marcás en el medidor. El modo se elige en el panel flotante "Cómo transmitís" del panel de audio (ver "Panel de audio"), en los dos modos de la interfaz. En silencio no se envía casi nada.
+   - **Por voz** (capturas: docs/pantallas/Rendimiento-por-voz.png, -por-voz-microfono.png y sus Visual): la cabecera dice "Activación por voz" en lugar de "Hablar con <tecla>"; el botón del modo dice "Por voz"; en "Cómo transmitís", en lugar de la tecla va un medidor propio con una marca (el umbral) y el control "Sensibilidad", que mueve esa marca, con el texto "Transmite cuando tu voz pasa la marca del medidor". "Transmitiendo" se prende solo mientras el nivel pasa la marca, y sigue 0,4 s después de callarte para no cortar el final de las palabras. Con la voz pasando la marca se manda también el pedazo de 20 ms anterior, para no comerse el principio. La tecla no hace nada en este modo.
+   - **El medidor del panel de audio según el modo de la interfaz** (decisión del dueño, 2026-10-25; las capturas de Rendimiento muestran el medidor con divisiones y moviéndose: manda este texto):
+     - **Rendimiento:** la fila del medidor es una barra naranja sin divisiones, fija: prendida mientras te escuchan y apagada si no, con la tecla y por voz, sin marca. El medidor en vivo con la marca se ve solo en el panel flotante "Cómo transmitís" mientras está abierto, que hace lo que antes hacían "Ajustar" y "Guardar"; al cerrarlo vuelve la barra fija. Así la ventana no se redibuja por el medidor.
+     - **Visual:** la fila del medidor muestra el nivel con divisiones, con la marca en modo por voz, y se mueve hasta 30 imágenes por segundo.
    - Por debajo de la marca no se comprime ni se manda nada: solo se mide el volumen del micrófono, que es barato. El medidor en vivo se mueve solo con la ventana al frente; minimizada o con un juego adelante, la voz sigue igual pero el medidor no se dibuja.
    - El modo y la sensibilidad se guardan en la PC.
 4. Opus comprime la voz en pedazos de 20 milésimas de segundo, a 24 kbps.
@@ -288,9 +288,9 @@ Estar en un servidor y estar en la voz son dos cosas separadas. Capturas: docs/p
 
   El botón "Entrar" de Inicio respeta este ajuste. Hasta que exista la pantalla Ajustes (etapa 3) vale el predeterminado.
   - Si el último canal de texto ya no existe, se mira #general; si no hay, el primer canal de texto. Si el servidor no tiene ningún canal de texto, en el lugar del chat va el cartel "Este servidor todavía no tiene canales de texto. Tocá un canal de voz para entrar." (decisión del dueño).
-- **Entrar a la voz:** tocar un canal de voz te hace entrar. Con voz, arriba del panel "Tu audio" va "En <canal> · <ping>" con el botón "Salir de la voz", que te saca de la voz sin salir del servidor. "Desconectar" (en la cabecera) sigue siendo salir del servidor.
+- **Entrar a la voz:** tocar un canal de voz te hace entrar. Con voz, la primera fila del panel de audio dice "<canal> · <ping>" con el botón "Salir del canal", que te saca de la voz sin salir del servidor. "Desconectar" (en la cabecera) sigue siendo salir del servidor.
 - **Sin voz:**
-  - en lugar de "Tu audio" va el panel "Sin canal de voz", con "Volver a <último canal>";
+  - la primera fila del panel de audio dice "Sin canal de voz", con "Volver a <último canal>"; abajo, la línea "Micrófono y audio apagados hasta que entres a un canal. Si te silenciás antes, entrás silenciado." y los mismos cuatro botones (ver "Panel de audio");
   - en la cabecera, en lugar de "Hablar con <tecla>" y "Transmitiendo", va "Sin voz · micrófono apagado";
   - la tecla para hablar no hace nada;
   - la barra de abajo dice "Voz: no estás en un canal";
@@ -298,6 +298,28 @@ Estar en un servidor y estar en la voz son dos cosas separadas. Capturas: docs/p
 - **Sin voz no se usa nada de la voz:** ni el micrófono, ni la salida de audio de la voz, ni la conexión de la voz (UDP). Solo queda la conexión de control y chat (TLS). Todo eso se abre al entrar a un canal de voz y se cierra al salir.
 - **Lista de canales:** al final, el grupo "Sin canal de voz · N" con quienes están en el servidor sin voz, sin mostrar qué canal de texto leen. "N conectados" cuenta a todos.
 - **En el servidor:** los que están sin voz cuentan para el "Máximo de usuarios", pero no para la capacidad de voz (la que se calcula con la subida, ver "Servidores grandes"). Mandar al canal AFK por inactividad sigue siendo solo para quien está en un canal de voz.
+
+### Panel de audio
+
+Abajo a la izquierda, fijo debajo de la lista de canales. Capturas: docs/pantallas/Rendimiento.png (la base), -por-voz, -microfono, -por-voz-microfono, -salida, -silenciado, -sin-audio y -sin-voz, cada una también en Visual. En Rendimiento, la fila del medidor es la barra fija de "Voz", paso 3, aunque las capturas muestren el medidor con divisiones.
+
+- **Tres filas:**
+  1. "<canal> · <ping>" y el botón "Salir del canal", que te saca de la voz sin salir del servidor. Sin voz: "Sin canal de voz" y "Volver a <último canal>".
+  2. El medidor del micrófono en una barra fina; en modo "Por voz" muestra la marca de la sensibilidad (en Rendimiento, barra fija: ver "Voz", paso 3). Sin voz, en su lugar va la línea "Micrófono y audio apagados hasta que entres a un canal. Si te silenciás antes, entrás silenciado."
+  3. Cuatro botones:
+     - silenciar el micrófono (Ctrl+M);
+     - silenciar el audio y el micrófono (Ctrl+D);
+     - el modo de transmisión: muestra la tecla (por ejemplo "Alt izq.") o "Por voz", con ▴; abre el panel flotante "Cómo transmitís";
+     - la salida (por ejemplo "85 %"), con ▴; abre el panel flotante del volumen de salida.
+- **Paneles flotantes:** se abren encima de la fila y se cierran al tocar afuera.
+  - **"Cómo transmitís":** "Tecla para hablar | Por voz"; con la tecla, "Tecla <tecla>" y "Cambiar tecla"; por voz, la sensibilidad con su propio medidor y la marca. Abajo, "Volumen del micrófono" de 0 a 200 % y la nota "Dispositivo y supresión de ruido: Ajustes → Audio y micrófono".
+  - **Salida:** "Volumen de salida" y la nota "El volumen de cada persona se cambia tocando su nombre".
+- **Silenciado:**
+  - el botón queda rojo con el ícono tachado;
+  - en tu fila del canal se ve el micrófono o los auriculares tachados, también para los demás;
+  - en la cabecera, "Transmitiendo" pasa a ser un aviso rojo: "Micrófono silenciado" o "Sin audio ni micrófono".
+- **Como en Discord:** silenciar el audio silencia también el micrófono, y activar el micrófono estando sin audio activa las dos cosas. Sin audio no recibís voz (ver "Ahorros automáticos").
+- **Sin canal de voz** se ven los mismos cuatro botones: si te silenciás antes de entrar, entrás silenciado.
 
 ### Canales y nombres
 
