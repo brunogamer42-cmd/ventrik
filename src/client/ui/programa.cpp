@@ -32,7 +32,6 @@ namespace ventrik::ui {
 namespace {
 using namespace std::chrono_literals;
 using Reloj = std::chrono::steady_clock;
-constexpr std::uint32_t kSegundosPorPrueba = 20;
 
 template <typename... Valores>
 void anotar(std::ostream& salida, const Valores&... valores) {
@@ -84,7 +83,7 @@ class Programa {
                  "salida_max_ms,descartes_salida_total,descartes_con_voz_total,vacios_salida_total,"
                  "vaciados_colchon_total,faltas_colchon_total,transmitiendo,hablando,voz_lista,avisos,mensajes,"
                  "mensaje_comun,ram_mb,despertares_ventana,despertares_audio,despertares_red,tcp_sube,tcp_baja,"
-                 "udp_sube,udp_baja,memoria_propia_kb,fallas_por_segundo,arranque_ms,pixeles,por_partes,foco,juego,"
+                 "udp_sube,udp_baja,memoria_propia_kb,fallas_por_segundo,arranque_ms,pixeles,foco,juego,"
                  "bloqueada,ahorro,atlas_kb"
               << std::endl;
   }
@@ -134,6 +133,19 @@ class Programa {
       if (pedido.elegir_tecla) {
         vigia_->elegir_tecla();
         servidor_.eligiendo_tecla = true;
+      }
+      if (pedido.sensibilidad) {
+        servidor_.sensibilidad = *pedido.sensibilidad;
+        guardados_.sensibilidad = static_cast<std::uint8_t>(*pedido.sensibilidad);
+        motor_->sensibilidad(*pedido.sensibilidad);
+      }
+      if (pedido.por_voz) {
+        servidor_.por_voz = guardados_.por_voz = *pedido.por_voz;
+        motor_->por_voz(*pedido.por_voz);
+        vigia_->por_voz(*pedido.por_voz);
+      }
+      if (pedido.por_voz || pedido.guardar) {
+        guardar();
       }
       if (pedido.desconectar) {
         desconectar();
@@ -240,9 +252,15 @@ class Programa {
     servidor_.calidad_alta = calidad_.frecuencia == cliente::Calidad{}.frecuencia;
     servidor_.hay_audio = hay_audio_;
     servidor_.tecla = guardados_.tecla_hablar;
+    servidor_.por_voz = guardados_.por_voz;
+    servidor_.sensibilidad = guardados_.sensibilidad;
     servidor_.enfocar_mensaje = true;
     vigia_ = std::make_unique<cliente::Vigia>(*motor_, *puente_, cliente::tecla_para_hablar(guardados_.tecla_hablar),
                                               ventana_.hwnd(), [this] { avisar(); });
+    motor_->sensibilidad(guardados_.sensibilidad);
+    motor_->por_voz(guardados_.por_voz);
+    vigia_->por_voz(guardados_.por_voz);
+    medidor_siempre_ = false;
     perdidos_ = puente_->perdidos;
     recibidos_ = puente_->recibidos;
     proxima_muestra_ = Reloj::now() + 1s;
@@ -264,7 +282,12 @@ class Programa {
     const auto antes = std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
     servidor_.transmitiendo = motor_->transmitiendo();
     servidor_.hablando = puente_->hablando;
-    servidor_.nivel = motor_->nivel(cliente::kSegmentosDelMedidor);
+    servidor_.nivel = vigia_->nivel();
+    const Situacion& situacion = ventana_.situacion();
+    if (const bool medir = servidor_.por_voz && situacion.con_foco && situacion.dibuja(); medir != medidor_siempre_) {
+      medidor_siempre_ = medir;
+      vigia_->medidor_siempre(medir);
+    }
     bool cambio = antes != std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
     if (const auto elegida = vigia_->tomar_elegida()) {
       cambio = true;
@@ -302,7 +325,6 @@ class Programa {
                              medicion.ram_bytes, motor_->espera_ms(), motor_->recortes(), audio_->espera_de_salida_ms()};
     if (registro_.is_open()) {
       const DatosDiagnostico& datos = servidor_.diagnostico;
-      const Situacion& situacion = ventana_.situacion();
       const ImTextureData& atlas = *ImGui::GetIO().Fonts->TexData;
       UsoVentana uso = ventana_.tomar_uso();
       const cifrado::Trafico trafico = cifrado::trafico();
@@ -329,12 +351,9 @@ class Programa {
              trafico.tcp_enviados - trafico_.tcp_enviados, trafico.tcp_recibidos - trafico_.tcp_recibidos,
              trafico.udp_enviados - trafico_.udp_enviados, trafico.udp_recibidos - trafico_.udp_recibidos,
              medicion.memoria_propia / 1024, medicion.fallas, ventana_.arranque_ms(), uso.pixeles,
-             ventana_.por_partes(), situacion.con_foco, situacion.juego, situacion.bloqueada, situacion.ahorro,
+             situacion.con_foco, situacion.juego, situacion.bloqueada, situacion.ahorro,
              atlas.Width * atlas.Height * atlas.BytesPerPixel / 1024);
       trafico_ = trafico;
-      if (segundos_ % kSegundosPorPrueba == 0) {
-        ventana_.por_partes(!ventana_.por_partes());
-      }
     }
     cuadros_ = 0;
     if (servidor_.grafico.size() > kMuestrasDelGrafico) {
@@ -384,6 +403,7 @@ class Programa {
   std::uint32_t cuadros_ = 0;
   bool poca_memoria_ = false;
   bool ahorrando_ = false;
+  bool medidor_siempre_ = false;
   std::ofstream registro_;
   std::shared_ptr<cliente::PuenteVoz> puente_;
   std::unique_ptr<cliente::MotorVoz> motor_;

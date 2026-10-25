@@ -31,6 +31,9 @@ class Vigia {
   Vigia& operator=(const Vigia&) = delete;
 
   void usar_tecla(std::uint8_t tecla) { tecla_ = tecla; }
+  int nivel() const { return nivel_; }
+  void por_voz(bool si);
+  void medidor_siempre(bool si);
   void elegir_tecla();
   std::optional<std::uint8_t> tomar_elegida();
 
@@ -43,6 +46,9 @@ class Vigia {
   std::function<void()> avisar_;
   std::atomic<std::uint8_t> tecla_;
   std::atomic<bool> eligiendo_{false};
+  std::atomic<bool> por_voz_{false};
+  std::atomic<bool> medidor_siempre_{false};
+  std::atomic<int> nivel_{0};
   std::atomic<int> elegida_{-1};
   std::atomic<bool> terminar_{false};
   std::unique_ptr<std::remove_pointer_t<HANDLE>, decltype(&CloseHandle)> despertar_;

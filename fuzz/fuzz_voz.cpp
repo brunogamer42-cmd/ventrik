@@ -67,6 +67,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     } else if ((entrada[4] & 1) != 0) {
       const bool solo = (entrada[4] & 16) != 0;
       motor.solo_en_el_canal(solo);
+      motor.por_voz((entrada[4] & 32) != 0);
+      motor.sensibilidad(entrada[0] >> 1);
       puente.bajada.poner(paquete);
       std::transform(opus.begin(), opus.begin() + std::min(opus.size(), sonido.size()),
                      sonido.begin(), [](std::uint8_t valor) { return static_cast<std::int16_t>(valor << 7); });

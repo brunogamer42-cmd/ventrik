@@ -22,11 +22,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   const gsl::span<const std::uint8_t> entrada(datos, largo);
   ventrik::cliente::Guardados guardados;
   if (ventrik::cliente::leer_guardados(entrada, guardados) != ventrik::cliente::LecturaGuardados::leidos) {
-    exigir(guardados.servidores.empty() && guardados.nombre.empty());
+    exigir(guardados.servidores.empty() && guardados.nombre.empty() && guardados.tecla_hablar == 0 &&
+           !guardados.por_voz && guardados.sensibilidad == ventrik::cliente::kSensibilidadPorDefecto);
     return 0;
   }
   const std::vector<std::uint8_t> armado = ventrik::cliente::armar_guardados(guardados);
-  if (entrada[4] == 1) {
+  if (entrada[4] != 3) {
     ventrik::cliente::Guardados de_nuevo;
     exigir(ventrik::cliente::leer_guardados(armado, de_nuevo) == ventrik::cliente::LecturaGuardados::leidos &&
            ventrik::cliente::armar_guardados(de_nuevo) == armado);

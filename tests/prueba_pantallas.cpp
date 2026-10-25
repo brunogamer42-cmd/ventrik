@@ -427,6 +427,39 @@ TEST_CASE("El gráfico de la barra de estado abre el diagnóstico") {
   }
 }
 
+TEST_CASE("Tocar Por voz lo pide, y arrastrar la sensibilidad la cambia y la guarda al soltar") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(false, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  std::optional<bool> elegido;
+  for (float y = 500; y < 660 && !elegido; y += 4) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(205, y));
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(205, y), true);
+    elegido = sin_pantalla.cuadro(pantalla, sala, ImVec2(205, y)).por_voz;
+  }
+  REQUIRE(elegido);
+  CHECK(*elegido);
+  pantalla.por_voz = true;
+  pantalla.sensibilidad = 30;
+  pantalla.transmitiendo = true;
+  pantalla.nivel = 6;
+  std::optional<int> marca;
+  float fila = 0;
+  for (float y = 500; y < 660 && !marca; y += 2) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(100, y));
+    marca = sin_pantalla.cuadro(pantalla, sala, ImVec2(100, y), true).sensibilidad;
+    fila = y;
+  }
+  REQUIRE(marca);
+  CHECK(*marca > 25);
+  CHECK(*marca < 40);
+  const auto arrastre = sin_pantalla.cuadro(pantalla, sala, ImVec2(200, fila), true);
+  REQUIRE(arrastre.sensibilidad);
+  CHECK(*arrastre.sensibilidad > 60);
+  CHECK_FALSE(arrastre.guardar);
+  CHECK(sin_pantalla.cuadro(pantalla, sala, ImVec2(200, fila)).guardar);
+}
+
 namespace {
 Historial pagina(std::uint32_t canal, std::uint64_t desde, Sentido sentido, std::uint64_t primero, std::uint64_t ultimo,
                  bool hay_mas) {
@@ -623,7 +656,7 @@ TEST_CASE("Una ventana sin bordes que cubre el monitor es pantalla completa") {
   CHECK_FALSE(ui::tapa_el_monitor({1920, 0, 3840, 1080}, monitor, WS_POPUP, 0));
 }
 
-TEST_CASE("Las teclas repetidas no piden cuadros salvo escribiendo, y los cuadros lentos se espacian") {
+TEST_CASE("Las teclas repetidas no piden cuadros salvo las de edición escribiendo, y los cuadros lentos se espacian") {
   constexpr LPARAM kRepetida = 0x40000000;
   std::optional<LPARAM> mouse;
   CHECK(ui::pide_cuadros(WM_KEYDOWN, VK_CONTROL, 0, false, mouse));
@@ -631,6 +664,12 @@ TEST_CASE("Las teclas repetidas no piden cuadros salvo escribiendo, y los cuadro
   CHECK_FALSE(ui::pide_cuadros(WM_SYSKEYDOWN, VK_MENU, kRepetida, false, mouse));
   CHECK_FALSE(ui::pide_cuadros(WM_KEYDOWN, VK_BACK, kRepetida, false, mouse));
   CHECK(ui::pide_cuadros(WM_KEYDOWN, VK_BACK, kRepetida, true, mouse));
+  CHECK(ui::pide_cuadros(WM_KEYDOWN, VK_LEFT, kRepetida, true, mouse));
+  CHECK(ui::pide_cuadros(WM_KEYDOWN, VK_DELETE, kRepetida, true, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_KEYDOWN, VK_F5, kRepetida, true, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_KEYDOWN, VK_CAPITAL, kRepetida, true, mouse));
+  CHECK_FALSE(ui::pide_cuadros(WM_KEYDOWN, 'V', kRepetida, true, mouse));
+  CHECK(ui::pide_cuadros(WM_KEYDOWN, VK_F5, 0, true, mouse));
   CHECK_FALSE(ui::pide_cuadros(WM_NCMOUSEMOVE, 0, 0, false, mouse));
   CHECK(ui::pide_cuadros(WM_MOUSEMOVE, 0, 7, false, mouse));
   CHECK_FALSE(ui::pide_cuadros(WM_MOUSEMOVE, 0, 7, false, mouse));

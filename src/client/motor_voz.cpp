@@ -79,13 +79,18 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     std::fill(salida.begin(), salida.end(), std::int16_t{0});
     return;
   }
-  const bool transmitiendo = transmitiendo_;
+  const bool por_voz = por_voz_;
+  const bool escuchar = por_voz || transmitiendo_;
   int pico = 0;
-  for (const std::int16_t muestra : transmitiendo ? entrada : gsl::span<const std::int16_t>()) {
+  for (const std::int16_t muestra : escuchar ? entrada : gsl::span<const std::int16_t>()) {
     pico = std::max(pico, std::abs(static_cast<int>(muestra)));
   }
   pico_.store(pico, std::memory_order_relaxed);
-  if (!transmitiendo || solo_) {
+  if (!por_voz) {
+    abierto_ = hay_anterior_ = false;
+    restante_ = 0;
+  }
+  if (!escuchar || (solo_ && !por_voz)) {
     capturadas_ = 0;
     entrada = {};
   }
@@ -95,7 +100,7 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     capturadas_ += parte.size();
     entrada = entrada.subspan(parte.size());
     if (capturadas_ == por_paquete_) {
-      codificar();
+      pedazo_completo(por_voz);
       capturadas_ = 0;
     }
   }
@@ -116,10 +121,41 @@ int MotorVoz::nivel(int segmentos) const {
   return std::clamp(static_cast<int>(std::lround((decibeles + 50) / 50 * segmentos)), 0, segmentos);
 }
 
-void MotorVoz::codificar() {
+int umbral_de(int por_ciento) {
+  const double decibeles = std::clamp(por_ciento, 0, 100) / 2.0 - 50;
+  return static_cast<int>(std::lround(32768 * std::pow(10.0, decibeles / 20)));
+}
+
+void MotorVoz::pedazo_completo(bool por_voz) {
+  if (!por_voz) {
+    codificar(capturado_);
+    return;
+  }
+  const int umbral = umbral_;
+  const bool pasa = std::any_of(capturado_.begin(), capturado_.begin() + static_cast<std::ptrdiff_t>(por_paquete_),
+                                [umbral](std::int16_t muestra) { return std::abs(static_cast<int>(muestra)) >= umbral; });
+  const bool abrir = pasa || restante_ > 0;
+  restante_ = pasa ? kPedazosTrasCallarse : std::max(restante_ - 1, 0);
+  if (abrir && !solo_) {
+    if (!abierto_ && hay_anterior_) {
+      codificar(anterior_);
+    }
+    codificar(capturado_);
+  }
+  if (!abrir) {
+    anterior_ = capturado_;
+  }
+  hay_anterior_ = !abrir;
+  abierto_ = abrir;
+  if (transmitiendo_.exchange(abrir) != abrir) {
+    puente_.cambio.avisar();
+  }
+}
+
+void MotorVoz::codificar(const Pedazo& pedazo) {
   PaqueteVoz paquete;
   const opus_int32 largo =
-      opus_encode(codificador_.get(), capturado_.data(), static_cast<int>(por_paquete_),
+      opus_encode(codificador_.get(), pedazo.data(), static_cast<int>(por_paquete_),
                   paquete.opus.data(), static_cast<opus_int32>(paquete.opus.size()));
   opus_int32 en_silencio = 0;
   opus_encoder_ctl(codificador_.get(), OPUS_GET_IN_DTX(&en_silencio));

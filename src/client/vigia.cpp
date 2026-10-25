@@ -41,22 +41,14 @@ HWND crear_oyente() {
   clase.hInstance = GetModuleHandleW(nullptr);
   clase.lpszClassName = kClaseOyente;
   RegisterClassExW(&clase);
-  const HWND oyente =
-      CreateWindowExW(0, kClaseOyente, nullptr, WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, clase.hInstance, nullptr);
-  RAWINPUTDEVICE teclado = {kEscritorio, kTeclado, RIDEV_INPUTSINK, oyente};
+  return CreateWindowExW(0, kClaseOyente, nullptr, WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, clase.hInstance, nullptr);
+}
+
+void escuchar_teclado(HWND oyente, bool si) {
+  RAWINPUTDEVICE teclado = {kEscritorio, kTeclado, si ? DWORD{RIDEV_INPUTSINK} : DWORD{RIDEV_REMOVE}, si ? oyente : nullptr};
   if (oyente != nullptr) {
     RegisterRawInputDevices(&teclado, 1, sizeof(teclado));
   }
-  return oyente;
-}
-
-void soltar_oyente(HWND oyente) {
-  if (oyente == nullptr) {
-    return;
-  }
-  RAWINPUTDEVICE teclado = {kEscritorio, kTeclado, RIDEV_REMOVE, nullptr};
-  RegisterRawInputDevices(&teclado, 1, sizeof(teclado));
-  DestroyWindow(oyente);
 }
 
 }
@@ -95,6 +87,20 @@ Vigia::~Vigia() {
   motor_.transmitir(false);
 }
 
+void Vigia::por_voz(bool si) {
+  if (si && eligiendo_.exchange(false)) {
+    elegida_ = 0;
+  }
+  por_voz_ = si;
+  motor_.transmitir(false);
+  SetEvent(despertar_.get());
+}
+
+void Vigia::medidor_siempre(bool si) {
+  medidor_siempre_ = si;
+  SetEvent(despertar_.get());
+}
+
 void Vigia::elegir_tecla() {
   elegida_ = -1;
   eligiendo_ = true;
@@ -111,16 +117,25 @@ void Vigia::correr() {
   auto proximo_nivel = Reloj::now();
   std::uint32_t hablando = puente_.hablando;
   EstadoVoz estado = puente_.estado;
-  int nivel = 0;
   Teclas antes;
   bool empezando = true;
   bool esperar_soltar = false;
+  bool transmitia = false;
+  bool escucha_teclado = false;
   const HANDLE avisos[] = {despertar_.get(), puente_.cambio.evento()};
   while (!terminar_) {
-    const DWORD espera = eligiendo_ || es_boton_del_mouse(tecla_) ? kConsultaRapida : kRespaldo;
-    if (MsgWaitForMultipleObjects(2, avisos, FALSE, espera, QS_ALLINPUT) == WAIT_FAILED) {
-      Sleep(espera);
+    const bool con_tecla = !por_voz_;
+    if (con_tecla != escucha_teclado) {
+      escucha_teclado = con_tecla;
+      escuchar_teclado(oyente, con_tecla);
     }
+    const DWORD espera = eligiendo_ || (con_tecla && es_boton_del_mouse(tecla_)) ? kConsultaRapida
+                         : con_tecla || medidor_siempre_                         ? kRespaldo
+                                                                                 : INFINITE;
+    if (MsgWaitForMultipleObjects(2, avisos, FALSE, espera, QS_ALLINPUT) == WAIT_FAILED) {
+      Sleep(espera == INFINITE ? kRespaldo : espera);
+    }
+    const bool por_voz = por_voz_;
     std::optional<bool> por_evento;
     MSG mensaje = {};
     while (PeekMessageW(&mensaje, nullptr, 0, 0, PM_REMOVE)) {
@@ -150,32 +165,38 @@ void Vigia::correr() {
         esperar_soltar = elegida != 0;
         cambio = true;
       }
-    } else {
+    } else if (!por_voz) {
       empezando = true;
       const bool hablar = por_evento.value_or(apretada(tecla_));
       esperar_soltar = esperar_soltar && hablar;
       if (!esperar_soltar && hablar != motor_.transmitiendo()) {
         motor_.transmitir(hablar);
-        cambio = true;
       }
+    } else {
+      empezando = true;
     }
-    if (puente_.hablando != hablando || puente_.estado != estado) {
+    const bool transmite = motor_.transmitiendo();
+    if (transmite != transmitia || puente_.hablando != hablando || puente_.estado != estado) {
+      transmitia = transmite;
       hablando = puente_.hablando;
       estado = puente_.estado;
       cambio = true;
     }
     const auto ahora = Reloj::now();
-    if (motor_.transmitiendo() && ahora >= proximo_nivel) {
+    if ((medidor_siempre_ || (!por_voz && transmite)) && ahora >= proximo_nivel) {
       proximo_nivel = ahora + kCadaNivel;
       const int nuevo = motor_.nivel(kSegmentosDelMedidor);
-      cambio = cambio || nuevo != nivel;
-      nivel = nuevo;
+      const int viejo = nivel_.exchange(nuevo);
+      cambio = cambio || nuevo != viejo;
     }
     if (cambio) {
       avisar_();
     }
   }
-  soltar_oyente(oyente);
+  escuchar_teclado(oyente, false);
+  if (oyente != nullptr) {
+    DestroyWindow(oyente);
+  }
 }
 
 }

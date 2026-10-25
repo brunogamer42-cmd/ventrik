@@ -56,8 +56,6 @@ class Ventana {
   std::string grafica() const;
   bool por_procesador() const;
   const Situacion& situacion() const { return situacion_; }
-  bool por_partes() const { return por_partes_; }
-  void por_partes(bool si) { por_partes_ = si; }
   UsoVentana tomar_uso() { return std::exchange(uso_, {}); }
   std::uint32_t arranque_ms() const { return arranque_ms_; }
   int correr(const std::function<bool()>& atender, const std::function<void()>& dibujar);
@@ -80,7 +78,6 @@ class Ventana {
   bool lista_ = false;
   bool perdido_ = false;
   bool presentar_igual_ = true;
-  bool por_partes_ = true;
   bool bloqueo_ = false;
   bool protector_ = false;
   Situacion situacion_;

@@ -376,10 +376,9 @@ bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, st
     ultimo_mouse.reset();
   }
   const bool repetida = (mensaje == WM_KEYDOWN || mensaje == WM_SYSKEYDOWN) && (datos & 0x40000000) != 0;
-  const bool modificador =
-      tecla == VK_SHIFT || tecla == VK_CONTROL || tecla == VK_MENU || tecla == VK_LWIN || tecla == VK_RWIN;
+  const bool de_edicion = tecla == VK_BACK || tecla == VK_DELETE || (tecla >= VK_PRIOR && tecla <= VK_DOWN);
   return mensaje != WM_NCMOUSEMOVE && mensaje != WM_TIMER && mensaje != kMensajeNovedades &&
-         (!repetida || (escribiendo && !modificador));
+         (!repetida || (escribiendo && de_edicion));
 }
 
 DWORD espera_entre_cuadros(double ultimo_ms) {
@@ -429,7 +428,7 @@ bool Ventana::dibujar_cuadro(const std::function<void()>& dibujar) {
     return false;
   }
   const bool forzada = std::exchange(presentar_igual_, false);
-  const bool entera = forzada || grafica_->flip || !por_partes_;
+  const bool entera = forzada || grafica_->flip;
   const auto armado = Reloj::now();
   IDirect3DDevice9& dispositivo = *grafica_->dispositivo;
   if (forzada) {

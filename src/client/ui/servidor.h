@@ -5,6 +5,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -82,6 +83,8 @@ struct PantallaServidor {
   bool hay_audio = true;
   std::uint8_t tecla = 0;
   bool eligiendo_tecla = false;
+  bool por_voz = false;
+  int sensibilidad = 0;
   bool transmitiendo = false;
   std::uint32_t hablando = 0;
   int nivel = 0;
@@ -109,6 +112,9 @@ struct PantallaServidor {
 struct PedidoServidor {
   bool desconectar = false;
   bool elegir_tecla = false;
+  std::optional<bool> por_voz;
+  std::optional<int> sensibilidad;
+  bool guardar = false;
   std::vector<cliente::Orden> ordenes;
 };
 

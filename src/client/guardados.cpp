@@ -11,7 +11,9 @@
 namespace ventrik::cliente {
 namespace {
 constexpr std::uint32_t kMarca = 0x52504B56;
-constexpr std::uint16_t kVersion = 2;
+constexpr std::uint16_t kVersion = 3;
+constexpr std::uint16_t kVersionConLeidos = 2;
+constexpr std::uint16_t kVersionConModo = 3;
 
 bool nombre_opcional(const std::string& nombre) { return nombre.empty() || es_nombre_valido(nombre); }
 
@@ -37,7 +39,7 @@ bool son_validos(const Guardados& guardados) {
     }
   }
   return servidores.size() <= kMaximoServidoresGuardados && nombre_opcional(guardados.nombre) &&
-         es_tecla_valida(guardados.tecla_hablar);
+         es_tecla_valida(guardados.tecla_hablar) && guardados.sensibilidad <= kSensibilidadMaxima;
 }
 
 std::wstring ruta() {
@@ -58,6 +60,14 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
   }
   Guardados leidos;
   leidos.tecla_hablar = lector.leer_u8();
+  if (version >= kVersionConModo) {
+    const std::uint8_t modo = lector.leer_u8();
+    leidos.por_voz = modo == 1;
+    leidos.sensibilidad = lector.leer_u8();
+    if (modo > 1) {
+      return LecturaGuardados::danados;
+    }
+  }
   leidos.nombre = lector.leer_texto(kMaximoBytesNombre);
   const std::size_t cantidad = lector.leer_u8();
   for (std::size_t i = 0; i < cantidad && lector.ok(); ++i) {
@@ -72,7 +82,7 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
     servidor.canal = lector.leer_u32();
     servidor.nombre_canal = lector.leer_texto(kMaximoBytesNombre);
     servidor.ultima_vez_ms = lector.leer_u64();
-    const std::size_t cuantos = version == kVersion ? lector.leer_u8() : 0;
+    const std::size_t cuantos = version >= kVersionConLeidos ? lector.leer_u8() : 0;
     for (std::size_t j = 0; j < cuantos && lector.ok(); ++j) {
       const std::uint32_t canal = lector.leer_u32();
       servidor.leidos.push_back({canal, lector.leer_u32()});
@@ -94,6 +104,8 @@ std::vector<std::uint8_t> armar_guardados(const Guardados& guardados) {
   escritor.escribir_u32(kMarca);
   escritor.escribir_u16(kVersion);
   escritor.escribir_u8(guardados.tecla_hablar);
+  escritor.escribir_u8(guardados.por_voz ? 1 : 0);
+  escritor.escribir_u8(guardados.sensibilidad);
   escritor.escribir_texto(guardados.nombre, kMaximoBytesNombre);
   escritor.escribir_u8(static_cast<std::uint8_t>(guardados.servidores.size()));
   for (const ServidorGuardado& servidor : guardados.servidores) {

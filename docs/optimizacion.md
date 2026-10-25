@@ -228,7 +228,7 @@ Se reevalúa con los números de 5.1 y 5.2.
 - **5.3 Mandar solo lo que cambió** (clásica sin composición del escritorio).
   - `D3DSWAPEFFECT_COPY` y `Present` con el rectángulo que cambió, calculado con la huella por zonas.
   - El rectángulo es solo una sugerencia para Windows: queda si la medición en la HP muestra que gana.
-- **5.4 Medidor de nivel (decide el dueño):** 4 imágenes por segundo en Rendimiento y sin foco, y 10 en Visual. Hoy son 10, unos 17 % en la HP.
+- **5.4 Ritmo de la interfaz (decisión del dueño, 2026-10-25):** en Rendimiento, lo que se mueve solo (medidor, quién habla) va a 4 imágenes por segundo, y también sin foco. En Visual, la interfaz sube hasta 30 imágenes por segundo, por los elementos visuales y para que se vea fluida (las animaciones, el medidor y lo que late). Con una pantalla compartida (etapa 12), la pantalla va a su propio ritmo, el que se configuró (o el que aguante la PC, sin dejar de verse), mientras el resto de la interfaz sigue a 4 en Rendimiento.
 - **5.5 Rendimiento sin suavizado de bordes (decide el dueño):** `AntiAliasedLines` y `AntiAliasedFill` apagados y curvas con menos segmentos. En Visual queda igual.
 - **5.6 Textos guardados:** conectados, ping, voz perdida, nombre de la tecla y subtítulos se rehacen solo cuando cambia el dato o el idioma.
 - **5.7 Ritmo con el mouse:** en Rendimiento, como mucho 15 vueltas por segundo (hoy 28 en la HP, el 14 %).
@@ -240,7 +240,7 @@ Se reevalúa con los números de 5.1 y 5.2.
 
 ## 6. Modo Visual: se ve igual, cuesta menos
 
-El diseño ya pide que las animaciones corran solo a la vista, a 30 cuadros por segundo como máximo, y quietas si Windows las tiene apagadas. Esto lo completa:
+El diseño ya pide que las animaciones corran solo a la vista, a 30 cuadros por segundo como máximo, y quietas si Windows las tiene apagadas. En Visual toda la interfaz puede ir a 30 imágenes por segundo mientras algo se mueve (decisión del dueño, 5.4); en Rendimiento, a 4. Esto lo completa:
 
 - **6.1 Animaciones solo mientras se mueven.** Cada una se calcula por tiempo y pide imágenes solo mientras dura. Al terminar, la ventana vuelve a quedar quieta.
 - **6.2 Al ritmo de la pantalla.** Mientras hay una animación, la imagen se sincroniza con el monitor (`D3DPRESENT_INTERVAL_ONE`), así nunca se dibujan más imágenes de las que la pantalla muestra.
@@ -441,7 +441,7 @@ Estas reglas no son del tirón: se cumplen cuando se programa cada parte. Lo que
 
 **Etapa 10 — Modo Visual completo (sección 6, más):**
 - **Fondos de tarjeta del catálogo** (Topográfico, Radar, Lluvia, Estática): los dibuja el programa (diseño):
-  - a 30 cuadros por segundo como máximo, solo con la tarjeta abierta y a la vista (diseño);
+  - a 30 cuadros por segundo como máximo, solo con la tarjeta abierta y a la vista (diseño); en Visual el medidor y lo que late también van hasta 30 (decisión del dueño, 5.4);
   - la parte que no se mueve, en textura (6.4).
 - **Efectos del editor:**
   - hasta 4 capas y 24 partículas (diseño);
@@ -463,7 +463,8 @@ Estas reglas no son del tirón: se cumplen cuando se programa cada parte. Lo que
   - no se descomprime lo que no se ve;
   - paquetes de menos de 1200 bytes;
   - búferes de cuadros reutilizados y fijados solo mientras se usan;
-  - la captura con GDI en XP, al ritmo elegido, comparando por bloques en un hilo de baja prioridad.
+  - la captura con GDI en XP, al ritmo elegido, comparando por bloques en un hilo de baja prioridad;
+  - **la pantalla compartida va a su propio ritmo** (decisión del dueño, 5.4): el que se configuró, o si la PC no da, uno más bajo que igual deje verla. El resto de la interfaz sigue a su ritmo (4 imágenes por segundo en Rendimiento): solo se redibuja la zona de la pantalla compartida a ese ritmo, no toda la ventana.
 
 **Etapa 13 — Varias PCs, y "Prestar esta PC":**
 - La PC que presta corre con prioridad baja y topes de procesador, red y memoria.
@@ -564,7 +565,7 @@ Pedido del dueño: **todo lo de este plan que se puede hacer con lo que ya exist
    - con un programa pesado abierto, para la memoria.
 7. **Un commit** con todo, y GitHub.
 
-**Resultado (2026-10-25):** aplicado todo lo que existe hoy, salvo lo que espera una medición o una pantalla que todavía no está: la imagen parcial (5.3) queda solo si gana en la HP; los pedazos de 20 ms en la moderna (4.4), cerrar los parlantes (12.2), el modo de red liviano (10.4), el gráfico con el ping de la voz (10.6), las cachés descartables y la prioridad de memoria baja (9.1, 9.4, 9.5: todavía no hay cachés ni tareas pesadas; quedan como reglas en docs/estado.md), los temporizadores con tolerancia de la sesión (4.6: la sesión espera eventos, no tiene temporizadores) y el modo Visual (sección 6, etapa 10). El detalle está en docs/estado.md.
+**Resultado (2026-10-25):** aplicado todo lo que existe hoy, salvo lo que espera una medición o una pantalla que todavía no está (la imagen parcial, 5.3, ganó en la HP: 2,3 contra 3,3 ms por imagen, y queda); los pedazos de 20 ms en la moderna (4.4), cerrar los parlantes (12.2), el modo de red liviano (10.4), el gráfico con el ping de la voz (10.6), las cachés descartables y la prioridad de memoria baja (9.1, 9.4, 9.5: todavía no hay cachés ni tareas pesadas; quedan como reglas en docs/estado.md), los temporizadores con tolerancia de la sesión (4.6: la sesión espera eventos, no tiene temporizadores) y el modo Visual (sección 6, etapa 10). El detalle está en docs/estado.md.
 
 ## 18. Decisiones del dueño
 

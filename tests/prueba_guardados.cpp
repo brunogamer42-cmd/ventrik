@@ -31,6 +31,8 @@ ServidorGuardado servidor(std::uint32_t ip, std::uint16_t puerto = 7700, std::st
 Guardados ejemplo() {
   Guardados guardados;
   guardados.tecla_hablar = 0xA4;
+  guardados.por_voz = true;
+  guardados.sensibilidad = 55;
   guardados.nombre = "Tano";
   guardados.servidores = {servidor(0xC0A80099), servidor(0x0A000001, 9000, "Ñandú")};
   guardados.servidores[1].nombre_canal.clear();
@@ -55,6 +57,8 @@ TEST_CASE("los servidores guardados van y vuelven iguales") {
   REQUIRE(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
   CHECK(armar_guardados(leidos) == bytes);
   CHECK(leidos.tecla_hablar == 0xA4);
+  CHECK(leidos.por_voz);
+  CHECK(leidos.sensibilidad == 55);
   CHECK(leidos.nombre == "Tano");
   REQUIRE(leidos.servidores.size() == 2);
   CHECK(leidos.servidores[0].direccion.ipv4 == 0xC0A80099);
@@ -84,24 +88,52 @@ TEST_CASE("el archivo de servidores rechaza lo que no armó Ventrik") {
   marca[0] ^= 1;
   CHECK(leer_sin_tocar(marca) == LecturaGuardados::danados);
   auto version = bien;
-  version[4] = 3;
+  version[4] = 4;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::version_nueva);
   version[4] = 0;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::danados);
   auto puerto = bien;
-  puerto[18] = puerto[19] = 0;
+  puerto[20] = puerto[21] = 0;
   CHECK(leer_sin_tocar(puerto) == LecturaGuardados::danados);
   auto cantidad = bien;
-  cantidad[13] = 3;
+  cantidad[15] = 3;
   CHECK(leer_sin_tocar(cantidad) == LecturaGuardados::danados);
   auto nombre = bien;
-  nombre[9] = ' ';
+  nombre[11] = ' ';
   CHECK(leer_sin_tocar(nombre) == LecturaGuardados::danados);
   for (const std::uint8_t tecla : std::initializer_list<std::uint8_t>{0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x1B, 0xFF}) {
     auto con_tecla = bien;
     con_tecla[6] = tecla;
     CHECK(leer_sin_tocar(con_tecla) == LecturaGuardados::danados);
   }
+  auto modo = bien;
+  modo[7] = 2;
+  CHECK(leer_sin_tocar(modo) == LecturaGuardados::danados);
+  auto sensibilidad = bien;
+  sensibilidad[8] = 101;
+  CHECK(leer_sin_tocar(sensibilidad) == LecturaGuardados::danados);
+  sensibilidad[8] = 100;
+  Guardados al_tope;
+  CHECK(leer_guardados(sensibilidad, al_tope) == LecturaGuardados::leidos);
+}
+
+TEST_CASE("una lista de la versión 2 se lee con la tecla para hablar y la sensibilidad por defecto") {
+  ventrik::protocolo::Escritor escritor;
+  escritor.escribir_u32(0x52504B56);
+  escritor.escribir_u16(2);
+  escritor.escribir_u8(0xA5);
+  escritor.escribir_texto("Tano", 64);
+  escritor.escribir_u8(0);
+  Guardados leidos;
+  REQUIRE(leer_guardados(escritor.datos(), leidos) == LecturaGuardados::leidos);
+  CHECK(leidos.tecla_hablar == 0xA5);
+  CHECK_FALSE(leidos.por_voz);
+  CHECK(leidos.sensibilidad == ventrik::cliente::kSensibilidadPorDefecto);
+  const auto nuevo = armar_guardados(leidos);
+  REQUIRE(nuevo.size() == escritor.datos().size() + 2);
+  CHECK(nuevo[4] == 3);
+  CHECK(nuevo[7] == 0);
+  CHECK(nuevo[8] == ventrik::cliente::kSensibilidadPorDefecto);
 }
 
 TEST_CASE("la tecla para hablar es Alt izquierdo si no se eligió otra, y no puede ser un clic ni Esc") {
@@ -132,6 +164,7 @@ TEST_CASE("no se arma un archivo de servidores con datos inválidos") {
     }
   });
   sin_armar([](Guardados& g) { g.tecla_hablar = 0x1B; });
+  sin_armar([](Guardados& g) { g.sensibilidad = 101; });
   sin_armar([](Guardados& g) { g.servidores[0].direccion.puerto = 0; });
   sin_armar([](Guardados& g) { g.servidores[0].direccion.ipv4 = 0; });
   sin_armar([](Guardados& g) { g.servidores[0].nombre.clear(); });
@@ -150,15 +183,17 @@ TEST_CASE("el archivo de servidores no se lee con más de 32") {
   for (std::uint32_t ip = 1; ip <= 33; ++ip) {
     guardados.servidores.push_back(servidor(ip));
   }
-  const auto ultimo = armar_guardados(Guardados{0, "", {guardados.servidores.back()}});
+  Guardados solo;
+  solo.servidores = {guardados.servidores.back()};
+  const auto ultimo = armar_guardados(solo);
   guardados.servidores.pop_back();
   auto bytes = armar_guardados(guardados);
-  REQUIRE(bytes.size() > 13);
-  bytes[13] = 33;
-  bytes.insert(bytes.end(), ultimo.begin() + 10, ultimo.end());
+  REQUIRE(bytes.size() > 15);
+  bytes[15] = 33;
+  bytes.insert(bytes.end(), ultimo.begin() + 12, ultimo.end());
   CHECK(leer_sin_tocar(bytes) == LecturaGuardados::danados);
-  bytes[13] = 32;
-  bytes.resize(bytes.size() - (ultimo.size() - 10));
+  bytes[15] = 32;
+  bytes.resize(bytes.size() - (ultimo.size() - 12));
   Guardados leidos;
   CHECK(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
 }
@@ -184,8 +219,8 @@ TEST_CASE("una lista de la versión 1 se lee con sus servidores y sin lo leído"
   CHECK(leidos.servidores[0].nombre == "Tano");
   CHECK(leidos.servidores[0].leidos.empty());
   const auto nuevo = armar_guardados(leidos);
-  REQUIRE(nuevo.size() == escritor.datos().size() + 1);
-  CHECK(nuevo[4] == 2);
+  REQUIRE(nuevo.size() == escritor.datos().size() + 3);
+  CHECK(nuevo[4] == 3);
   auto con_leidos = escritor.datos();
   con_leidos.push_back(0);
   CHECK(leer_sin_tocar(con_leidos) == LecturaGuardados::danados);

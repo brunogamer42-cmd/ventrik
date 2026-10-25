@@ -240,6 +240,63 @@ TEST_CASE("Solo en el canal, la tecla no comprime ni manda voz, pero el medidor 
   CHECK(sacado.numero == 0);
 }
 
+TEST_CASE("La marca del medidor va de -50 a 0 dB, como el medidor") {
+  using ventrik::cliente::umbral_de;
+  CHECK(umbral_de(0) == 104);
+  CHECK(umbral_de(-5) == 104);
+  CHECK(umbral_de(50) == 1843);
+  CHECK(umbral_de(100) == 32768);
+  CHECK(umbral_de(200) == 32768);
+}
+
+TEST_CASE("Por voz se transmite al pasar la marca, con el pedazo anterior, y se sigue 0,4 s al callarse") {
+  PuenteVoz puente;
+  MotorVoz motor(puente, Calidad{});
+  REQUIRE(motor.ok());
+  motor.sensibilidad(50);
+  motor.por_voz(true);
+  std::vector<std::int16_t> entrada(480);
+  std::vector<std::int16_t> salida(480);
+  std::size_t muestra = 0;
+  int paquetes = 0;
+  const auto pasar = [&](int tandas, bool fuerte) {
+    for (int i = 0; i < tandas; ++i) {
+      for (auto& valor : entrada) {
+        const double segundos = static_cast<double>(muestra++) / 48000;
+        valor = fuerte ? static_cast<std::int16_t>(5000 * std::sin(2 * 3.14159265 * 440 * segundos)) : std::int16_t{300};
+      }
+      motor.procesar(entrada, salida);
+      PaqueteVoz sacado;
+      while (puente.subida.sacar(sacado)) {
+        ++paquetes;
+      }
+    }
+  };
+  pasar(20, false);
+  CHECK(paquetes == 0);
+  CHECK_FALSE(motor.transmitiendo());
+  CHECK_FALSE(avisado(puente));
+  CHECK(motor.nivel(20) > 0);
+  pasar(20, true);
+  CHECK(motor.transmitiendo());
+  CHECK(avisado(puente));
+  CHECK(paquetes == 11);
+  pasar(2 * ventrik::cliente::kPedazosTrasCallarse, false);
+  CHECK(motor.transmitiendo());
+  CHECK_FALSE(avisado(puente));
+  pasar(2, false);
+  CHECK_FALSE(motor.transmitiendo());
+  CHECK(avisado(puente));
+  const int hasta_callarse = paquetes;
+  pasar(20, false);
+  CHECK(paquetes == hasta_callarse);
+  motor.por_voz(false);
+  motor.transmitir(false);
+  pasar(20, true);
+  CHECK(paquetes == hasta_callarse);
+  CHECK_FALSE(motor.transmitiendo());
+}
+
 TEST_CASE("Con la tecla apretada y en silencio no sale voz, y el que escucha no lo toma como pérdida") {
   for (const Calidad& calidad : {Calidad{}, Calidad{16000, 0, 20}}) {
     PuenteVoz de_ida;

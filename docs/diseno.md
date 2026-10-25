@@ -77,6 +77,7 @@ Organización de la ventana:
 | Marcos de avatar | No hay | Se ven alrededor de la imagen, en la lista de canales y en el chat. Pueden ser del catálogo, hechos en el editor o una imagen animada propia |
 | Transmitiendo | Etiqueta fija | La etiqueta late mientras transmitís |
 | Animaciones | Ninguna | Solo mientras se ven; en pausa con la ventana minimizada o sin foco |
+| Ritmo de la interfaz | Lo que se mueve solo (medidor, quién habla) a 4 imágenes por segundo | Hasta 30 imágenes por segundo, para que los elementos visuales se vean fluidos |
 
 En Rendimiento todo eso se apaga, no se oculta: el programa no lo descarga ni lo procesa. Los dos modos tienen los mismos botones, canales, chat, tarjeta de perfil y controles de audio; solo cambia lo que se descarga y se anima. La única excepción es "Ocultar sus efectos" en la tarjeta de otro, que solo aparece en Visual porque en Rendimiento no hay efectos. En Ajustes hay un tercer modo, Automático: usa Visual, salvo en PCs débiles o con un juego en pantalla completa abierto, donde pasa solo a Rendimiento. Las PCs débiles arrancan en Rendimiento.
 
@@ -91,7 +92,7 @@ El programa abre en **Inicio**. Ventrik se organiza por servidores; desde la eta
 | Pantalla | Qué tiene |
 | --- | --- |
 | Inicio (en los dos modos) | Tus servidores con su estado (en línea, cuántos hay, ping, tu último canal, solicitudes pendientes, tu servidor apagado), entrar con invitación, tu estado, el aviso de copia de tu identidad y el botón Reportar. En Visual suma el encabezado y el icono animados de cada servidor y tu tarjeta. "Entrar" respeta el ajuste "Al entrar a un servidor" |
-| Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil. Capturas: docs/pantallas/Rendimiento.png y Visual.png (en un canal de voz), Rendimiento-sin-voz.png y Visual-sin-voz.png (solo con el chat), Rendimiento-canal-texto.png y Visual-canal-texto.png |
+| Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil. Capturas: docs/pantallas/Rendimiento.png y Visual.png (en un canal de voz), Rendimiento-sin-voz.png y Visual-sin-voz.png (solo con el chat), Rendimiento-por-voz.png y Visual-por-voz.png (transmitiendo por voz), Rendimiento-canal-texto.png y Visual-canal-texto.png |
 | Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados. En Visual, al elegir un servidor se ven su fondo e icono animados |
 | Hostear un servidor | Asistente de 7 pasos (nombre y acceso, conexión, capacidad y voz, seguridad, chat y archivos, pantallas y varias PCs, revisar e iniciar) y la pantalla final Invitar gente (ver "Hostear: asistente por pasos") |
 | Ajustes | General (con el idioma y "Al entrar a un servidor"), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) aparecen desactivadas y marcadas "EN DESARROLLO" |
@@ -143,6 +144,9 @@ Recorrido de la voz:
 1. El micrófono capta el sonido a 48 kHz, la calidad con la que trabaja Opus, así no hay que convertirlo. En los niveles de consumo Bajo y Mínimo capta a 16 u 8 kHz (ver "Consumo de la voz").
 2. Se limpia el ruido de fondo y, si no usás auriculares, se cancela el eco (si Windows no informa qué tipo de salida es, queda encendida). Las dos cosas son opcionales porque son lo que más procesador gasta.
 3. Se transmite solo mientras apretás la tecla para hablar, o, en el modo por voz, mientras tu voz supera la sensibilidad que marcás en el medidor. El modo se elige en el panel "Tu audio", en los dos modos de la interfaz. En silencio no se envía casi nada.
+   - **Por voz** (capturas: docs/pantallas/Rendimiento-por-voz.png y Visual-por-voz.png): la cabecera dice "Activación por voz" en lugar de "Hablar con <tecla>"; el medidor de "Tu audio" muestra una marca (el umbral), y en lugar de la tecla va el control "Sensibilidad", que mueve esa marca, con el texto "Transmite cuando tu voz pasa la marca del medidor". "Transmitiendo" se prende solo mientras el nivel pasa la marca, y sigue 0,4 s después de callarte para no cortar el final de las palabras. Con la voz pasando la marca se manda también el pedazo de 20 ms anterior, para no comerse el principio. La tecla no hace nada en este modo.
+   - Por debajo de la marca no se comprime ni se manda nada: solo se mide el volumen del micrófono, que es barato. El medidor se mueve solo con la ventana al frente (4 veces por segundo); minimizada o con un juego adelante, la voz sigue igual pero el medidor no se dibuja.
+   - El modo y la sensibilidad se guardan en la PC.
 4. Opus comprime la voz en pedazos de 20 milésimas de segundo, a 24 kbps.
 5. La voz se cifra y viaja al servidor.
 6. El servidor la reenvía a los demás del canal tal como llegó: no la decodifica ni la mezcla.
@@ -214,6 +218,7 @@ Llega en la etapa 12, con el programa ya completo. Desde antes, lo que ya se hac
   - A quien mira desde XP le llega la copia VP8, de hasta 480p.
 - **Captura:** con la duplicación de escritorio de DXGI desde Windows 8, y con GDI en XP y 7. Solo se comprime si la pantalla cambió, comparando por bloques; el cursor viaja aparte.
 - **Qué se elige:** pantalla completa, una ventana o una parte; la resolución, de la original a 480p; 15, 30 o 60 cuadros por segundo; y si se ve el cursor. En XP, o sin una placa que comprima, el programa baja solo a lo que aguante el procesador.
+- **Ritmo de la pantalla y de la interfaz:** la pantalla compartida va a su propio ritmo, el que se configuró, o si la PC que mira no da, uno más bajo que igual deje verla. El resto de la interfaz sigue a su ritmo (4 imágenes por segundo en Rendimiento): solo la zona de la pantalla compartida se redibuja a su ritmo, no toda la ventana.
 - **Red del host:**
   - el servidor reenvía sin recomprimir, y solo a quien tocó "Mirar";
   - si nadie la tiene a la vista, se deja de enviar y de comprimir;

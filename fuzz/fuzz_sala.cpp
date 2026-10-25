@@ -49,7 +49,9 @@ void revisar(const Sala& sala) {
     exigir(sala.nuevos(canal.id) <= canal.contador);
   }
   ventrik::cliente::ServidorGuardado guardado{{1, 1}, {}, "x", 0, {}, 0, sala.leidos()};
-  exigir(!ventrik::cliente::armar_guardados(ventrik::cliente::Guardados{0, "", {guardado}}).empty());
+  ventrik::cliente::Guardados guardados;
+  guardados.servidores = {guardado};
+  exigir(!ventrik::cliente::armar_guardados(guardados).empty());
 }
 
 }
