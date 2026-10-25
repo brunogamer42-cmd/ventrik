@@ -42,15 +42,18 @@ struct Chat {
 
 class Sala {
  public:
-  explicit Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& leidos = {});
+  explicit Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& leidos = {},
+                std::uint32_t texto = 0);
   Sala(const Sala&) = delete;
   Sala& operator=(const Sala&) = delete;
   Sala(Sala&&) = default;
   Sala& operator=(Sala&&) = default;
 
   std::vector<Orden> empezar();
+  std::vector<Orden> revisar();
   std::vector<Orden> aplicar(const Novedad& novedad);
   std::vector<Orden> elegir_voz(std::uint32_t canal);
+  std::vector<Orden> salir_de_la_voz();
   std::vector<Orden> elegir_texto(std::uint32_t canal);
   std::optional<Orden> enviar(const std::string& texto);
   std::optional<Orden> pedir_mas_viejos();
@@ -67,6 +70,7 @@ class Sala {
   const protocolo::CanalInfo* canal(std::uint32_t id) const;
   std::uint32_t tu_canal() const { return voz_.canal; }
   std::uint32_t mirando() const { return texto_.canal; }
+  std::uint32_t ultimo_texto() const { return ultimo_texto_; }
   const Chat& chat() const { return texto_.canal != 0 ? texto_ : voz_; }
   std::uint32_t nuevos(std::uint32_t canal) const;
   bool puede_escribir() const;
@@ -106,6 +110,8 @@ class Sala {
   std::map<std::uint32_t, std::uint32_t> leidos_;
   Chat voz_;
   Chat texto_;
+  std::uint32_t ultimo_texto_ = 0;
+  bool entrando_ = false;
   std::optional<std::uint32_t> ping_;
   std::optional<protocolo::Negado> negado_;
   std::chrono::steady_clock::time_point historial_despues_{};

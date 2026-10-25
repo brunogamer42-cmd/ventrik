@@ -202,7 +202,8 @@ ventrik::cliente::Sala sala_llena(bool dueno, std::size_t canales, std::size_t p
                                   texto ? TipoCanal::texto : TipoCanal::voz, texto && id % 4 == 0, id * 3});
   }
   for (std::uint32_t id = 1; id <= personas; ++id) {
-    presentado.usuarios.push_back({id, "Persona con nombre largo " + std::to_string(id), 1 + (id % 3) * 2});
+    presentado.usuarios.push_back(
+        {id, "Persona con nombre largo " + std::to_string(id), id % 5 == 4 ? 0 : 1 + (id % 3) * 2});
   }
   ventrik::cliente::Sala sala(presentado);
   sala.empezar();
@@ -252,11 +253,48 @@ TEST_CASE("La pantalla del servidor se dibuja sin errores a cualquier tamaño, e
       recorrer(sin_pantalla, pantalla, sala);
       sala.elegir_texto(4);
       recorrer(sin_pantalla, pantalla, sala);
+      sala.aplicar(UsuarioCambioCanal{1, 0});
+      pantalla.ultima_voz = 3;
+      recorrer(sin_pantalla, pantalla, sala);
     }
     auto vacia = sala_llena(false, 1, 1, 0);
     ui::PantallaServidor pantalla;
     recorrer(sin_pantalla, pantalla, vacia);
+    vacia.aplicar(UsuarioCambioCanal{1, 0});
+    CHECK(vacia.revisar().empty());
+    recorrer(sin_pantalla, pantalla, vacia);
   }
+}
+
+TEST_CASE("Con voz, \"Salir de la voz\" pide salir; sin voz, \"Volver a\" pide entrar al último canal") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(false, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  const auto clic = [&](ImVec2 donde) {
+    sin_pantalla.cuadro(pantalla, sala, donde);
+    sin_pantalla.cuadro(pantalla, sala, donde, true);
+    return sin_pantalla.cuadro(pantalla, sala, donde);
+  };
+  const auto buscar = [&](float desde, float hasta) {
+    std::optional<EntrarACanal> pedido;
+    for (float y = desde; y < hasta && !pedido; y += 4) {
+      const auto ordenes = clic(ImVec2(230, y)).ordenes;
+      if (!ordenes.empty() && std::holds_alternative<EntrarACanal>(ordenes.back())) {
+        pedido = std::get<EntrarACanal>(ordenes.back());
+      }
+    }
+    return pedido;
+  };
+  const auto salir = buscar(410, 470);
+  REQUIRE(salir);
+  CHECK(salir->canal == 0);
+  sala.aplicar(UsuarioCambioCanal{1, 0});
+  CHECK(sala.revisar().size() == 2);
+  CHECK_FALSE(buscar(560, 740));
+  pantalla.ultima_voz = 3;
+  const auto volver = buscar(560, 740);
+  REQUIRE(volver);
+  CHECK(volver->canal == 3);
 }
 
 TEST_CASE("Un clic en un canal de texto lo mira y uno en otro canal de voz entra") {

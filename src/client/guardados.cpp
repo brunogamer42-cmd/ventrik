@@ -79,7 +79,7 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
       std::copy(huella.begin(), huella.end(), servidor.huella.begin());
     }
     servidor.nombre = lector.leer_texto(kMaximoBytesNombre);
-    servidor.canal = lector.leer_u32();
+    servidor.texto = lector.leer_u32();
     servidor.nombre_canal = lector.leer_texto(kMaximoBytesNombre);
     servidor.ultima_vez_ms = lector.leer_u64();
     const std::size_t cuantos = version >= kVersionConLeidos ? lector.leer_u8() : 0;
@@ -113,7 +113,7 @@ std::vector<std::uint8_t> armar_guardados(const Guardados& guardados) {
     escritor.escribir_u16(servidor.direccion.puerto);
     escritor.escribir_bytes(servidor.huella);
     escritor.escribir_texto(servidor.nombre, kMaximoBytesNombre);
-    escritor.escribir_u32(servidor.canal);
+    escritor.escribir_u32(servidor.texto);
     escritor.escribir_texto(servidor.nombre_canal, kMaximoBytesNombre);
     escritor.escribir_u64(servidor.ultima_vez_ms);
     escritor.escribir_u8(static_cast<std::uint8_t>(servidor.leidos.size()));

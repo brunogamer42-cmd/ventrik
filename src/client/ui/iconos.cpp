@@ -122,6 +122,11 @@ void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, I
       dibujo.AddCircle(p(0, 0), 6.5f * u, color, 0, grosor);
       trazo({ImVec2(-3, 0), ImVec2(-0.8f, 2.5f), ImVec2(3.2f, -2.5f)}, false);
       break;
+    case Icono::colgar:
+      arco(0, 4, 7, 1.15f * kPi, 1.85f * kPi);
+      trazo({ImVec2(-6.2f, 0.8f), ImVec2(-6.8f, 3.5f), ImVec2(-3, 4), ImVec2(-2.6f, 2)}, false);
+      trazo({ImVec2(6.2f, 0.8f), ImVec2(6.8f, 3.5f), ImVec2(3, 4), ImVec2(2.6f, 2)}, false);
+      break;
     case Icono::ninguno:
       break;
   }

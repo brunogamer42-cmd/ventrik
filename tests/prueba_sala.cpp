@@ -87,6 +87,87 @@ TEST_CASE("La sala arranca con lo presentado, todo leído, y pide el historial d
   CHECK(sala.ping() == 20u);
 }
 
+TEST_CASE("Sin voz, al empezar se mira el último canal de texto, si no #general, si no el primero, y si no hay, nada") {
+  auto sin_voz = presentado();
+  sin_voz.usuarios[0].canal = 0;
+  const auto mira = [](const Presentado& armado, std::uint32_t texto) {
+    Sala sala(armado, {}, texto);
+    const auto ordenes = sala.empezar();
+    CHECK(sala.tu_canal() == 0);
+    return ordenes.empty() ? 0u : como<MirarCanal>(ordenes[0]).canal;
+  };
+  CHECK(mira(sin_voz, 4) == 4);
+  CHECK(mira(sin_voz, 2) == 3);
+  CHECK(mira(sin_voz, 99) == 3);
+  auto con_general = sin_voz;
+  con_general.canales[0].nombre = "Lobby";
+  con_general.canales.push_back({5, "GENERAL", TipoCanal::texto, false, 0});
+  CHECK(mira(con_general, 0) == 5);
+  CHECK(mira(con_general, 4) == 4);
+  auto solo_voz = sin_voz;
+  solo_voz.canales.resize(2);
+  CHECK(mira(solo_voz, 3) == 0);
+  Sala sala(sin_voz);
+  CHECK(en(sala, 0) == std::vector<std::uint32_t>{7});
+  sala.empezar();
+  CHECK(sala.chat().canal == 3);
+  CHECK(sala.ultimo_texto() == 3);
+}
+
+TEST_CASE("Al tocar un canal de voz sin voz, la sala espera la respuesta antes de volver a un chat de texto") {
+  auto sin_voz = presentado();
+  sin_voz.usuarios[0].canal = 0;
+  Sala sala(sin_voz, {}, 3);
+  sala.empezar();
+  REQUIRE(sala.chat().canal == 3);
+  const auto ordenes = sala.elegir_voz(2);
+  REQUIRE(ordenes.size() == 2);
+  CHECK(como<EntrarACanal>(ordenes[1]).canal == 2);
+  CHECK(sala.revisar().empty());
+  sala.aplicar(UsuarioCambioCanal{8, 2});
+  CHECK(sala.revisar().empty());
+  sala.aplicar(UsuarioCambioCanal{7, 2});
+  CHECK(sala.chat().canal == 2);
+  CHECK(sala.revisar().empty());
+
+  Sala negada(sin_voz, {}, 3);
+  negada.empezar();
+  negada.elegir_voz(2);
+  CHECK(negada.revisar().empty());
+  negada.aplicar(Negado{TipoMensaje::entrar_a_canal, MotivoNegado::demasiado_rapido});
+  const auto vuelta = negada.revisar();
+  REQUIRE(vuelta.size() == 2);
+  CHECK(como<MirarCanal>(vuelta[0]).canal == 3);
+}
+
+TEST_CASE("Salir de la voz pasa al chat de texto, y si niegan mirarlo se vuelve a probar pasado 1 s") {
+  Sala sala(presentado(), {}, 4);
+  sala.empezar();
+  REQUIRE(sala.salir_de_la_voz().size() == 1);
+  CHECK(como<EntrarACanal>(sala.salir_de_la_voz()[0]).canal == 0);
+  CHECK(sala.aplicar(UsuarioCambioCanal{7, 0}).empty());
+  CHECK(sala.tu_canal() == 0);
+  CHECK(sala.salir_de_la_voz().empty());
+  CHECK(en(sala, 0) == std::vector<std::uint32_t>{7});
+  auto ordenes = sala.revisar();
+  REQUIRE(ordenes.size() == 2);
+  CHECK(como<MirarCanal>(ordenes[0]).canal == 4);
+  CHECK(como<PedirHistorial>(ordenes[1]).canal == 4);
+  CHECK(sala.revisar().empty());
+  sala.aplicar(Negado{TipoMensaje::mirar_canal, MotivoNegado::demasiado_rapido});
+  CHECK(sala.chat().canal == 0);
+  CHECK(sala.revisar().empty());
+  std::this_thread::sleep_for(ventrik::cliente::kEsperaTrasRechazo + std::chrono::milliseconds(50));
+  ordenes = sala.revisar();
+  REQUIRE(ordenes.size() == 2);
+  CHECK(como<MirarCanal>(ordenes[0]).canal == 4);
+  sala.aplicar(CanalBorrado{4, 1});
+  ordenes = sala.revisar();
+  REQUIRE(ordenes.size() == 2);
+  CHECK(como<MirarCanal>(ordenes[0]).canal == 3);
+  CHECK(sala.ultimo_texto() == 3);
+}
+
 TEST_CASE("Con lo leído guardado, cada canal sigue desde donde quedó y uno nuevo arranca sin leer") {
   Sala sala(presentado(), {{1, 0}, {3, 2}, {4, 99}, {7, 5}});
   CHECK(sala.nuevos(3) == 3);
@@ -548,7 +629,9 @@ TEST_CASE("Con un servidor de verdad, la sala vuelve a pedir lo que soltó hacia
     ordenar({*orden});
     REQUIRE(hasta([&] { return !sala->chat().pidiendo; }));
   };
-  REQUIRE(hasta([&] { return sala && !sala->chat().pidiendo; }));
+  REQUIRE(hasta([&] { return sala.has_value(); }));
+  ordenar(sala->elegir_voz(1));
+  REQUIRE(hasta([&] { return sala->tu_canal() == 1 && !sala->chat().pidiendo; }));
   for (int i = 1; i <= 200; ++i) {
     sesion.ordenar(EnviarChat{1, "m " + std::to_string(i)});
   }

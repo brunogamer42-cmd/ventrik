@@ -82,6 +82,9 @@ void Voz::baja(std::uint32_t id) {
   personas_.erase(std::remove_if(personas_.begin(), personas_.end(),
                                  [id](const Persona& persona) { return persona.id == id; }),
                   personas_.end());
+  pendientes_.erase(std::remove_if(pendientes_.begin(), pendientes_.end(),
+                                   [id](const Pendiente& pendiente) { return pendiente.sesion->marca() == id; }),
+                    pendientes_.end());
 }
 
 std::optional<std::uint32_t> Voz::recibir(const red::Direccion& origen,

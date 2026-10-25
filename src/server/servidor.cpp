@@ -75,13 +75,14 @@ struct Servidor::Conexion {
   std::string nombre;
   std::wstring comparable;
   bool dueno = false;
-  std::uint32_t canal = kCanalGeneral;
+  std::uint32_t canal = 0;
   std::uint32_t mirando = 0;
   std::vector<std::uint32_t> novedades;
   Reloj::time_point ultimo_aviso{};
   Cubeta chat;
   Cubeta pedidos;
   Cubeta historial;
+  Cubeta entrar_a_la_voz;
 };
 
 Servidor::Servidor(cifrado::IdentidadServidor& identidad, Opciones opciones, Avisar avisar)
@@ -549,12 +550,12 @@ void Servidor::atender_presentacion(Conexion& conexion, const protocolo::Marco& 
   conexion.nombre = presentacion->nombre;
   conexion.comparable = comparable;
   conexion.dueno = presentacion->codigo_dueno.has_value();
-  conexion.canal = kCanalGeneral;
   conexion.estado = Estado::conectada;
   conexion.ultimo_dato = ahora;
   conexion.chat = Cubeta(opciones_.rafaga_chat, opciones_.chat_por_segundo, ahora);
   conexion.pedidos = Cubeta(opciones_.rafaga_pedidos, opciones_.pedidos_por_segundo, ahora);
   conexion.historial = Cubeta(opciones_.rafaga_historial, opciones_.historial_por_segundo, ahora);
+  conexion.entrar_a_la_voz = Cubeta(opciones_.rafaga_entrar_a_la_voz, opciones_.entrar_a_la_voz_por_segundo, ahora);
   conexion.ensamblador.cambiar_maximo(protocolo::kMaximoCuerpo);
 
   protocolo::Presentado presentado;
@@ -569,10 +570,6 @@ void Servidor::atender_presentacion(Conexion& conexion, const protocolo::Marco& 
     }
   }
   encolar(conexion, presentado);
-  if (const auto clave = voz_->alta(conexion.id, conexion.origen.ipv4, conexion.canal, ahora,
-                                    derivar_de(*conexion.tls))) {
-    encolar(conexion, *clave);
-  }
   difundir(protocolo::UsuarioEntro{protocolo::UsuarioInfo{conexion.id, conexion.nombre,
                                                          conexion.canal}},
            conexion.id);
@@ -628,15 +625,28 @@ void Servidor::entrar_a_canal(Conexion& conexion, const protocolo::Marco& marco)
     error_de_protocolo(conexion);
     return;
   }
-  if (const auto motivo = puede_entrar(canales_, pedido->canal)) {
+  if (const auto motivo = pedido->canal == 0 ? std::nullopt : puede_entrar(canales_, pedido->canal)) {
     negar(conexion, TipoMensaje::entrar_a_canal, *motivo);
     return;
   }
   if (conexion.canal == pedido->canal) {
     return;
   }
+  if (pedido->canal == 0) {
+    voz_->baja(conexion.id);
+  } else if (conexion.canal != 0) {
+    voz_->mover(conexion.id, pedido->canal);
+  } else if (!conexion.entrar_a_la_voz.tomar(Reloj::now())) {
+    negar(conexion, TipoMensaje::entrar_a_canal, MotivoNegado::demasiado_rapido);
+    return;
+  } else if (const auto clave = voz_->alta(conexion.id, conexion.origen.ipv4, pedido->canal, Reloj::now(),
+                                           derivar_de(*conexion.tls))) {
+    encolar(conexion, *clave);
+  } else {
+    negar(conexion, TipoMensaje::entrar_a_canal, MotivoNegado::lleno);
+    return;
+  }
   conexion.canal = pedido->canal;
-  voz_->mover(conexion.id, conexion.canal);
   difundir(protocolo::UsuarioCambioCanal{conexion.id, conexion.canal});
 }
 

@@ -286,7 +286,8 @@ Estar en un servidor y estar en la voz son dos cosas separadas. Capturas: docs/p
   - "Quedarme solo en el chat, sin entrar a un canal de voz" (predeterminado);
   - "Volver al último canal de voz en el que estuve".
 
-  El botón "Entrar" de Inicio respeta este ajuste.
+  El botón "Entrar" de Inicio respeta este ajuste. Hasta que exista la pantalla Ajustes (etapa 3) vale el predeterminado.
+  - Si el último canal de texto ya no existe, se mira #general; si no hay, el primer canal de texto. Si el servidor no tiene ningún canal de texto, en el lugar del chat va el cartel "Este servidor todavía no tiene canales de texto. Tocá un canal de voz para entrar." (decisión del dueño).
 - **Entrar a la voz:** tocar un canal de voz te hace entrar. Con voz, arriba del panel "Tu audio" va "En <canal> · <ping>" con el botón "Salir de la voz", que te saca de la voz sin salir del servidor. "Desconectar" (en la cabecera) sigue siendo salir del servidor.
 - **Sin voz:**
   - en lugar de "Tu audio" va el panel "Sin canal de voz", con "Volver a <último canal>";

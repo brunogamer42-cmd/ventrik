@@ -60,6 +60,10 @@ struct TextosGuardados {
   TextoGuardado tecla;
   TextoGuardado subtitulo;
   TextoGuardado pista;
+  TextoGuardado sin_voz;
+  TextoGuardado en_canal;
+  TextoGuardado ping_corto;
+  TextoGuardado volver;
   std::deque<TextoGuardado> etapas;
 };
 
@@ -86,6 +90,7 @@ struct PantallaServidor {
   bool por_voz = false;
   int sensibilidad = 0;
   bool ajustando = false;
+  std::uint32_t ultima_voz = 0;
   bool transmitiendo = false;
   std::uint32_t hablando = 0;
   int nivel = 0;

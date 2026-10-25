@@ -22,7 +22,7 @@ ServidorGuardado servidor(std::uint32_t ip, std::uint16_t puerto = 7700, std::st
   guardado.direccion = {ip, puerto};
   guardado.huella.fill(0xAB);
   guardado.nombre = std::move(nombre);
-  guardado.canal = 3;
+  guardado.texto = 3;
   guardado.nombre_canal = "General";
   guardado.ultima_vez_ms = 1761234567890;
   return guardado;
@@ -210,7 +210,7 @@ TEST_CASE("una lista de la versión 1 se lee con sus servidores y sin lo leído"
   escritor.escribir_u16(viejo.direccion.puerto);
   escritor.escribir_bytes(viejo.huella);
   escritor.escribir_texto(viejo.nombre, 64);
-  escritor.escribir_u32(viejo.canal);
+  escritor.escribir_u32(viejo.texto);
   escritor.escribir_texto(viejo.nombre_canal, 64);
   escritor.escribir_u64(viejo.ultima_vez_ms);
   Guardados leidos;

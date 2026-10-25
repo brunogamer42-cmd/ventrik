@@ -42,7 +42,8 @@ foreach ($nombre in 'fuzz_base', 'fuzz_guardados', 'fuzz_identidad', 'fuzz_nombr
             Informar $titulo $false "No está compilado: $exe (correr tools\check.ps1)"
             continue
         }
-        # Cada uno escribe en su carpeta y lee también la del otro.
+        # Cada uno escribe en su carpeta; en la corrida larga lee también la del otro
+        # (en la corta no: cargar las dos no entra en el tiempo de check.ps1).
         $corpus = Join-Path $carpeta "corpus\$nombre$bits"
         $corpusOtro = Join-Path $carpeta "corpus\$nombre$otros"
         New-Item -ItemType Directory -Force -Path $corpus, $corpusOtro | Out-Null
@@ -51,7 +52,8 @@ foreach ($nombre in 'fuzz_base', 'fuzz_guardados', 'fuzz_identidad', 'fuzz_nombr
         $largo = switch ($nombre) { 'fuzz_protocolo' { 70000 } 'fuzz_base' { 65536 } 'fuzz_identidad' { 17000 } default { 4096 } }
         $argumentos = @("-max_total_time=$Segundos", "-max_len=$largo", '-timeout=10', '-rss_limit_mb=1536', '-print_final_stats=1',
                         (Entre-Comillas "-artifact_prefix=$fallas\$nombre$bits-"),
-                        (Entre-Comillas $corpus), (Entre-Comillas $semillas), (Entre-Comillas $corpusOtro))
+                        (Entre-Comillas $corpus), (Entre-Comillas $semillas))
+        if ($Segundos -ge 300) { $argumentos += Entre-Comillas $corpusOtro }
         $antes = @(Get-ChildItem $fallas -Filter "$nombre$bits-*" | ForEach-Object { $_.Name })
         $proceso = Start-Process -FilePath $exe -ArgumentList $argumentos -NoNewWindow -PassThru `
             -RedirectStandardError $registro -RedirectStandardOutput "$registro.salida"

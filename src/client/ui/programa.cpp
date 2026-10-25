@@ -32,6 +32,7 @@ namespace ventrik::ui {
 namespace {
 using namespace std::chrono_literals;
 using Reloj = std::chrono::steady_clock;
+constexpr auto kEntreAperturasDeVoz = 1s;
 
 template <typename... Valores>
 void anotar(std::ostream& salida, const Valores&... valores) {
@@ -91,14 +92,46 @@ class Programa {
   void cerrar() {
     if (auto* guardado = sala_ ? cliente::buscar_guardado(guardados_, pendiente_.direccion) : nullptr) {
       guardado->leidos = sala_->leidos();
+      guardado->texto = sala_->ultimo_texto();
+      if (const auto* canal = sala_->canal(servidor_.ultima_voz)) {
+        guardado->nombre_canal = canal->nombre;
+      }
       guardar();
     }
     sesion_.reset();
     sala_.reset();
+    cerrar_voz();
+  }
+
+  void abrir_voz() {
+    puente_ = std::make_shared<cliente::PuenteVoz>();
+    motor_ = std::make_unique<cliente::MotorVoz>(*puente_, calidad_);
+    audio_ = std::make_unique<cliente::Audio>();
+    servidor_.hay_audio =
+        motor_->ok() && audio_->abrir(motor_->frecuencia(), cliente::MotorVoz::procesar_audio, motor_.get());
+    vigia_ = std::make_unique<cliente::Vigia>(*motor_, *puente_, cliente::tecla_para_hablar(guardados_.tecla_hablar),
+                                              ventana_.hwnd(), [this] { avisar(); });
+    motor_->sensibilidad(guardados_.sensibilidad);
+    motor_->por_voz(guardados_.por_voz);
+    vigia_->por_voz(guardados_.por_voz);
+    despertares_audio_ = audio_->despertares();
+    abrir_desde_ = Reloj::now() + kEntreAperturasDeVoz;
+    sesion_->voz(puente_);
+  }
+
+  void cerrar_voz() {
+    if (sesion_) {
+      sesion_->voz(nullptr);
+    }
     vigia_.reset();
     audio_.reset();
     motor_.reset();
     puente_.reset();
+    midiendo_ = false;
+    perdidos_ = 0;
+    recibidos_ = 0;
+    servidor_.eligiendo_tecla = false;
+    servidor_.ajustando = false;
   }
 
   bool atender() {
@@ -116,6 +149,11 @@ class Programa {
         }
       }
     }
+    if (sala_) {
+      std::vector<cliente::Orden> ordenes = sala_->revisar();
+      cambio = cambio || !ordenes.empty();
+      ordenar(std::move(ordenes));
+    }
     const Situacion& situacion = ventana_.situacion();
     const bool ahorrar = situacion.minimizada || situacion.juego || situacion.bloqueada;
     if (sesion_ && ahorrar != ahorrando_) {
@@ -130,19 +168,23 @@ class Programa {
     if (sala_) {
       PedidoServidor pedido = dibujar_servidor(servidor_, *sala_);
       ordenar(std::move(pedido.ordenes));
-      if (pedido.elegir_tecla) {
+      if (pedido.elegir_tecla && vigia_) {
         vigia_->elegir_tecla();
         servidor_.eligiendo_tecla = true;
       }
       if (pedido.sensibilidad) {
         servidor_.sensibilidad = *pedido.sensibilidad;
         guardados_.sensibilidad = static_cast<std::uint8_t>(*pedido.sensibilidad);
-        motor_->sensibilidad(*pedido.sensibilidad);
+        if (motor_) {
+          motor_->sensibilidad(*pedido.sensibilidad);
+        }
       }
       if (pedido.por_voz) {
         servidor_.por_voz = guardados_.por_voz = *pedido.por_voz;
-        motor_->por_voz(*pedido.por_voz);
-        vigia_->por_voz(*pedido.por_voz);
+        if (motor_) {
+          motor_->por_voz(*pedido.por_voz);
+          vigia_->por_voz(*pedido.por_voz);
+        }
       }
       if (pedido.por_voz || pedido.guardar) {
         guardar();
@@ -212,12 +254,7 @@ class Programa {
     cerrar();
     pantalla_.intento = {direccion, desde_formulario, Fase::conectando, {}};
     pendiente_ = {direccion, huella.bytes(), quien.nombre, 0, {}, 0};
-    puente_ = std::make_shared<cliente::PuenteVoz>();
-    motor_ = std::make_unique<cliente::MotorVoz>(*puente_, calidad_);
-    audio_ = std::make_unique<cliente::Audio>();
-    hay_audio_ = motor_->ok() && audio_->abrir(motor_->frecuencia(), cliente::MotorVoz::procesar_audio, motor_.get());
     cliente::OpcionesSesion opciones;
-    opciones.voz = puente_;
     opciones.al_haber_novedades = [this] { avisar(); };
     sesion_ = std::make_unique<cliente::Sesion>(direccion, huella, std::move(quien), std::move(opciones));
     ahorrando_ = false;
@@ -228,13 +265,13 @@ class Programa {
       terminar(cliente::explicar(pantalla_.idioma, intento));
       return;
     }
-    const auto* guardado = cliente::buscar_guardado(guardados_, pendiente_.direccion);
-    sala_ = std::make_unique<cliente::Sala>(*intento.presentado, guardado != nullptr && guardado->huella == pendiente_.huella
-                                                                     ? guardado->leidos
-                                                                     : std::vector<cliente::Leido>{});
-    const auto* canal = sala_->canal(sala_->tu_canal());
-    pendiente_.canal = sala_->tu_canal();
-    pendiente_.nombre_canal = canal != nullptr ? canal->nombre : std::string();
+    if (const auto* guardado = cliente::buscar_guardado(guardados_, pendiente_.direccion);
+        guardado != nullptr && guardado->huella == pendiente_.huella) {
+      pendiente_.texto = guardado->texto;
+      pendiente_.nombre_canal = guardado->nombre_canal;
+      pendiente_.leidos = guardado->leidos;
+    }
+    sala_ = std::make_unique<cliente::Sala>(*intento.presentado, pendiente_.leidos, pendiente_.texto);
     pendiente_.ultima_vez_ms = cliente::ahora_ms();
     guardados_.nombre = pendiente_.nombre;
     if (cliente::recordar(guardados_, pendiente_)) {
@@ -250,47 +287,54 @@ class Programa {
     servidor_.logo = pantalla_.logo;
     servidor_.direccion = red::a_texto(pendiente_.direccion);
     servidor_.calidad_alta = calidad_.frecuencia == cliente::Calidad{}.frecuencia;
-    servidor_.hay_audio = hay_audio_;
     servidor_.tecla = guardados_.tecla_hablar;
     servidor_.por_voz = guardados_.por_voz;
     servidor_.sensibilidad = guardados_.sensibilidad;
     servidor_.enfocar_mensaje = true;
-    vigia_ = std::make_unique<cliente::Vigia>(*motor_, *puente_, cliente::tecla_para_hablar(guardados_.tecla_hablar),
-                                              ventana_.hwnd(), [this] { avisar(); });
-    motor_->sensibilidad(guardados_.sensibilidad);
-    motor_->por_voz(guardados_.por_voz);
-    vigia_->por_voz(guardados_.por_voz);
-    midiendo_ = false;
-    perdidos_ = puente_->perdidos;
-    recibidos_ = puente_->recibidos;
+    const std::wstring ultima_voz = nombre_para_comparar(pendiente_.nombre_canal);
+    for (const auto& canal : sala_->canales()) {
+      if (canal.tipo == protocolo::TipoCanal::voz && !ultima_voz.empty() &&
+          nombre_para_comparar(canal.nombre) == ultima_voz) {
+        servidor_.ultima_voz = canal.id;
+      }
+    }
     proxima_muestra_ = Reloj::now() + 1s;
     acumulada_ = {};
     segundos_ = 0;
     diagnostico_ = cliente::Diagnostico();
     cuadros_ = 0;
     ventana_.tomar_uso();
-    despertares_audio_ = audio_->despertares();
     despertares_red_ = sesion_->despertares();
     trafico_ = cifrado::trafico();
     ordenar(sala_->empezar());
   }
 
   bool mirar_voz() {
-    const auto& en_mi_canal = sala_->en_canal(sala_->tu_canal());
-    motor_->solo_en_el_canal(std::none_of(en_mi_canal.begin(), en_mi_canal.end(),
-                                          [this](const auto* usuario) { return usuario->id != sala_->tu_id(); }));
+    const std::uint32_t canal = sala_->tu_canal();
+    const bool cambio_de_voz = canal != 0 ? !motor_ && Reloj::now() >= abrir_desde_ : motor_ != nullptr;
+    if (cambio_de_voz && canal != 0) {
+      abrir_voz();
+    } else if (cambio_de_voz) {
+      cerrar_voz();
+    }
+    servidor_.ultima_voz = canal != 0 ? canal : servidor_.ultima_voz;
+    if (motor_) {
+      const auto& en_mi_canal = sala_->en_canal(canal);
+      motor_->solo_en_el_canal(std::none_of(en_mi_canal.begin(), en_mi_canal.end(),
+                                            [this](const auto* usuario) { return usuario->id != sala_->tu_id(); }));
+    }
     const auto antes = std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
-    servidor_.transmitiendo = motor_->transmitiendo();
-    servidor_.hablando = puente_->hablando;
-    servidor_.nivel = vigia_->nivel();
+    servidor_.transmitiendo = motor_ && motor_->transmitiendo();
+    servidor_.hablando = puente_ ? puente_->hablando.load() : 0;
+    servidor_.nivel = vigia_ ? vigia_->nivel() : 0;
     const Situacion& situacion = ventana_.situacion();
-    if (const bool medir = servidor_.por_voz && servidor_.ajustando && situacion.con_foco && situacion.dibuja();
+    if (const bool medir = vigia_ && servidor_.por_voz && servidor_.ajustando && situacion.con_foco && situacion.dibuja();
         medir != midiendo_) {
       midiendo_ = medir;
       vigia_->medir(medir);
     }
-    bool cambio = antes != std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
-    if (const auto elegida = vigia_->tomar_elegida()) {
+    bool cambio = cambio_de_voz || antes != std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
+    if (const auto elegida = vigia_ ? vigia_->tomar_elegida() : std::nullopt) {
       cambio = true;
       servidor_.eligiendo_tecla = false;
       if (*elegida != 0) {
@@ -311,8 +355,8 @@ class Programa {
       sala_->soltar_lejanos();
       soltar_lejanos(servidor_);
     }
-    const std::uint64_t perdidos = puente_->perdidos;
-    const std::uint64_t recibidos = puente_->recibidos;
+    const std::uint64_t perdidos = puente_ ? puente_->perdidos.load() : 0;
+    const std::uint64_t recibidos = puente_ ? puente_->recibidos.load() : 0;
     const Muestra muestra{sala_->ping().value_or(0), static_cast<std::uint32_t>(perdidos - perdidos_),
                           static_cast<std::uint32_t>(recibidos - recibidos_)};
     perdidos_ = perdidos;
@@ -322,9 +366,13 @@ class Programa {
       servidor_.grafico.push_back(std::exchange(acumulada_, {}));
     }
     const cliente::Medicion medicion = diagnostico_.medir();
-    servidor_.diagnostico = {puente_->estado == cliente::EstadoVoz::lista, puente_->ping_ms, medicion.procesador,
-                             medicion.ram_bytes, motor_->espera_ms(), motor_->recortes(), audio_->espera_de_salida_ms()};
+    servidor_.diagnostico =
+        motor_ ? DatosDiagnostico{puente_->estado == cliente::EstadoVoz::lista, puente_->ping_ms, medicion.procesador,
+                                  medicion.ram_bytes, motor_->espera_ms(), motor_->recortes(),
+                                  audio_->espera_de_salida_ms()}
+               : DatosDiagnostico{false, 0, medicion.procesador, medicion.ram_bytes};
     if (registro_.is_open()) {
+      const bool voz = motor_ != nullptr;
       const DatosDiagnostico& datos = servidor_.diagnostico;
       const ImTextureData& atlas = *ImGui::GetIO().Fonts->TexData;
       UsoVentana uso = ventana_.tomar_uso();
@@ -344,10 +392,11 @@ class Programa {
              datos.ping_voz, medicion.procesador, medicion.ventana, medicion.sistema, uso.ocupado_ms,
              uso.pasada_maxima_ms, uso.imgui_ms, uso.direct3d_ms, uso.presentados, uso.vertices_max, cuadros_,
              datos.colchon_ms, datos.recortes, muestra.perdidos, muestra.recibidos, datos.salida_ms,
-             audio_->tomar_espera_maxima_ms(), audio_->descartados(), audio_->descartados_con_voz(), audio_->vacios(),
-             motor_->vaciados(), motor_->faltas(), servidor_.transmitiendo, servidor_.hablando, datos.voz_lista, avisos,
-             otros, comun.first, medicion.ram_bytes / (1024 * 1024), uso.despertares,
-             audio_->despertares() - std::exchange(despertares_audio_, audio_->despertares()),
+             voz ? audio_->tomar_espera_maxima_ms() : 0, voz ? audio_->descartados() : 0,
+             voz ? audio_->descartados_con_voz() : 0, voz ? audio_->vacios() : 0, voz ? motor_->vaciados() : 0,
+             voz ? motor_->faltas() : 0, servidor_.transmitiendo, servidor_.hablando, datos.voz_lista, avisos, otros,
+             comun.first, medicion.ram_bytes / (1024 * 1024), uso.despertares,
+             voz ? audio_->despertares() - std::exchange(despertares_audio_, audio_->despertares()) : 0,
              sesion_->despertares() - std::exchange(despertares_red_, sesion_->despertares()),
              trafico.tcp_enviados - trafico_.tcp_enviados, trafico.tcp_recibidos - trafico_.tcp_recibidos,
              trafico.udp_enviados - trafico_.udp_enviados, trafico.udp_recibidos - trafico_.udp_recibidos,
@@ -389,11 +438,11 @@ class Programa {
   PantallaServidor servidor_;
   cliente::Guardados guardados_;
   bool se_puede_guardar_ = false;
-  bool hay_audio_ = false;
   cliente::ServidorGuardado pendiente_;
   std::uint64_t perdidos_ = 0;
   std::uint64_t recibidos_ = 0;
   Reloj::time_point proxima_muestra_{};
+  Reloj::time_point abrir_desde_{};
   Muestra acumulada_{};
   std::uint32_t segundos_ = 0;
   std::uint32_t despertares_audio_ = 0;

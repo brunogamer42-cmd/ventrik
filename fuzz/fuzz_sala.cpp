@@ -60,22 +60,30 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   Lector lector(gsl::make_span(datos, largo));
   Presentado presentado;
   presentado.tu_id = 1;
-  presentado.dueno = (lector.leer_u8() & 1) != 0;
+  const std::uint8_t inicio = lector.leer_u8();
+  presentado.dueno = (inicio & 1) != 0;
   presentado.canales = {{1, "General"}, {2, "charla", TipoCanal::texto, false, 3},
                         {3, "anuncios", TipoCanal::texto, true, 0}, {4, "Juegos"}};
-  presentado.usuarios = {{1, "Ana", 1}, {2, "Beto", 4}};
+  presentado.usuarios = {{1, "Ana", (inicio & 2) != 0 ? 0u : 1u}, {2, "Beto", 4}};
   std::vector<ventrik::cliente::Leido> leidos;
   if (presentado.dueno) {
     leidos = {{1, lector.leer_u8()}, {2, lector.leer_u16()}, {7, lector.leer_u8()}};
   }
-  Sala sala(presentado, leidos);
-  sala.empezar();
+  Sala sala(presentado, leidos, (inicio >> 2) % 6);
   std::optional<PedirHistorial> pedido;
   const auto anotar = [&pedido](const std::optional<ventrik::cliente::Orden>& orden) {
     if (orden) {
       pedido = std::get<PedirHistorial>(*orden);
     }
   };
+  const auto anotar_todas = [&anotar](const std::vector<ventrik::cliente::Orden>& ordenes) {
+    for (const auto& orden : ordenes) {
+      if (std::holds_alternative<PedirHistorial>(orden)) {
+        anotar(orden);
+      }
+    }
+  };
+  anotar_todas(sala.empezar());
   const char* const nombres[] = {"Ana", "Beto", "Carla", "Dani", "Persona con un nombre bastante largo"};
   while (lector.ok() && lector.restante() >= 5) {
     const std::uint8_t que = lector.leer_u8();
@@ -127,8 +135,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
         break;
       }
       case 18: sala.soltar_lejanos(); break;
+      case 19: exigir(sala.salir_de_la_voz().empty() == (sala.tu_canal() == 0)); break;
       default: break;
     }
+    anotar_todas(sala.revisar());
     revisar(sala);
   }
   return 0;

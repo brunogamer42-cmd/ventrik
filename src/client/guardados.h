@@ -29,7 +29,7 @@ struct ServidorGuardado {
   red::Direccion direccion;
   cifrado::Huella::Bytes huella{};
   std::string nombre;
-  std::uint32_t canal = 0;
+  std::uint32_t texto = 0;
   std::string nombre_canal;
   std::uint64_t ultima_vez_ms = 0;
   std::vector<Leido> leidos;

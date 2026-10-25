@@ -110,6 +110,38 @@ void Sesion::ahorrar(bool si) {
   }
 }
 
+void Sesion::voz(std::shared_ptr<PuenteVoz> puente) {
+  {
+    const std::lock_guard<std::mutex> candado(candado_);
+    voz_pedida_ = std::move(puente);
+  }
+  despertador_.despertar();
+}
+
+void Sesion::cambiar_voz() {
+  std::optional<std::shared_ptr<PuenteVoz>> pedida;
+  {
+    const std::lock_guard<std::mutex> candado(candado_);
+    pedida.swap(voz_pedida_);
+  }
+  if (!pedida) {
+    return;
+  }
+  canal_voz_.reset();
+  puente_ = std::move(*pedida);
+  if (puente_ && puente_->despertador.ok()) {
+    canal_voz_ = std::make_unique<CanalVoz>(destino_, *puente_);
+    usar_clave();
+  }
+}
+
+void Sesion::usar_clave() {
+  cifrado::Secreto secreto(32);
+  if (clave_ && canal_voz_ && tls_->exportar(clave_->identidad, secreto.bytes())) {
+    canal_voz_->clave(*clave_, std::move(secreto));
+  }
+}
+
 std::vector<Novedad> Sesion::esperar_novedades(std::chrono::milliseconds tiempo) {
   std::unique_lock<std::mutex> candado(candado_);
   hay_novedades_.wait_for(candado, tiempo, [this] { return !novedades_.empty(); });
@@ -176,14 +208,10 @@ bool Sesion::procesar(const protocolo::Marco& marco) {
       return publicar_si(protocolo::Historial{});
     case TipoMensaje::negado:
       return publicar_si(protocolo::Negado{});
-    case TipoMensaje::clave_voz: {
-      const auto clave = protocolo::leer_mensaje<protocolo::ClaveVoz>(marco.cuerpo);
-      cifrado::Secreto secreto(32);
-      if (clave && canal_voz_ && tls_->exportar(clave->identidad, secreto.bytes())) {
-        canal_voz_->clave(*clave, std::move(secreto));
-      }
-      return clave.has_value();
-    }
+    case TipoMensaje::clave_voz:
+      clave_ = protocolo::leer_mensaje<protocolo::ClaveVoz>(marco.cuerpo);
+      usar_clave();
+      return clave_.has_value();
     case TipoMensaje::pong: {
       const auto pong = protocolo::leer_mensaje<protocolo::Pong>(marco.cuerpo);
       const std::uint64_t ahora = milisegundos_desde_arranque();
@@ -213,13 +241,10 @@ void Sesion::correr() {
   }
   SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
   no_frenar_este_hilo();
-  if (opciones_.voz && opciones_.voz->despertador.ok()) {
-    canal_voz_ = std::make_unique<CanalVoz>(destino_, *opciones_.voz);
-  }
   const auto cerrar_voz = gsl::finally([this] {
     canal_voz_.reset();
-    if (opciones_.voz) {
-      opciones_.voz->cambiar(opciones_.voz->estado, EstadoVoz::sin_conexion);
+    if (puente_) {
+      puente_->cambiar(puente_->estado, EstadoVoz::sin_conexion);
     }
   });
   ConexionAbierta& abierta = *resultado.abierta;
@@ -246,6 +271,7 @@ void Sesion::correr() {
     for (const Orden& orden : tomar_ordenes()) {
       std::visit([&salida](const auto& mensaje) { agregar(salida, mensaje); }, orden);
     }
+    cambiar_voz();
     {
       const std::lock_guard<std::mutex> candado(candado_);
       if (terminar_) {
@@ -322,7 +348,7 @@ void Sesion::correr() {
     }
     FD_SET(static_cast<SOCKET>(despertador_.socket().get()), &lectura);
     if (canal_voz_) {
-      FD_SET(static_cast<SOCKET>(opciones_.voz->despertador.socket().get()), &lectura);
+      FD_SET(static_cast<SOCKET>(puente_->despertador.socket().get()), &lectura);
       if (canal_voz_->socket().valido()) {
         FD_SET(static_cast<SOCKET>(canal_voz_->socket().get()), &lectura);
       }
@@ -345,7 +371,7 @@ void Sesion::correr() {
     if (listos > 0) {
       despertador_.vaciar();
       if (canal_voz_) {
-        opciones_.voz->despertador.vaciar();
+        puente_->despertador.vaciar();
       }
     }
   }

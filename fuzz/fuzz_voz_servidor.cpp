@@ -81,8 +81,17 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   }
   exigir(!cifrar || (listo && voz.tiene_voz(1)));
   const auto inicio = ahora;
+  bool dos_en_la_voz = true;
 
   while (entrada.size() >= 3) {
+    if ((entrada[0] & 0x40) != 0 && (entrada[1] & 0x80) != 0) {
+      dos_en_la_voz = !dos_en_la_voz;
+      if (dos_en_la_voz) {
+        exigir(voz.alta(2, 0x0A000002, 1 + entrada[1] % 3u, ahora, derivar).has_value());
+      } else {
+        voz.baja(2);
+      }
+    }
     const std::size_t cuanto = std::min<std::size_t>(entrada[2] * 8u, entrada.size() - 3);
     const auto trozo = entrada.subspan(3, cuanto);
     if (cifrar && (entrada[0] & 0x80) != 0) {

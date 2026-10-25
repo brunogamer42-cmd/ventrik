@@ -39,6 +39,8 @@ struct Opciones {
   double pedidos_por_segundo = 5;
   double rafaga_historial = 3;
   double historial_por_segundo = 1;
+  double rafaga_entrar_a_la_voz = 5;
+  double entrar_a_la_voz_por_segundo = 0.5;
   int intentos_de_presentacion = 5;
   OpcionesProteccion proteccion;
   OpcionesVoz voz;

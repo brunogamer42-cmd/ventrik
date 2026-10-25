@@ -159,7 +159,8 @@ TEST_CASE("El servidor ata la voz a la conexión y la reenvía solo a los demás
   Banco banco;
   REQUIRE(banco.voz.ok());
   Programa a(banco, {0x0A000001, 5000}, alta(banco, 1, 0x0A000001, 1));
-  Programa b(banco, {0x0A000002, 5000}, alta(banco, 2, 0x0A000002, 1));
+  const ClaveVoz primera = alta(banco, 2, 0x0A000002, 1);
+  Programa b(banco, {0x0A000002, 5000}, primera);
   Programa c(banco, {0x0A000003, 5000}, alta(banco, 3, 0x0A000003, 2));
   bombear(banco, {&a, &b, &c});
   std::sort(banco.atadas.begin(), banco.atadas.end());
@@ -182,6 +183,16 @@ TEST_CASE("El servidor ata la voz a la conexión y la reenvía solo a los demás
   CHECK(b.recibidas.size() == 1);
   REQUIRE(c.recibidas.size() == 1);
   CHECK(c.recibidas[0].origen == 1);
+
+  const ClaveVoz vuelta = alta(banco, 2, 0x0A000002, 1);
+  CHECK(vuelta.identidad != primera.identidad);
+  Programa otra_vez(banco, {0x0A000002, 5001}, vuelta);
+  bombear(banco, {&a, &otra_vez});
+  a.mandar(voz(9));
+  bombear(banco, {&a, &b, &c, &otra_vez});
+  REQUIRE(otra_vez.recibidas.size() == 1);
+  CHECK(otra_vez.recibidas[0].medio.numero == 9);
+  CHECK(b.recibidas.size() == 1);
 }
 
 TEST_CASE("Una IP sin conexión no recibe respuesta y otra IP no puede usar una clave ajena") {

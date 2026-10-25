@@ -53,7 +53,6 @@ struct OpcionesSesion {
   std::chrono::milliseconds cada_cuanto_ping{5000};
   std::chrono::milliseconds cada_cuanto_ping_ahorrando{15000};
   std::chrono::milliseconds sin_respuesta{30000};
-  std::shared_ptr<PuenteVoz> voz;
   std::function<void()> al_haber_novedades;
 };
 
@@ -72,6 +71,7 @@ class Sesion {
   void ordenar(Orden orden);
   void ordenar(std::vector<Orden> ordenes);
   void ahorrar(bool si);
+  void voz(std::shared_ptr<PuenteVoz> puente);
   std::vector<Novedad> esperar_novedades(std::chrono::milliseconds tiempo);
   std::uint32_t despertares() const { return despertares_.load(std::memory_order_relaxed); }
 
@@ -80,6 +80,8 @@ class Sesion {
   bool publicar(Novedad novedad);
   std::vector<Orden> tomar_ordenes();
   bool procesar(const protocolo::Marco& marco);
+  void cambiar_voz();
+  void usar_clave();
 
   const red::Direccion destino_;
   const cifrado::Huella huella_;
@@ -93,6 +95,9 @@ class Sesion {
   std::deque<Novedad> novedades_;
   bool terminar_ = false;
   bool desbordada_ = false;
+  std::optional<std::shared_ptr<PuenteVoz>> voz_pedida_;
+  std::shared_ptr<PuenteVoz> puente_;
+  std::optional<protocolo::ClaveVoz> clave_;
   std::unique_ptr<CanalVoz> canal_voz_;
   cifrado::SesionTls* tls_ = nullptr;
   std::atomic<bool> ahorrando_{false};

@@ -23,6 +23,9 @@ constexpr float kAltoCabecera = 50;
 constexpr float kAltoAbajo = 82;
 constexpr float kAltoTuAudio = 243;
 constexpr float kAltoAjustando = 59;
+constexpr float kAltoEnCanal = 40;
+constexpr float kAltoSinVoz = 168;
+constexpr float kMargenSalir = 8;
 constexpr float kAltoDia = 30;
 constexpr float kAltoGrupo = 27;
 constexpr float kArribaMensajes = 28;
@@ -215,22 +218,29 @@ class Dibujo {
     ImGui::InvisibleButton("##frase", ImVec2(ancho_chip(pronto), px(16)));
     cartel(t(Clave::servidor_frase_pronto));
 
-    const std::string_view transmite = t(pantalla_.transmitiendo ? Clave::servidor_transmitiendo
-                                                                   : Clave::servidor_sin_transmitir);
-    const float ancho_etiqueta = std::max(ancho_transmitiendo(t(Clave::servidor_transmitiendo)),
-                                          ancho_transmitiendo(t(Clave::servidor_sin_transmitir)));
-    float x = ancho_ - px(6) - ancho_etiqueta;
-    etiqueta_transmitiendo(ImVec2(x, (alto - px(medida::alto_transmitiendo)) / 2), ancho_etiqueta, transmite,
-                           pantalla_.transmitiendo);
-    if (!pantalla_.por_voz) {
-      const std::string& tecla_elegida = nombre_de_la_tecla();
-      x -= px(9) + ancho_tecla(tecla_elegida);
-      tecla(ImVec2(x, (alto - px(medida::alto_tecla)) / 2), tecla_elegida, color::pozo);
+    float x = ancho_;
+    if (sala_.tu_canal() == 0) {
+      const std::string_view sin_voz = t(Clave::servidor_sin_voz);
+      x -= px(12) + medir(sin_voz, Letra::normal, medida::letra).x;
+      escribir_en(x, alto / 2, sin_voz, color::apagado);
+    } else {
+      const std::string_view transmite = t(pantalla_.transmitiendo ? Clave::servidor_transmitiendo
+                                                                     : Clave::servidor_sin_transmitir);
+      const float ancho_etiqueta = std::max(ancho_transmitiendo(t(Clave::servidor_transmitiendo)),
+                                            ancho_transmitiendo(t(Clave::servidor_sin_transmitir)));
+      x -= px(6) + ancho_etiqueta;
+      etiqueta_transmitiendo(ImVec2(x, (alto - px(medida::alto_transmitiendo)) / 2), ancho_etiqueta, transmite,
+                             pantalla_.transmitiendo);
+      if (!pantalla_.por_voz) {
+        const std::string& tecla_elegida = nombre_de_la_tecla();
+        x -= px(9) + ancho_tecla(tecla_elegida);
+        tecla(ImVec2(x, (alto - px(medida::alto_tecla)) / 2), tecla_elegida, color::pozo);
+      }
+      const std::string_view hablar_con =
+          t(pantalla_.por_voz ? Clave::servidor_activacion_por_voz : Clave::servidor_hablar_con);
+      x -= px(9) + medir(hablar_con, Letra::normal, medida::letra).x;
+      escribir_en(x, alto / 2, hablar_con, color::apagado);
     }
-    const std::string_view hablar_con =
-        t(pantalla_.por_voz ? Clave::servidor_activacion_por_voz : Clave::servidor_hablar_con);
-    x -= px(9) + medir(hablar_con, Letra::normal, medida::letra).x;
-    escribir_en(x, alto / 2, hablar_con, color::apagado);
     const std::string_view rendimiento = t(Clave::inicio_modo_rendimiento);
     const std::string_view visual = t(Clave::inicio_modo_visual);
     x -= px(10) + ancho_selector_modo(rendimiento, visual);
@@ -298,7 +308,11 @@ class Dibujo {
             Icono::lupa, 0, color::pozo);
     });
     const float lista = arriba + px(90);
-    const float audio = abajo - px(9 + kAltoTuAudio + (pantalla_.por_voz && pantalla_.ajustando ? kAltoAjustando : 0));
+    const bool en_voz = sala_.tu_canal() != 0;
+    const float audio =
+        abajo - px(9 + (!en_voz ? kAltoSinVoz
+                                : kAltoEnCanal + kAltoTuAudio +
+                                      (pantalla_.por_voz && pantalla_.ajustando ? kAltoAjustando : 0)));
     ImGui::SetCursorScreenPos(ImVec2(0, lista));
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, px(medida::barra_lista));
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 0);
@@ -313,7 +327,64 @@ class Dibujo {
     ImGui::EndChild();
     ImGui::PopStyleColor(4);
     ImGui::PopStyleVar(2);
-    tu_audio(ImVec2(px(10), audio), ImVec2(derecha - px(10), abajo - px(9)));
+    const ImVec2 panel(px(10), audio);
+    const ImVec2 fin(derecha - px(10), abajo - px(9));
+    dibujo.AddRectFilled(panel, fin, tono(color::pozo));
+    triangulos(dibujo, panel, fin);
+    if (en_voz) {
+      en_canal(panel, fin.x);
+      tu_audio(ImVec2(panel.x, panel.y + px(kAltoEnCanal)), fin);
+    } else {
+      sin_voz(panel, fin);
+    }
+  }
+
+  void en_canal(ImVec2 desde, float derecha) {
+    const float x = desde.x + px(13);
+    const float medio = desde.y + px(20);
+    const std::string_view salir = t(Clave::servidor_salir_de_la_voz);
+    const float ancho =
+        ancho_boton(salir, Estilo::contorneado, Icono::colgar) - px(2 * (medida::margen_contorneado - kMargenSalir));
+    const float boton_x = derecha - px(14) - ancho;
+    ImGui::SetCursorScreenPos(ImVec2(boton_x, medio - px(14)));
+    if (boton("##salir_de_la_voz", salir, Estilo::contorneado, ImVec2(ancho, px(28)), Icono::colgar)) {
+      agregar(sala_.salir_de_la_voz());
+    }
+    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, medio - px(4)), ImVec2(x + px(8), medio + px(4)),
+                                              tono(color::verde));
+    const auto* canal = sala_.canal(sala_.tu_canal());
+    const std::string_view nombre = canal != nullptr ? std::string_view(canal->nombre) : std::string_view();
+    const std::string& en = guardar(
+        pantalla_.textos.en_canal, 0, [&] { return con_datos(t(Clave::servidor_en_canal), {nombre}); }, nombre);
+    const float fin = escribir_en(x + px(16), medio, en, color::texto, Letra::fuerte, medida::letra, boton_x - x - px(21));
+    if (const auto ping = sala_.ping()) {
+      const std::string& demora = guardar(pantalla_.textos.ping_corto, *ping, [&] {
+        return con_datos(t(Clave::servidor_ping_corto), {std::to_string(*ping)});
+      });
+      if (fin + px(5) + medir(demora, Letra::normal, medida::letra).x <= boton_x - px(5)) {
+        escribir_en(fin + px(5), medio, demora, color::apagado);
+      }
+    }
+  }
+
+  void sin_voz(ImVec2 desde, ImVec2 hasta) {
+    const float x = desde.x + px(13);
+    const float ancho = hasta.x - px(14) - x;
+    escribir_en(x, desde.y + px(20), t(Clave::servidor_sin_canal_de_voz), color::texto, Letra::negrita);
+    escribir_envuelto(ImVec2(x, desde.y + px(40)), t(Clave::servidor_sin_voz_explica), color::texto2, ancho);
+    escribir_envuelto(ImVec2(x, desde.y + px(83)), t(Clave::servidor_sin_voz_apagados), color::apagado, ancho,
+                      medida::letra_chica);
+    const auto* canal = sala_.canal(pantalla_.ultima_voz);
+    if (canal == nullptr || canal->tipo != TipoCanal::voz) {
+      return;
+    }
+    const std::string& volver = guardar(
+        pantalla_.textos.volver, 0, [&] { return con_datos(t(Clave::servidor_volver_a), {canal->nombre}); },
+        canal->nombre);
+    ImGui::SetCursorScreenPos(ImVec2(x, hasta.y - px(44)));
+    if (boton("##volver", volver, Estilo::contorneado, ImVec2(ancho, px(32)))) {
+      agregar(sala_.elegir_voz(canal->id));
+    }
   }
 
   bool visible(float y, float alto) const {
@@ -347,6 +418,15 @@ class Dibujo {
         y = fila_persona(origen.x, y, ancho, *usuario);
       }
     }
+    if (const auto& sin_voz = sala_.en_canal(0); !sin_voz.empty()) {
+      const std::string& etiqueta = guardar(pantalla_.textos.sin_voz, sin_voz.size(), [&] {
+        return con_datos(t(Clave::servidor_grupo_sin_voz), {std::to_string(sin_voz.size())});
+      });
+      y = grupo(origen.x, y + px(7), ancho, etiqueta, nullptr, Dialogo::ninguno);
+      for (const auto* usuario : sin_voz) {
+        y = fila_persona(origen.x - px(16), y, ancho + px(16), *usuario);
+      }
+    }
     ImGui::SetCursorScreenPos(ImVec2(origen.x, y));
     ImGui::Dummy(ImVec2(1, px(4)));
   }
@@ -358,7 +438,7 @@ class Dibujo {
       ImDrawList& dibujo = *ImGui::GetWindowDrawList();
       escribir_espaciado(ImVec2(x + px(18), medio - medir(etiqueta, Letra::negrita, medida::letra_mini).y / 2),
                          etiqueta, color::apagado, Letra::negrita, medida::letra_mini, px(1.2f));
-      if (sala_.dueno()) {
+      if (sala_.dueno() && id != nullptr) {
         const ImVec2 desde(x + ancho - px(11) - px(medida::boton_mas), medio - px(medida::boton_mas) / 2);
         const ImVec2 hasta(desde.x + px(medida::boton_mas), desde.y + px(medida::boton_mas));
         ImGui::SetCursorScreenPos(desde);
@@ -508,8 +588,6 @@ class Dibujo {
 
   void tu_audio(ImVec2 desde, ImVec2 hasta) {
     ImDrawList& dibujo = *ImGui::GetWindowDrawList();
-    dibujo.AddRectFilled(desde, hasta, tono(color::pozo));
-    triangulos(dibujo, desde, hasta);
     const float x = desde.x + px(13);
     const float derecha = hasta.x - px(14);
     escribir_en(x, desde.y + px(22), t(Clave::servidor_tu_audio), color::texto, Letra::negrita);
@@ -585,6 +663,12 @@ class Dibujo {
     dibujo.AddRectFilled(ImVec2(izquierda, arriba + px(kAltoCabecera)), ImVec2(ancho_, arriba + px(kAltoCabecera) + 1),
                          tono(color::campo_chat));
     mensajes(ImVec2(izquierda, arriba + px(kAltoCabecera) + 1), ImVec2(ancho_, abajo - px(kAltoAbajo)));
+    if (sala_.chat().canal == 0 && std::none_of(sala_.canales().begin(), sala_.canales().end(),
+                                                 [](const auto& canal) { return canal.tipo == TipoCanal::texto; })) {
+      const std::string_view aviso = t(Clave::servidor_sin_canales_texto);
+      escribir_en((izquierda + ancho_ - medir(aviso, Letra::normal, medida::letra).x) / 2,
+                  (arriba + px(kAltoCabecera) + abajo - px(kAltoAbajo)) / 2, aviso, color::texto2);
+    }
     escribir_mensaje(izquierda, abajo - px(kAltoAbajo) + px(14));
   }
 
@@ -609,9 +693,10 @@ class Dibujo {
     const std::string& subtitulo = guardar(
         pantalla_.textos.subtitulo, es_texto ? UINT64_MAX - 1 : cuantos,
         [&] {
-          return es_texto       ? con_datos(t(Clave::servidor_canal_texto), {donde})
-                 : cuantos == 1 ? std::string(t(Clave::servidor_chat_voz_una))
-                                : con_datos(t(Clave::servidor_chat_voz), {std::to_string(cuantos)});
+          return es_texto && voz == nullptr ? std::string(t(Clave::servidor_canal_texto_sin_voz))
+                 : es_texto                 ? con_datos(t(Clave::servidor_canal_texto), {donde})
+                 : cuantos == 1             ? std::string(t(Clave::servidor_chat_voz_una))
+                                            : con_datos(t(Clave::servidor_chat_voz), {std::to_string(cuantos)});
         },
         donde);
     const float boton_panel = hasta.x - px(40);
@@ -748,7 +833,8 @@ class Dibujo {
                        : canal != nullptr && canal->tipo == TipoCanal::texto ? Clave::servidor_escribi_texto
                                                                              : Clave::servidor_escribi_voz;
     const std::string& pista = guardar(
-        pantalla_.textos.pista, static_cast<std::uint64_t>(cual), [&] { return con_datos(t(cual), {nombre}); }, nombre);
+        pantalla_.textos.pista, canal == nullptr ? UINT64_MAX - 1 : static_cast<std::uint64_t>(cual),
+        [&] { return canal == nullptr ? std::string() : con_datos(t(cual), {nombre}); }, nombre);
     ImGui::BeginDisabled(!puede);
     ImGui::SetCursorScreenPos(ImVec2(campo_desde, y));
     if (pantalla_.enfocar_mensaje && puede) {
@@ -813,7 +899,8 @@ class Dibujo {
     dibujar_icono(dibujo, Icono::candado, ImVec2(x + px(6), medio), px(13), tono(color::texto2));
     x = escribir_en(x + px(18), medio, t(Clave::servidor_cifrado), color::texto2) + px(24);
     escribir_en(x, medio,
-                t(!pantalla_.hay_audio        ? Clave::servidor_sin_audio
+                t(sala_.tu_canal() == 0       ? Clave::servidor_voz_sin_canal
+                  : !pantalla_.hay_audio      ? Clave::servidor_sin_audio
                   : pantalla_.calidad_alta    ? Clave::servidor_voz_alta
                                               : Clave::servidor_voz_baja),
                 color::texto2);

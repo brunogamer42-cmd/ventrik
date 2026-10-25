@@ -36,7 +36,8 @@ enum class Icono {
   enviar,
   clip,
   panel,
-  verificado
+  verificado,
+  colgar
 };
 
 using Campo = std::array<char, 128>;

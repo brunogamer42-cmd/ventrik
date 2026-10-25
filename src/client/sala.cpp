@@ -104,8 +104,8 @@ Orden pedir(Chat& chat, std::uint64_t desde, Sentido sentido, std::uint16_t cant
 
 }
 
-Sala::Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& leidos)
-    : tu_id_(presentado.tu_id), dueno_(presentado.dueno), canales_(presentado.canales) {
+Sala::Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& leidos, std::uint32_t texto)
+    : tu_id_(presentado.tu_id), dueno_(presentado.dueno), canales_(presentado.canales), ultimo_texto_(texto) {
   canales_.erase(std::remove_if(canales_.begin(), canales_.end(),
                                 [](const protocolo::CanalInfo& info) { return info.id == 0; }),
                  canales_.end());
@@ -127,7 +127,28 @@ Sala::Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& le
 }
 
 std::vector<Orden> Sala::empezar() {
-  return cambiar_voz(voz_.canal);
+  return voz_.canal != 0 ? cambiar_voz(voz_.canal) : revisar();
+}
+
+std::vector<Orden> Sala::revisar() {
+  const auto es_texto = [](const protocolo::CanalInfo& info) { return info.tipo == TipoCanal::texto; };
+  const auto primero = std::find_if(canales_.begin(), canales_.end(), es_texto);
+  if (entrando_ || voz_.canal != 0 || texto_.canal != 0 || primero == canales_.end() ||
+      std::chrono::steady_clock::now() < historial_despues_) {
+    return {};
+  }
+  const std::wstring general = nombre_para_comparar("general");
+  const auto* ultimo = canal(ultimo_texto_);
+  const auto llamado_general = std::find_if(canales_.begin(), canales_.end(), [&](const protocolo::CanalInfo& info) {
+    return es_texto(info) && nombre_para_comparar(info.nombre) == general;
+  });
+  return elegir_texto(ultimo != nullptr && es_texto(*ultimo) ? ultimo->id
+                      : llamado_general != canales_.end()    ? llamado_general->id
+                                                             : primero->id);
+}
+
+std::vector<Orden> Sala::salir_de_la_voz() {
+  return voz_.canal == 0 ? std::vector<Orden>{} : std::vector<Orden>{protocolo::EntrarACanal{0}};
 }
 
 std::vector<Orden> Sala::aplicar(const Novedad& novedad) {
@@ -185,6 +206,7 @@ std::vector<Orden> Sala::elegir_voz(std::uint32_t id) {
   }
   if (id != voz_.canal) {
     ordenes.emplace_back(protocolo::EntrarACanal{id});
+    entrando_ = true;
   }
   negado_.reset();
   marcar_leido();
@@ -197,6 +219,7 @@ std::vector<Orden> Sala::elegir_texto(std::uint32_t id) {
     return {};
   }
   texto_ = Chat{id};
+  ultimo_texto_ = id;
   negado_.reset();
   marcar_leido();
   return {protocolo::MirarCanal{id}, pedir(texto_, 0, Sentido::viejos, kMensajesAlEntrar)};
@@ -267,6 +290,7 @@ std::vector<Orden> Sala::atender(const protocolo::UsuarioCambioCanal& cambio) {
     return {};
   }
   usuario->second.canal = cambio.canal;
+  entrando_ = entrando_ && cambio.id != tu_id_;
   return cambio.id == tu_id_ && cambio.canal != voz_.canal ? cambiar_voz(cambio.canal)
                                                             : std::vector<Orden>{};
 }
@@ -345,9 +369,11 @@ std::vector<Orden> Sala::atender(const protocolo::Historial& historial) {
 
 std::vector<Orden> Sala::atender(const protocolo::Negado& negado) {
   negado_ = negado;
+  entrando_ = entrando_ && negado.pedido != protocolo::TipoMensaje::entrar_a_canal;
   if (negado.pedido == protocolo::TipoMensaje::mirar_canal) {
     texto_ = Chat{};
     marcar_leido();
+    historial_despues_ = std::chrono::steady_clock::now() + kEsperaTrasRechazo;
   }
   if (negado.pedido == protocolo::TipoMensaje::pedir_historial) {
     for (Chat* chat : {&voz_, &texto_}) {
