@@ -122,9 +122,11 @@ TEST_CASE("estres: el servidor aguanta carga y ataques, y el canario sigue atend
   const std::size_t memoria_base = servidor.proceso().memoria_kb();
   const std::uint32_t manijas_base = servidor.proceso().manijas();
 
-  // Cada usuario simulado sale de una IP 127.0.x.y distinta para esquivar el tope por IP; XP solo deja
-  // atar 127.0.0.1, así que ahí todos salen de esa y el tope por IP limita cuántos entran.
-  const bool multi_ip = ventrik::red::abrir_udp(origen_n(1)).valido();
+  // Cada usuario simulado sale de una IP 127.0.x.y distinta para esquivar el tope por IP. XP deja atar
+  // esas IP pero no conectar desde ellas, así que la sonda intenta conectar de verdad al servidor desde
+  // una; si no puede (XP), todos salen de 127.0.0.1 y el tope por IP limita cuántos entran.
+  const ventrik::red::Direccion sonda = origen_n(1);
+  const bool multi_ip = ventrik::red::conectar(servidor.direccion(), 2s, nullptr, &sonda).valido();
   MESSAGE("IP de origen distinta por conexion, 1=si 127.0.x.y 0=todas 127.0.0.1: " << (multi_ip ? 1 : 0));
   const auto origen_de = [&](unsigned i) -> std::optional<ventrik::red::Direccion> {
     return multi_ip ? std::optional<ventrik::red::Direccion>(origen_n(i)) : std::nullopt;
