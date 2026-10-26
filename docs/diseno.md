@@ -95,9 +95,8 @@ El programa abre en **Inicio**. Ventrik se organiza por servidores; desde la eta
 | Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil. Capturas, cada una en docs/pantallas/Rendimiento*.png y Visual*.png: la base (en un canal de voz), -sin-voz (solo con el chat), -canal-texto, -por-voz (transmitiendo por voz), -microfono y -por-voz-microfono (el panel flotante "Cómo transmitís"), -salida (el volumen de salida), -silenciado y -sin-audio |
 | Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados. En Visual, al elegir un servidor se ven su fondo e icono animados |
 | Hostear un servidor | Asistente de 7 pasos (nombre y acceso, conexión, capacidad y voz, seguridad, chat y archivos, pantallas y varias PCs, revisar e iniciar) y la pantalla final Invitar gente (ver "Hostear: asistente por pasos") |
-| Ajustes | General (con el idioma y "Al entrar a un servidor"), teclas (hablar y susurros), apariencia, avisos y sonidos (ver "Sonidos de los avisos"; captura Ajustes-avisos.png), descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) aparecen desactivadas y marcadas "EN DESARROLLO" |
+| Ajustes | Una sección por vez, con un menú a la izquierda con buscador (ver "Ajustes"): General (con el idioma y "Al entrar a un servidor"), Apariencia, Teclas (hablar y susurros), Audio y micrófono, Avisos y sonidos (ver "Sonidos de los avisos"), Red, Descargas, Seguridad y Acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) llevan "PRONTO" en el menú y aparecen desactivadas y marcadas "EN DESARROLLO". Capturas: docs/pantallas/Ajustes-*.png, una por sección |
 | Amigos (etapa 14) | Solicitudes, grupos y amigos; chat de a dos y de grupo; agregar amigo; llamada entrante; llamada grupal con personas, chat y cómo viaja; recuperar desde Google Drive (ver "Amigos y llamadas directas") |
-| Audio y micrófono | Dispositivos, cómo transmitís (tecla o voz) con medidor y prueba, limpieza de la voz, consumo de la voz, volúmenes y bajar otros programas cuando alguien habla (desde Windows 7) |
 | Enviar archivo con contraseña | Pide la contraseña, analiza el comprimido con ClamAV en tu PC y lo envía; la contraseña no sale de tu PC |
 | Reportar un error o sugerir | Error o idea, datos técnicos que se pueden ver antes de enviar, captura opcional y contacto opcional |
 | Perfil y Personalizar servidor | Lo del modo Visual, incluida la tarjeta de perfil |
@@ -116,11 +115,38 @@ Avisan de lo que pasa mientras Ventrik no está al frente o está minimizado. Nu
 - **Versión clásica (XP a 8.1 y Windows 10 de 32 bits):** una ventana propia, chica, abajo a la derecha, parecida a la de Windows 10 y con el aspecto de Ventrik (docs/aspecto.md). No le quita el foco a lo que estés haciendo, se cierra sola a los pocos segundos y se dibuja sin Direct3D, para no gastar en la netbook.
 - **Privacidad:** Windows guarda sus notificaciones en un archivo propio, fuera de Ventrik y sin cifrar. Por eso, en Ajustes → Avisos se puede elegir que digan solo el canal y la cantidad, sin quién ni el texto.
 
+### Ajustes
+
+Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Ajustes-*.png, una por sección:
+- general, apariencia, teclas, audio;
+- avisos, más un grupo de avisos por captura: -avisos-chat, -avisos-llamadas y -avisos-servidor;
+- red, descargas, prestar, seguridad, amigos, copias y acerca.
+
+- **Una sección por vez.** A la izquierda va un menú con buscador ("Buscar un ajuste") y estos grupos:
+  - PROGRAMA: General, Apariencia, Teclas;
+  - AUDIO: Audio y micrófono, Avisos y sonidos;
+  - CONEXIÓN: Red, Descargas, Prestar esta PC;
+  - PRIVACIDAD Y SEGURIDAD: Seguridad, Amigos y privacidad, Copias de seguridad;
+  - Acerca de, separado.
+
+  Tocar una sección la muestra sola, a todo el ancho. Los cambios se guardan solos, como antes ("Los cambios se guardan solos", junto al título).
+- **Secciones en desarrollo:** llevan "PRONTO" en el menú; adentro se ven desactivadas, con "EN DESARROLLO".
+- **El buscador** filtra el menú y salta a la sección que tiene el ajuste buscado.
+- **Audio y micrófono** ya no es una pantalla aparte: es una sección de Ajustes, en dos columnas (captura Ajustes-audio.png).
+  - **Izquierda:**
+    - Dispositivos: micrófono, salida de audio y "Probar salida". Si se desconecta un dispositivo, se pasa solo al de Windows.
+    - Volúmenes: micrófono, voces que escuchás y sonidos de aviso. Son los mismos valores que el panel de audio y "Avisos y sonidos"; el de cada persona se cambia desde su tarjeta.
+    - Calidad de la voz: la decide cada servidor.
+  - **Derecha:**
+    - Cómo transmitís: tecla para hablar o por voz; el medidor del micrófono, que se mueve solo mientras dura "Probar micrófono"; "Escucharme mientras pruebo"; la tecla y "Seguir transmitiendo al soltar".
+    - Limpieza de la voz: quitar ruido de fondo con su nivel, cancelación de eco, ajustar solo el volumen del micrófono, y bajar el volumen de otros programas cuando alguien habla.
+- **Avisos y sonidos:** arriba van las opciones generales y el paquete de sonidos. Abajo, un selector de grupo (Voz · Chat · Llamadas y amigos · Servidor, cada uno con su cantidad) muestra un grupo por vez, con los avisos en dos columnas (ver "Sonidos de los avisos").
+
 ### Sonidos de los avisos
 
-Diseño del dueño del 2026-10-26. No es para la etapa en curso: va con las notificaciones, en la etapa 3. Capturas: docs/pantallas/Ajustes-avisos.png (la sección entera, con la lista) y Ajustes.png. La nota al pie de las capturas todavía dice que se empareja el volumen de los sonidos propios: manda este texto, que dice que no.
+Diseño del dueño del 2026-10-26. No es para la etapa en curso: va con las notificaciones, en la etapa 3. Capturas: docs/pantallas/Ajustes-avisos.png (las opciones generales y el grupo Voz), Ajustes-avisos-chat.png, Ajustes-avisos-llamadas.png y Ajustes-avisos-servidor.png (los otros tres grupos).
 
-- **27 avisos con sonido, en 4 grupos.** La lista, con cuándo suena cada uno y si viene encendido, está en Ajustes-avisos.png:
+- **27 avisos con sonido, en 4 grupos.** La lista, con cuándo suena cada uno y si viene encendido, está en esas cuatro capturas:
   - **Voz (14):**
     - entrás a un canal de voz;
     - salís del canal;
@@ -165,6 +191,7 @@ Diseño del dueño del 2026-10-26. No es para la etapa en curso: va con las noti
   - No molestar, con la casilla de las llamadas de amigos;
   - "Mostrar avisos de Windows con la ventana minimizada";
   - paquete de sonidos: importar, exportar y volver a los predeterminados;
+  - un selector de grupo que muestra un grupo por vez, con los avisos en dos columnas;
   - por cada aviso: casilla para encenderlo, botón para probarlo y "Predeterminado / Propio / Elegir un archivo…".
 - **Sonidos propios:**
   - **Formatos y límites:** WAV, OGG o MP3; hasta 1 MB y 5 s (los de llamada, hasta 10 s).
@@ -337,7 +364,7 @@ En la lista de la izquierda van en dos grupos, "Canales de texto" arriba y "Cana
 
 ### Entrar a un servidor y a la voz
 
-Estar en un servidor y estar en la voz son dos cosas separadas. Capturas: docs/pantallas/Rendimiento-sin-voz.png y Visual-sin-voz.png (sin voz), Rendimiento.png y Visual.png (en un canal de voz), y Ajustes.png (el ajuste).
+Estar en un servidor y estar en la voz son dos cosas separadas. Capturas: docs/pantallas/Rendimiento-sin-voz.png y Visual-sin-voz.png (sin voz), Rendimiento.png y Visual.png (en un canal de voz), y Ajustes-general.png (el ajuste).
 
 - **Al entrar a un servidor no se entra a un canal de voz:** por defecto quedás solo con el chat, en el último canal de texto que miraste ahí, o en #general si no hay. Lo elige Ajustes → General → "Al entrar a un servidor":
   - "Quedarme solo en el chat, sin entrar a un canal de voz" (predeterminado);
@@ -740,9 +767,9 @@ Además de los servidores, cada usuario puede tener una lista de amigos y hablar
 | LlamadaGrupal-chat.png | Chat de la llamada, con los avisos del sistema |
 | LlamadaGrupal-como-viaja.png | Árbol de la pantalla compartida y explicación de la voz |
 | Recuperar-1.png a Recuperar-3.png | Recuperar desde Google Drive: código de Google, contraseña de copias y resultado |
-| Ajustes.png | Las secciones "Amigos y privacidad" y "Copias de seguridad", con sus entradas en el menú |
+| Ajustes-amigos.png y Ajustes-copias.png | Las secciones "Amigos y privacidad" y "Copias de seguridad" de Ajustes |
 
-Inicio suma arriba las pestañas "Servidores | Amigos", con la cantidad de solicitudes. Las dos secciones de Ajustes aparecen desactivadas y marcadas "EN DESARROLLO" hasta la etapa 14, como "Prestar esta PC".
+Inicio suma arriba las pestañas "Servidores | Amigos", con la cantidad de solicitudes. Las dos secciones de Ajustes llevan "PRONTO" en el menú y adentro se ven desactivadas y marcadas "EN DESARROLLO" hasta la etapa 14, como "Prestar esta PC".
 
 ### ID y solicitudes
 
@@ -866,7 +893,7 @@ Inicio suma arriba las pestañas "Servidores | Amigos", con la cantidad de solic
   - **Pasos:** iniciar sesión en Google, elegir la copia, poner la contraseña. Probar una contraseña equivocada no rompe nada.
   - **Qué vuelve:** la identidad, los amigos, los grupos, los mensajes, los adjuntos, los servidores guardados y los ajustes.
   - **Lo que pasó después de la copia:** el programa se lo pide a cada amigo y grupo. A los que estén desconectados, cuando se conecten.
-- **Ajustes → "Copias de seguridad"** (Ajustes.png):
+- **Ajustes → "Copias de seguridad"** (Ajustes-copias.png):
   - cuenta vinculada y Desvincular;
   - hora, adjuntos y semanas;
   - última copia, última completa y espacio usado en Drive;
@@ -1121,7 +1148,7 @@ El desarrollo va en catorce etapas, y la primera es una prueba chica de voz para
 
 1. **Prueba de voz:** voz entre dos PCs en red local, con tecla para hablar. Se mide demora y consumo, también en la netbook.
 2. **Base:** servidor, canales de voz y de texto, chat, cifrado con TLS 1.3 y DTLS 1.2, permisos básicos verificados en el servidor y panel de diagnóstico.
-3. **Voz completa:** notificaciones (las de Windows 10 y 11 en la moderna, una ventana propia en la clásica), varias personas hablando, mezcla, limpieza de ruido, cancelación de eco, volúmenes, tecla o voz y susurro (con los permisos básicos; los permisos por rol llegan en la etapa 9). Pantallas: Audio y micrófono, Ajustes → Teclas y Ajustes → Avisos.
+3. **Voz completa:** notificaciones (las de Windows 10 y 11 en la moderna, una ventana propia en la clásica), varias personas hablando, mezcla, limpieza de ruido, cancelación de eco, volúmenes, tecla o voz y susurro (con los permisos básicos; los permisos por rol llegan en la etapa 9). Pantallas: Ajustes, una sección por vez, con General, Teclas, Audio y micrófono y Avisos y sonidos.
 4. **Identidad y seguridad:** claves de identidad, contraseñas con Argon2id, DPAPI y contraseña maestra, niveles de seguridad, historial cifrado, bloqueo automático, aviso de equipo nuevo, avisos de acciones de administradores y respaldo, mudanza y cambio de clave del servidor.
 5. **Archivos y antivirus:** subida, descarga, reanudación, prioridad de la voz, ClamAV en el servidor, base de virus compartida por el servidor y envío de comprimidos con contraseña.
 6. **Red:** panel de red y puertos (placa, puertos, UPnP opcional y prueba desde internet), búsqueda en la red local, relay (el oficial y agregar otros) e invitaciones.
