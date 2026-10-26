@@ -53,6 +53,7 @@ class ServidorExterno {
   const ventrik::cifrado::Huella& huella() const { return *huella_; }
   const ventrik::cifrado::CodigoDueno& codigo() const { return *codigo_; }
   std::string salida() const { return leer_todo(carpeta_ + L"\\salida.txt"); }
+  const Proceso& proceso() const { return proceso_; }
 
   std::optional<DWORD> cerrar() const {
     return proceso_.cortar() ? proceso_.esperar_salida(10s) : std::nullopt;

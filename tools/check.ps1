@@ -268,6 +268,50 @@ try {
         }
     }
 
+    # Estrés y ataques: carga, inundación, basura y entrar/salir, con un canario que mide si sigue atendido.
+    Write-Host ''
+    Write-Host 'Estrés y ataques'
+    function Mostrar-Estres([string]$registro) {
+        if (Test-Path $registro) {
+            Get-Content $registro | Where-Object { $_ -match 'MESSAGE: ' } |
+                ForEach-Object { Write-Host ('         ' + ($_ -replace '.*MESSAGE: ', '')) }
+        }
+    }
+    foreach ($version in $versiones) {
+        $pruebas = Join-Path $raiz "build\$version\Release\ventrik_pruebas.exe"
+        $carpeta = Join-Path $raiz "build\estres\$version"
+        if (Test-Path $carpeta) { Remove-Item -Recurse -Force $carpeta }
+        New-Item -ItemType Directory -Force -Path $carpeta | Out-Null
+        $env:VENTRIK_SERVIDOR = Join-Path $raiz "build\$version\Release\ventrik_servidor.exe"
+        $env:VENTRIK_CARPETA = $carpeta
+        $registro = Join-Path $registros "estres-$version.txt"
+        $r = 1
+        if (Test-Path $pruebas) { $r = Ejecutar $pruebas @('-tc=estres*', '--no-skip') $registro }
+        Informar ('Estrés contra el servidor ' + $nombres[$version]) ($r -eq 0)
+        Mostrar-Estres $registro
+    }
+    if (-not $SoloModerna) {
+        $r = Ejecutar $cmake @('--preset', 'asan64', "-DCMAKE_GENERATOR_INSTANCE=$vs") `
+            (Join-Path $registros 'asan64-configurar.txt')
+        if ($r -eq 0) {
+            $r = Ejecutar $cmake @('--build', '--preset', 'asan64') (Join-Path $registros 'asan64-compilar.txt')
+        }
+        Informar 'Compilar el servidor con AddressSanitizer' ($r -eq 0)
+        if ($r -eq 0) {
+            $carpeta = Join-Path $raiz 'build\estres\asan'
+            if (Test-Path $carpeta) { Remove-Item -Recurse -Force $carpeta }
+            New-Item -ItemType Directory -Force -Path $carpeta | Out-Null
+            $env:VENTRIK_SERVIDOR = Join-Path $raiz 'build\asan64\Release\ventrik_servidor.exe'
+            $env:VENTRIK_CARPETA = $carpeta
+            $env:ASAN_OPTIONS = 'abort_on_error=0'
+            $registro = Join-Path $registros 'estres-asan.txt'
+            $r = Ejecutar (Join-Path $raiz 'build\moderna\Release\ventrik_pruebas.exe') @('-tc=estres*', '--no-skip') $registro
+            Informar 'Estrés contra el servidor con AddressSanitizer' ($r -eq 0)
+            Mostrar-Estres $registro
+            $env:ASAN_OPTIONS = ''
+        }
+    }
+
     Write-Host ''
     Write-Host 'Fuzzing (AddressSanitizer)'
     $compilados = $true
@@ -293,7 +337,7 @@ try {
     $copiado = $true
     $archivos = @((Join-Path $clasica 'ventrik.exe'), (Join-Path $clasica 'ventrik_servidor.exe'),
                   (Join-Path $clasica 'ventrik_pruebas.exe'), (Join-Path $raiz 'tools\probar_en_xp.bat'),
-                  (Join-Path $raiz 'tools\registro.bat'))
+                  (Join-Path $raiz 'tools\registro.bat'), (Join-Path $raiz 'tools\estres_xp.bat'))
     if (Test-Path (Join-Path $raiz 'src\prueba_voz')) {
         $archivos += (Join-Path $clasica 'ventrik_eco.exe'), (Join-Path $clasica 'ventrik_red.exe'), (Join-Path $raiz 'tools\red_xp.bat'), (Join-Path $raiz 'tools\eco_complejidad5.bat'), (Join-Path $raiz 'tools\eco_complejidad5_cola4.bat'), (Join-Path $raiz 'tools\opus_complejidad.bat')
     }

@@ -28,8 +28,8 @@ std::uint64_t milisegundos(CanalVoz::Reloj::time_point momento) {
 
 }
 
-CanalVoz::CanalVoz(const red::Direccion& servidor, PuenteVoz& puente)
-    : servidor_(servidor), puente_(puente) {}
+CanalVoz::CanalVoz(const red::Direccion& servidor, PuenteVoz& puente, std::optional<red::Direccion> origen)
+    : servidor_(servidor), origen_(origen), puente_(puente) {}
 
 void CanalVoz::clave(const protocolo::ClaveVoz& nueva, cifrado::Secreto secreto) {
   sesion_.reset();
@@ -110,7 +110,7 @@ void CanalVoz::enviar(const Mensaje& mensaje) {
 
 void CanalVoz::empezar(Reloj::time_point ahora) {
   config_ = cifrado::ConfigTls::para_voz_programa(clave_->identidad, secreto_.bytes());
-  socket_ = red::conectar_udp(servidor_);
+  socket_ = red::conectar_udp(servidor_, origen_ ? &*origen_ : nullptr);
   if (config_ && socket_.valido()) {
     prioridad_.marcar(socket_, servidor_);
     sesion_ = std::make_unique<cifrado::SesionTls>(*config_, socket_.get());

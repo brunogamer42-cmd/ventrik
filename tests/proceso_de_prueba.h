@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <windows.h>
+#include <psapi.h>
 
 #include "servidor_de_prueba.h"
 #include <doctest/doctest.h>
@@ -74,6 +75,18 @@ class Proceso {
 
   bool vivo() const { return WaitForSingleObject(proceso_.get(), 0) == WAIT_TIMEOUT; }
   bool cortar() const { return GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, id_) != 0; }
+
+  std::size_t memoria_kb() const {
+    PROCESS_MEMORY_COUNTERS memoria{};
+    memoria.cb = sizeof(memoria);
+    GetProcessMemoryInfo(proceso_.get(), &memoria, sizeof(memoria));
+    return memoria.PagefileUsage / 1024;
+  }
+  std::uint32_t manijas() const {
+    DWORD cuenta = 0;
+    GetProcessHandleCount(proceso_.get(), &cuenta);
+    return cuenta;
+  }
 
   std::optional<DWORD> esperar_salida(std::chrono::milliseconds limite) const {
     DWORD codigo = 0;

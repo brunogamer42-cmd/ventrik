@@ -31,8 +31,18 @@ elseif(VENTRIK_VERSION STREQUAL "fuzzing")
   if(NOT EXISTS "${VENTRIK_DLL_ASAN}")
     message(FATAL_ERROR "Falta AddressSanitizer de Visual Studio (${VENTRIK_DLL_ASAN})")
   endif()
+elseif(VENTRIK_VERSION STREQUAL "asan")
+  if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR NOT CMAKE_GENERATOR_TOOLSET MATCHES "^v143")
+    message(FATAL_ERROR "La versión asan es de 64 bits (x64) con Visual Studio 2022 (v143)")
+  endif()
+  set(VENTRIK_WINDOWS_MINIMO 0x0A00)
+  get_filename_component(VENTRIK_CARPETA_COMPILADOR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+  set(VENTRIK_DLL_ASAN "${VENTRIK_CARPETA_COMPILADOR}/clang_rt.asan_dynamic-x86_64.dll")
+  if(NOT EXISTS "${VENTRIK_DLL_ASAN}")
+    message(FATAL_ERROR "Falta AddressSanitizer de Visual Studio (${VENTRIK_DLL_ASAN})")
+  endif()
 else()
-  message(FATAL_ERROR "Elegí la versión con: cmake --preset moderna, clasica, fuzzing64 o fuzzing32")
+  message(FATAL_ERROR "Elegí la versión con: cmake --preset moderna, clasica, fuzzing64, fuzzing32 o asan64")
 endif()
 
 set(CMAKE_C_STANDARD 11)
@@ -49,7 +59,7 @@ target_compile_options(ventrik_opciones_base INTERFACE
   /GS)
 target_link_options(ventrik_opciones_base INTERFACE
   /WX /DYNAMICBASE /NXCOMPAT)
-if(NOT VENTRIK_VERSION STREQUAL "fuzzing")
+if(NOT VENTRIK_VERSION STREQUAL "fuzzing" AND NOT VENTRIK_VERSION STREQUAL "asan")
   target_compile_options(ventrik_opciones_base INTERFACE /guard:cf)
   target_link_options(ventrik_opciones_base INTERFACE /guard:cf)
   set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
@@ -60,6 +70,10 @@ if(VENTRIK_VERSION STREQUAL "clasica")
 elseif(VENTRIK_VERSION STREQUAL "fuzzing")
   target_compile_definitions(ventrik_opciones_base INTERFACE VENTRIK_FUZZING=1)
   target_compile_options(ventrik_opciones_base INTERFACE /fsanitize=address /fsanitize=fuzzer /Zi)
+  target_link_options(ventrik_opciones_base INTERFACE /DEBUG /INCREMENTAL:NO)
+elseif(VENTRIK_VERSION STREQUAL "asan")
+  target_compile_definitions(ventrik_opciones_base INTERFACE VENTRIK_MODERNA=1)
+  target_compile_options(ventrik_opciones_base INTERFACE /fsanitize=address /Zi)
   target_link_options(ventrik_opciones_base INTERFACE /DEBUG /INCREMENTAL:NO)
 else()
   target_compile_definitions(ventrik_opciones_base INTERFACE VENTRIK_MODERNA=1)
@@ -80,7 +94,7 @@ endif()
 target_compile_definitions(ventrik_opciones INTERFACE
   UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 
-if(VENTRIK_VERSION STREQUAL "fuzzing")
+if(VENTRIK_VERSION STREQUAL "fuzzing" OR VENTRIK_VERSION STREQUAL "asan")
   add_subdirectory(third_party EXCLUDE_FROM_ALL)
 else()
   add_subdirectory(third_party)
@@ -155,6 +169,15 @@ add_library(ventrik_servidor_base STATIC
   src/server/servidor.cpp src/server/voz.cpp)
 target_link_libraries(ventrik_servidor_base PUBLIC ventrik_comun sqlite)
 target_compile_definitions(ventrik_servidor_base PRIVATE FD_SETSIZE=1024)
+
+if(VENTRIK_VERSION STREQUAL "asan")
+  add_executable(ventrik_servidor src/server/main.cpp)
+  target_link_libraries(ventrik_servidor PRIVATE ventrik_servidor_base)
+  add_custom_command(TARGET ventrik_servidor POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${VENTRIK_DLL_ASAN}" "$<TARGET_FILE_DIR:ventrik_servidor>"
+    VERBATIM)
+  return()
+endif()
 add_library(ventrik_cliente_base STATIC
   src/client/audio.cpp src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/conexion.cpp
   src/client/diagnostico.cpp src/client/guardados.cpp src/client/horas.cpp
@@ -182,6 +205,7 @@ add_executable(ventrik_pruebas
   tests/prueba_combinaciones.cpp
   tests/prueba_conexion.cpp
   tests/prueba_dtls.cpp
+  tests/prueba_estres.cpp
   tests/prueba_guardados.cpp
   tests/prueba_gsl.cpp
   tests/prueba_huella.cpp

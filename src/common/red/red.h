@@ -58,7 +58,8 @@ class Socket {
 Socket escuchar(const Direccion& donde);
 std::optional<Direccion> direccion_local(const Socket& cual);
 std::optional<std::pair<Socket, Direccion>> aceptar(const Socket& escucha, bool& fallo);
-Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo, const Socket* cancelar = nullptr);
+Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo, const Socket* cancelar = nullptr,
+                const Direccion* origen = nullptr);
 
 struct Recibido {
   std::size_t largo = 0;
@@ -66,7 +67,7 @@ struct Recibido {
 };
 
 Socket abrir_udp(const Direccion& donde);
-Socket conectar_udp(const Direccion& destino);
+Socket conectar_udp(const Direccion& destino, const Direccion* origen = nullptr);
 bool enviar_a(const Socket& cual, const Direccion& destino, gsl::span<const std::uint8_t> datos);
 std::optional<Recibido> recibir_de(const Socket& cual, gsl::span<std::uint8_t> destino);
 

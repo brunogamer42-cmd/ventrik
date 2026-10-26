@@ -146,7 +146,8 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     resultado.estado = EstadoConexion::nombre_invalido;
     return resultado;
   }
-  red::Socket nuevo = red::conectar(destino, opciones.tiempo_para_conectar, opciones.cancelar);
+  red::Socket nuevo = red::conectar(destino, opciones.tiempo_para_conectar, opciones.cancelar,
+                                    opciones.origen ? &*opciones.origen : nullptr);
   if (!nuevo.valido()) {
     resultado.estado = EstadoConexion::sin_respuesta;
     return resultado;

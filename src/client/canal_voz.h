@@ -19,7 +19,7 @@ class CanalVoz {
  public:
   using Reloj = std::chrono::steady_clock;
 
-  CanalVoz(const red::Direccion& servidor, PuenteVoz& puente);
+  CanalVoz(const red::Direccion& servidor, PuenteVoz& puente, std::optional<red::Direccion> origen = {});
   CanalVoz(const CanalVoz&) = delete;
   CanalVoz& operator=(const CanalVoz&) = delete;
 
@@ -41,6 +41,7 @@ class CanalVoz {
   std::chrono::seconds sin_respuesta() const;
 
   red::Direccion servidor_;
+  std::optional<red::Direccion> origen_;
   PuenteVoz& puente_;
   std::optional<protocolo::ClaveVoz> clave_;
   cifrado::Secreto secreto_;

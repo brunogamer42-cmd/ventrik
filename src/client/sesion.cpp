@@ -130,7 +130,7 @@ void Sesion::cambiar_voz() {
   canal_voz_.reset();
   puente_ = std::move(*pedida);
   if (puente_ && puente_->despertador.ok()) {
-    canal_voz_ = std::make_unique<CanalVoz>(destino_, *puente_);
+    canal_voz_ = std::make_unique<CanalVoz>(destino_, *puente_, opciones_.conexion.origen);
     usar_clave();
   }
 }

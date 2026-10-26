@@ -213,11 +213,13 @@ Socket abrir_udp(const Direccion& donde) {
   return atar(nuevo, donde) ? std::move(nuevo) : Socket();
 }
 
-Socket conectar_udp(const Direccion& destino) {
+Socket conectar_udp(const Direccion& destino, const Direccion* origen) {
   Socket nuevo = nuevo_socket(true);
+  if (!nuevo.valido() || (origen != nullptr && !atar(nuevo, *origen))) {
+    return Socket();
+  }
   const sockaddr_in direccion = a_sockaddr(destino);
-  return nuevo.valido() && connect(nuevo.get(), reinterpret_cast<const sockaddr*>(&direccion),
-                                   sizeof(direccion)) == 0
+  return connect(nuevo.get(), reinterpret_cast<const sockaddr*>(&direccion), sizeof(direccion)) == 0
              ? std::move(nuevo)
              : Socket();
 }
@@ -277,9 +279,10 @@ std::optional<std::pair<Socket, Direccion>> aceptar(const Socket& escucha, bool&
   return std::nullopt;
 }
 
-Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo, const Socket* cancelar) {
+Socket conectar(const Direccion& destino, std::chrono::milliseconds tiempo, const Socket* cancelar,
+                const Direccion* origen) {
   Socket nuevo = nuevo_socket();
-  if (!nuevo.valido()) {
+  if (!nuevo.valido() || (origen != nullptr && !atar(nuevo, *origen))) {
     return Socket();
   }
   const sockaddr_in direccion = a_sockaddr(destino);
