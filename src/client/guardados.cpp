@@ -45,8 +45,7 @@ bool son_validos(const Guardados& guardados) {
          guardados.volumen_salida <= kVolumenMaximo;
 }
 
-std::wstring ruta() {
-  const std::wstring carpeta = carpeta_de_datos(L"Programa");
+std::wstring ruta(const std::wstring& carpeta) {
   return carpeta.empty() ? carpeta : carpeta + L"\\programa.dat";
 }
 
@@ -170,8 +169,8 @@ bool recordar(Guardados& guardados, ServidorGuardado servidor) {
   return true;
 }
 
-LecturaGuardados cargar_guardados(Guardados& guardados) {
-  const std::wstring archivo = ruta();
+LecturaGuardados cargar_guardados(Guardados& guardados, const std::wstring& carpeta) {
+  const std::wstring archivo = ruta(carpeta);
   if (archivo.empty()) {
     return LecturaGuardados::error;
   }
@@ -189,12 +188,12 @@ LecturaGuardados cargar_guardados(Guardados& guardados) {
   return LecturaGuardados::error;
 }
 
-bool guardar_guardados(const Guardados& guardados) {
+bool guardar_guardados(const Guardados& guardados, const std::wstring& carpeta) {
   Guardados en_disco;
-  const LecturaGuardados lectura = cargar_guardados(en_disco);
+  const LecturaGuardados lectura = cargar_guardados(en_disco, carpeta);
   const std::vector<std::uint8_t> datos = armar_guardados(guardados);
   return (lectura == LecturaGuardados::leidos || lectura == LecturaGuardados::danados) && !datos.empty() &&
-         crear_carpetas(carpeta_de_datos(L"Programa")) && escribir_archivo_completo(ruta(), datos);
+         crear_carpetas(carpeta) && escribir_archivo_completo(ruta(carpeta), datos);
 }
 
 }

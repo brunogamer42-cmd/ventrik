@@ -121,6 +121,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
   std::wstring carpeta;
   std::uint16_t puerto = ventrik::red::kPuertoPredeterminado;
   bool solo_huella = false;
+  bool local = false;
   for (int i = 1; i < cantidad; ++i) {
     const std::wstring_view opcion = argumentos[i];
     const bool hay_valor = i + 1 < cantidad;
@@ -136,8 +137,13 @@ int wmain(int cantidad, wchar_t** argumentos) {
       solo_huella = true;
       continue;
     }
+    if (opcion == L"--local") {
+      local = true;
+      continue;
+    }
     escribir_linea(texto(ventrik::Clave::servidor_uso));
     escribir_linea(texto(ventrik::Clave::servidor_uso_huella));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_local));
     return 2;
   }
   if (carpeta.empty()) {
@@ -198,7 +204,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
 
   const std::wstring archivo_codigo = carpeta + L"\\codigo_dueno.txt";
   ventrik::servidor::Opciones opciones;
-  opciones.escuchar.puerto = puerto;
+  opciones.escuchar = {local ? 0x7F000001u : 0u, puerto};
   opciones.archivo_base = carpeta + L"\\ventrik.db";
   opciones.nombre_general = texto(ventrik::Clave::canal_general);
   bool codigo_creado = false;

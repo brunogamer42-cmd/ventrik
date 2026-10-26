@@ -11,7 +11,7 @@
 
 #include "client/sesion.h"
 #include "common/cifrado/codigo_dueno.h"
-#include "servidor_de_prueba.h"
+#include "cliente_de_prueba.h"
 #include <doctest/doctest.h>
 
 using namespace prueba;
@@ -26,95 +26,6 @@ using ventrik::servidor::Evento;
 using ventrik::servidor::kCanalGeneral;
 
 namespace {
-class Cliente {
- public:
-  Cliente(const ServidorDePrueba& servidor, std::string nombre,
-          std::optional<ventrik::cifrado::CodigoDueno> codigo = {},
-          ventrik::cliente::OpcionesSesion opciones = {})
-      : sesion_(servidor.direccion(), servidor.huella(), {std::move(nombre), codigo}, opciones) {}
-
-  template <typename T>
-  std::optional<T> esperar(const std::function<bool(const T&)>& condicion = {},
-                           std::chrono::milliseconds limite = 5s) {
-    const auto hasta = std::chrono::steady_clock::now() + limite;
-    for (;;) {
-      for (auto i = recibidas_.begin(); i != recibidas_.end(); ++i) {
-        if (const T* cual = std::get_if<T>(&*i); cual && (!condicion || condicion(*cual))) {
-          T encontrado = *cual;
-          recibidas_.erase(i);
-          return encontrado;
-        }
-      }
-      if (std::chrono::steady_clock::now() >= hasta) {
-        return std::nullopt;
-      }
-      for (auto& novedad : sesion_.esperar_novedades(50ms)) {
-        recibidas_.push_back(std::move(novedad));
-      }
-    }
-  }
-
-  template <typename T>
-  bool no_llega(std::chrono::milliseconds tiempo = 300ms) {
-    return !esperar<T>({}, tiempo);
-  }
-
-  Presentado entrar() {
-    const auto intento = esperar<IntentoDeConexion>();
-    REQUIRE(intento);
-    REQUIRE(intento->estado == EstadoConexion::conectado);
-    REQUIRE(intento->presentado);
-    return *intento->presentado;
-  }
-
-  Presentado entrar_con_voz() {
-    const Presentado presentado = entrar();
-    ordenar(EntrarACanal{kCanalGeneral});
-    REQUIRE(esperar<UsuarioCambioCanal>([&](const UsuarioCambioCanal& c) { return c.id == presentado.tu_id; }));
-    return presentado;
-  }
-
-  void ordenar(ventrik::cliente::Orden orden) { sesion_.ordenar(std::move(orden)); }
-  void voz(std::shared_ptr<ventrik::cliente::PuenteVoz> puente) { sesion_.voz(std::move(puente)); }
-  void ordenar_juntas(std::vector<ventrik::cliente::Orden> ordenes) { sesion_.ordenar(std::move(ordenes)); }
-  void ahorrar(bool si) { sesion_.ahorrar(si); }
-
- private:
-  ventrik::cliente::Sesion sesion_;
-  std::vector<Novedad> recibidas_;
-};
-
-std::uint16_t hablar(ventrik::cliente::PuenteVoz& puente) {
-  static std::uint16_t numero = 7;
-  ventrik::cliente::PaqueteVoz paquete;
-  paquete.numero = numero++;
-  paquete.largo = 3;
-  paquete.opus[0] = 1;
-  paquete.opus[1] = 2;
-  paquete.opus[2] = 3;
-  REQUIRE(puente.subida.poner(paquete));
-  puente.despertador.despertar();
-  return paquete.numero;
-}
-
-std::optional<ventrik::cliente::PaqueteVoz> escuchar(ventrik::cliente::PuenteVoz& puente,
-                                                     std::chrono::milliseconds limite) {
-  ventrik::cliente::PaqueteVoz paquete;
-  return esperar_que([&] { return puente.bajada.sacar(paquete); }, limite)
-             ? std::optional<ventrik::cliente::PaqueteVoz>(paquete)
-             : std::nullopt;
-}
-
-bool llega_alguno(ventrik::cliente::PuenteVoz& habla, ventrik::cliente::PuenteVoz& escucha) {
-  for (int intento = 0; intento < 50; ++intento) {
-    hablar(habla);
-    if (escuchar(escucha, 100ms)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 struct ConDueno {
   ventrik::cifrado::CodigoDueno codigo = *ventrik::cifrado::CodigoDueno::generar();
   ventrik::servidor::Opciones opciones() const {

@@ -1,8 +1,8 @@
 ﻿# Ventrik: fuzzing.
 #
 # Corre los fuzzers (compilados con AddressSanitizer por check.ps1) durante
-# un tiempo y avisa si alguno encontró una falla. Lo aprendido queda en
-# build\fuzzing\corpus para la próxima vez, y cada falla en build\fuzzing\fallas.
+# un tiempo y avisa si alguno encontró una falla. Lo aprendido en la corrida larga
+# queda en build\fuzzing\corpus para la próxima vez, y cada falla en build\fuzzing\fallas.
 #
 # Uso:  powershell -NoProfile -ExecutionPolicy Bypass -File tools\fuzzing.ps1 [-Segundos 600]
 #       Antes hay que compilarlos: tools\check.ps1 lo hace.
@@ -42,10 +42,14 @@ foreach ($nombre in 'fuzz_base', 'fuzz_guardados', 'fuzz_identidad', 'fuzz_nombr
             Informar $titulo $false "No está compilado: $exe (correr tools\check.ps1)"
             continue
         }
-        # Cada uno escribe en su carpeta; en la corrida larga lee también la del otro
-        # (en la corta no: cargar las dos no entra en el tiempo de check.ps1).
+        # La corrida larga usa el corpus guardado (el suyo y el del otro). La corta arranca de las
+        # semillas en una carpeta vacía: el corpus guardado crece y cargarlo no entra en check.ps1.
         $corpus = Join-Path $carpeta "corpus\$nombre$bits"
         $corpusOtro = Join-Path $carpeta "corpus\$nombre$otros"
+        if ($Segundos -lt 300) {
+            $corpus = Join-Path $carpeta "corto\$nombre$bits"
+            if (Test-Path $corpus) { Remove-Item -Recurse -Force $corpus }
+        }
         New-Item -ItemType Directory -Force -Path $corpus, $corpusOtro | Out-Null
         $registro = Join-Path $carpeta "$nombre$bits.txt"
         # Tiene que caber lo más grande que se acepta: un mensaje de 64 KiB o una clave de 16 KiB.

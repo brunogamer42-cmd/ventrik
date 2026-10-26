@@ -11,8 +11,11 @@
 #include "client/buffer_voz.h"
 #include "client/canal_voz.h"
 #include "client/motor_voz.h"
+#include "sonido_de_prueba.h"
 #include <doctest/doctest.h>
 
+using prueba::energia;
+using prueba::tono;
 using ventrik::cliente::BufferVoz;
 using ventrik::cliente::Calidad;
 using ventrik::cliente::EstadoVoz;
@@ -24,14 +27,6 @@ using Salida = BufferVoz::Salida;
 namespace {
 bool avisado(const PuenteVoz& puente) {
   return WaitForSingleObject(puente.cambio.evento(), 0) == WAIT_OBJECT_0;
-}
-
-void tono(std::vector<std::int16_t>& muestras, std::size_t& muestra, unsigned frecuencia) {
-  for (auto& valor : muestras) {
-    const double segundos = static_cast<double>(muestra++) / frecuencia;
-    valor = static_cast<std::int16_t>(8000 * std::sin(2 * 3.14159265 * 440 * segundos) *
-                                      (0.55 + 0.45 * std::sin(2 * 3.14159265 * 4 * segundos)));
-  }
 }
 
 PaqueteVoz paquete(std::uint16_t numero, std::uint32_t hablante = 5) {
@@ -53,14 +48,6 @@ std::vector<int> sacar_todo(BufferVoz& buffer, int veces) {
                                                   : -2);
   }
   return salidas;
-}
-
-double energia(const std::vector<std::int16_t>& muestras, std::size_t desde) {
-  double suma = 0;
-  for (std::size_t i = desde; i < muestras.size(); ++i) {
-    suma += static_cast<double>(muestras[i]) * muestras[i];
-  }
-  return suma / static_cast<double>(muestras.size() - desde);
 }
 
 std::vector<std::int16_t> hablar_y_escuchar(const Calidad& habla, const Calidad& escucha, std::uint32_t& hablando,

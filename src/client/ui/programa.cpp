@@ -43,10 +43,11 @@ void anotar(std::ostream& salida, const Valores&... valores) {
 
 class Programa {
  public:
-  Programa(Idioma idioma, Ventana& ventana, const std::vector<std::string>& entrada) : ventana_(ventana) {
+  Programa(Idioma idioma, Ventana& ventana, std::wstring carpeta, const std::vector<std::string>& entrada)
+      : ventana_(ventana), carpeta_(std::move(carpeta)) {
     pantalla_.idioma = idioma;
     pantalla_.logo = ventana.logo();
-    const cliente::LecturaGuardados lectura = cliente::cargar_guardados(guardados_);
+    const cliente::LecturaGuardados lectura = cliente::cargar_guardados(guardados_, carpeta_);
     se_puede_guardar_ = lectura == cliente::LecturaGuardados::leidos || lectura == cliente::LecturaGuardados::danados;
     const Clave aviso = lectura == cliente::LecturaGuardados::version_nueva ? Clave::inicio_lista_nueva
                         : lectura == cliente::LecturaGuardados::error   ? Clave::inicio_lista_ilegible
@@ -457,13 +458,14 @@ class Programa {
 
   void guardar() {
     if (se_puede_guardar_) {
-      pantalla_.aviso = cliente::guardar_guardados(guardados_)
+      pantalla_.aviso = cliente::guardar_guardados(guardados_, carpeta_)
                             ? std::string()
                             : std::string(texto(pantalla_.idioma, Clave::inicio_no_se_guardo));
     }
   }
 
   Ventana& ventana_;
+  const std::wstring carpeta_;
   const cliente::Calidad calidad_ = cliente::calidad_automatica();
   std::atomic<bool> avisado_{false};
   PantallaInicio pantalla_;
@@ -497,7 +499,7 @@ class Programa {
 
 }
 
-int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar,
+int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar, const std::wstring& carpeta,
                    const std::vector<std::string>& entrar, const std::wstring& registro) {
   const cifrado::Inicio cifrado;
   const red::Inicio red;
@@ -507,7 +509,7 @@ int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar,
                 MB_OK | MB_ICONERROR);
     return 3;
   }
-  Programa programa(idioma, ventana, entrar);
+  Programa programa(idioma, ventana, carpeta, entrar);
   if (!registro.empty()) {
     programa.registrar(registro);
   }

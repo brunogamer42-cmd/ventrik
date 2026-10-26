@@ -246,6 +246,28 @@ try {
         Probar-Ventana (Join-Path $carpeta 'ventrik.exe')
     }
 
+    # El servidor y el programa de verdad, de la misma versión y de la otra: conexión, chat, voz y la ventana.
+    Write-Host ''
+    Write-Host 'Servidor y programa juntos'
+    $nombres = @{ moderna = 'moderna'; clasica = 'clásica' }
+    foreach ($servidor in $versiones) {
+        foreach ($programa in $versiones) {
+            $pruebas = Join-Path $raiz "build\$programa\Release\ventrik_pruebas.exe"
+            $carpeta = Join-Path $raiz "build\combinaciones\$servidor-$programa"
+            if (Test-Path $carpeta) { Remove-Item -Recurse -Force $carpeta }
+            New-Item -ItemType Directory -Force -Path $carpeta | Out-Null
+            $env:VENTRIK_SERVIDOR = Join-Path $raiz "build\$servidor\Release\ventrik_servidor.exe"
+            $env:VENTRIK_PROGRAMA = Join-Path $raiz "build\$programa\Release\ventrik.exe"
+            $env:VENTRIK_CARPETA = $carpeta
+            $r = 1
+            if (Test-Path $pruebas) {
+                $r = Ejecutar $pruebas @('-tc=combinaciones*', '--no-skip') `
+                    (Join-Path $registros "combinacion-$servidor-$programa.txt")
+            }
+            Informar ('Servidor ' + $nombres[$servidor] + ' + programa ' + $nombres[$programa]) ($r -eq 0)
+        }
+    }
+
     Write-Host ''
     Write-Host 'Fuzzing (AddressSanitizer)'
     $compilados = $true

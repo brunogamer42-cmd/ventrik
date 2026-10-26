@@ -57,7 +57,7 @@ std::uint8_t tecla_para_hablar(std::uint8_t guardada);
 ServidorGuardado* buscar_guardado(Guardados& guardados, const red::Direccion& direccion);
 bool recordar(Guardados& guardados, ServidorGuardado servidor);
 
-LecturaGuardados cargar_guardados(Guardados& guardados);
-bool guardar_guardados(const Guardados& guardados);
+LecturaGuardados cargar_guardados(Guardados& guardados, const std::wstring& carpeta);
+bool guardar_guardados(const Guardados& guardados, const std::wstring& carpeta);
 
 }

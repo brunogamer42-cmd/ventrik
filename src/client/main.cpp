@@ -7,6 +7,7 @@
 #include <shellapi.h>
 
 #include "client/ui/programa.h"
+#include "common/archivos.h"
 #include "common/proceso.h"
 #include "common/textos.h"
 #include "common/utf.h"
@@ -39,13 +40,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int como_mostrar) {
   const std::unique_ptr<LPWSTR, LiberarArgumentos> argumentos(
       CommandLineToArgvW(GetCommandLineW(), &cantidad));
   std::wstring registro;
+  std::wstring carpeta;
   std::vector<std::wstring_view> resto;
   for (int i = 1; argumentos && i < cantidad; ++i) {
-    if (std::wstring_view(argumentos.get()[i]) == L"--registro" && i + 1 < cantidad) {
+    const std::wstring_view opcion = argumentos.get()[i];
+    if (opcion == L"--registro" && i + 1 < cantidad) {
       registro = argumentos.get()[++i];
+    } else if (opcion == L"--carpeta" && i + 1 < cantidad) {
+      carpeta = argumentos.get()[++i];
     } else {
-      resto.emplace_back(argumentos.get()[i]);
+      resto.emplace_back(opcion);
     }
+  }
+  if (carpeta.empty()) {
+    carpeta = ventrik::carpeta_de_datos(L"Programa");
   }
   std::vector<std::string> entrar;
   if ((resto.size() == 4 || (resto.size() == 6 && resto[4] == L"--dueno")) && resto[0] == L"--entrar") {
@@ -55,5 +63,5 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int como_mostrar) {
       }
     }
   }
-  return ventrik::ui::abrir_programa(idioma, titulo, como_mostrar, entrar, registro);
+  return ventrik::ui::abrir_programa(idioma, titulo, como_mostrar, carpeta, entrar, registro);
 }

@@ -6,9 +6,16 @@ cd /d "%~dp0"
 echo Corriendo las pruebas de Ventrik en esta PC...
 echo.
 ventrik_pruebas.exe > resultado.txt 2>&1
+echo Probando el servidor y el programa juntos: se abre y se cierra una ventana...
+set VENTRIK_SERVIDOR=%~dp0ventrik_servidor.exe
+set VENTRIK_PROGRAMA=%~dp0ventrik.exe
+set VENTRIK_CARPETA=%~dp0combinacion
+if exist "%VENTRIK_CARPETA%" rmdir /s /q "%VENTRIK_CARPETA%"
+mkdir "%VENTRIK_CARPETA%"
+ventrik_pruebas.exe -tc=combinaciones* --no-skip >> resultado.txt 2>&1
 type resultado.txt
 echo.
-echo Si la ultima linea dice "Status: SUCCESS!", anda todo.
+echo Si las dos lineas "Status:" dicen "SUCCESS!", anda todo.
 echo Si no, mandar el archivo resultado.txt.
 echo.
 pause

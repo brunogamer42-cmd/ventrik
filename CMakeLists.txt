@@ -179,6 +179,7 @@ add_executable(ventrik_pruebas
   tests/prueba_argon2.cpp
   tests/prueba_base.cpp
   tests/prueba_base32.cpp
+  tests/prueba_combinaciones.cpp
   tests/prueba_conexion.cpp
   tests/prueba_dtls.cpp
   tests/prueba_guardados.cpp
