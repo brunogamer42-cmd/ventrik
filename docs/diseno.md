@@ -138,6 +138,13 @@ Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Ajustes-*.png, una p
   Tocar una sección la muestra sola, a todo el ancho. Los cambios se guardan solos, como antes ("Los cambios se guardan solos", junto al título).
 - **Secciones en desarrollo:** llevan "PRONTO" en el menú; adentro se ven desactivadas, con "EN DESARROLLO".
 - **El buscador** filtra el menú y salta a la sección que tiene el ajuste buscado.
+- **General** (captura Ajustes-general.png): "Abrir Ventrik al iniciar Windows", "Entrar solo al último servidor al abrir el programa", "Al cerrar la ventana" (seguir en la bandeja, junto al reloj, o salir), idioma y "Al entrar a un servidor".
+  - **"Al minimizar la ventana"** (pedido del dueño del 2026-10-26; no está en la captura): una lista como la de "Al cerrar la ventana" y junto a ella, con "Dejarla en la barra de tareas" (de fábrica) o "Pasarla a la bandeja, junto al reloj". Con la segunda, minimizar esconde también el botón de la barra de tareas (el ícono grande en Windows 10 y 11, la barra larga en XP), y queda solo el ícono de Ventrik junto al reloj, al lado de los de volumen y red.
+  - **El ícono junto al reloj** es el mismo al cerrar y al minimizar:
+    - un clic abre Ventrik como estaba;
+    - clic derecho muestra un menú con "Abrir Ventrik" y "Salir";
+    - los avisos siguen igual, y tocarlos también abre la ventana escondida.
+  - Va con `Shell_NotifyIcon`, que existe desde Windows 2000; en XP, con el tamaño de estructura que XP acepta. Si se reinicia el Explorador de Windows, el ícono se vuelve a poner (mensaje "TaskbarCreated"). No suma hilos ni despertares.
 - **Audio y micrófono** ya no es una pantalla aparte: es una sección de Ajustes, en dos columnas (captura Ajustes-audio.png).
   - **Izquierda:**
     - Dispositivos: micrófono, salida de audio y "Probar salida". Si se desconecta un dispositivo, se pasa solo al de Windows.
