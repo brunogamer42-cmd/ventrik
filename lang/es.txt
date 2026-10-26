@@ -235,3 +235,13 @@ fin_cortado = El servidor cortó la conexión.
 fin_sin_respuesta = El servidor dejó de responder.
 fin_ilegible = El servidor mandó algo que no se entiende: por seguridad, se cortó la conexión.
 fin_desbordada = Llegaron demasiadas novedades sin mostrar: se cortó la conexión para no mostrar datos viejos.
+
+# Notificaciones
+aviso_titulo_texto = {1} · #{2}
+aviso_titulo_voz = {1} · {2}
+aviso_mensaje = {1}: {2}
+aviso_un_mensaje = 1 mensaje nuevo
+aviso_mensajes = {1} mensajes nuevos
+aviso_mensajes_de = {1} mensajes de {2}
+aviso_mensajes_de_dos = {1} mensajes de {2} y {3}
+aviso_mensajes_de_varios = {1} mensajes de {2}, {3} y {4} más

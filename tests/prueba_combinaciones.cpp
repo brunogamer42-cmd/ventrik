@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <thread>
@@ -171,6 +172,24 @@ TEST_CASE("combinaciones: servidor y programa de verdad, de la misma versión o 
   CHECK(ana.esperar<MensajeChat>(
       [&](const MensajeChat& m) { return m.autor_id == entro->usuario.id && m.texto == "hola desde la ventana"; },
       10s));
+
+  const auto notificaciones = [&] {
+    std::string anotado = leer_todo(registro);
+    while (!anotado.empty() && (anotado.back() == '\n' || anotado.back() == '\r')) {
+      anotado.pop_back();
+    }
+    const std::string linea = anotado.substr(anotado.find_last_of('\n') + 1);
+    return std::strtoul(linea.c_str() + linea.find_last_of(',') + 1, nullptr, 10);
+  };
+  PostMessageW(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+  REQUIRE(esperar_que([&] { return IsIconic(hwnd) != FALSE; }));
+  ana.ordenar(EnviarChat{canal, "aviso para la ventana"});
+  const HWND aviso = ventana.ventana(10s, L"VentrikAviso");
+  REQUIRE(aviso != nullptr);
+  CHECK(esperar_que([&] { return notificaciones() >= 1; }));
+  PostMessageW(aviso, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 20));
+  PostMessageW(aviso, WM_LBUTTONUP, 0, MAKELPARAM(20, 20));
+  CHECK(esperar_que([&] { return IsIconic(hwnd) == FALSE; }));
   PostMessageW(hwnd, WM_CLOSE, 0, 0);
   CHECK(ventana.esperar_salida(15s) == DWORD{0});
   CHECK(ana.esperar<UsuarioSalio>([&](const UsuarioSalio& u) { return u.id == entro->usuario.id; }));

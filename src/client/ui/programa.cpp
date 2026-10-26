@@ -12,6 +12,7 @@
 #include <variant>
 
 #include "client/audio.h"
+#include "client/avisos.h"
 #include "client/diagnostico.h"
 #include "client/guardados.h"
 #include "client/horas.h"
@@ -19,6 +20,7 @@
 #include "client/sala.h"
 #include "client/sesion.h"
 #include "client/vigia.h"
+#include "client/ui/aviso_ventana.h"
 #include "client/ui/inicio.h"
 #include "client/ui/servidor.h"
 #include "client/ui/ventana.h"
@@ -44,7 +46,7 @@ void anotar(std::ostream& salida, const Valores&... valores) {
 class Programa {
  public:
   Programa(Idioma idioma, Ventana& ventana, std::wstring carpeta, const std::vector<std::string>& entrada)
-      : ventana_(ventana), carpeta_(std::move(carpeta)) {
+      : ventana_(ventana), carpeta_(std::move(carpeta)), avisos_(idioma) {
     pantalla_.idioma = idioma;
     pantalla_.logo = ventana.logo();
     const cliente::LecturaGuardados lectura = cliente::cargar_guardados(guardados_, carpeta_);
@@ -86,7 +88,7 @@ class Programa {
                  "vaciados_colchon_total,faltas_colchon_total,transmitiendo,hablando,voz_lista,avisos,mensajes,"
                  "mensaje_comun,ram_mb,despertares_ventana,despertares_audio,despertares_red,tcp_sube,tcp_baja,"
                  "udp_sube,udp_baja,memoria_propia_kb,fallas_por_segundo,arranque_ms,pixeles,foco,juego,"
-                 "bloqueada,ahorro,atlas_kb,silencio"
+                 "bloqueada,ahorro,atlas_kb,silencio,notificaciones"
               << std::endl;
   }
 
@@ -101,6 +103,7 @@ class Programa {
     }
     sesion_.reset();
     sala_.reset();
+    avisos_.desconectado();
     cerrar_voz();
   }
 
@@ -146,24 +149,46 @@ class Programa {
   bool atender() {
     avisado_ = false;
     bool cambio = false;
+    const Situacion& situacion = ventana_.situacion();
+    avisos_.fuera(!situacion.con_foco || situacion.minimizada);
+    if (const auto tocado = en_pantalla_ ? en_pantalla_->tocado() : std::nullopt) {
+      abrir_aviso(*tocado);
+      cambio = true;
+    }
     if (sesion_) {
       for (const cliente::Novedad& novedad : sesion_->esperar_novedades(0ms)) {
         cambio = true;
         if (const auto* intento = std::get_if<cliente::IntentoDeConexion>(&novedad)) {
           conectado(*intento);
         } else if (const auto* fin = std::get_if<cliente::Fin>(&novedad)) {
-          terminar(cliente::explicar(pantalla_.idioma, *fin));
+          const std::string explicacion = cliente::explicar(pantalla_.idioma, *fin);
+          if (sala_) {
+            avisos_.corte(explicacion);
+          }
+          terminar(explicacion);
+        } else if (const auto* historial = std::get_if<protocolo::Historial>(&novedad);
+                   sala_ && historial != nullptr && historial->desde == cliente::kDesdeAviso &&
+                   avisos_.espera(historial->canal)) {
+          avisos_.historial(*historial, sala_->leido(historial->canal));
+        } else if (const auto* negado = std::get_if<protocolo::Negado>(&novedad);
+                   sala_ && negado != nullptr && negado->pedido == protocolo::TipoMensaje::pedir_historial &&
+                   avisos_.pidiendo() && !sala_->esperando()) {
+          avisos_.negado();
         } else if (sala_) {
           ordenar(sala_->aplicar(novedad));
+          avisar_de(novedad);
         }
       }
     }
+    if (sala_) {
+      ordenar_si(avisos_.pedir(Reloj::now(), sala_->esperando(), situacion.juego));
+    }
+    mostrar_avisos();
     if (sala_) {
       std::vector<cliente::Orden> ordenes = sala_->revisar();
       cambio = cambio || !ordenes.empty();
       ordenar(std::move(ordenes));
     }
-    const Situacion& situacion = ventana_.situacion();
     const bool ahorrar = situacion.minimizada || situacion.juego || situacion.bloqueada;
     if (sesion_ && ahorrar != ahorrando_) {
       ahorrando_ = ahorrar;
@@ -250,6 +275,66 @@ class Programa {
 
   void ordenar(std::vector<cliente::Orden> ordenes) { sesion_->ordenar(std::move(ordenes)); }
 
+  void ordenar_si(std::optional<cliente::Orden> orden) {
+    if (orden) {
+      ordenar({std::move(*orden)});
+    }
+  }
+
+  void avisar_de(const cliente::Novedad& novedad) {
+    if (const auto* mensaje = std::get_if<protocolo::MensajeChat>(&novedad)) {
+      const auto* canal = sala_->canal(mensaje->canal);
+      const bool voz = canal != nullptr && canal->tipo == protocolo::TipoCanal::voz;
+      if (canal != nullptr && mensaje->canal == (voz ? sala_->tu_canal() : sala_->mirando())) {
+        avisos_.mensaje(*mensaje, canal->nombre, voz);
+      }
+    } else if (const auto* nuevos = std::get_if<protocolo::MensajesNuevos>(&novedad)) {
+      for (const auto& contador : nuevos->canales) {
+        const auto* canal = sala_->canal(contador.canal);
+        if (canal != nullptr && canal->tipo == protocolo::TipoCanal::texto && canal->id != sala_->mirando()) {
+          avisos_.nuevos(canal->id, canal->nombre, sala_->nuevos(canal->id));
+        }
+      }
+    } else if (const auto* borrado = std::get_if<protocolo::CanalBorrado>(&novedad)) {
+      avisos_.visto(borrado->id);
+    } else if (const auto* negado = std::get_if<protocolo::Negado>(&novedad);
+               negado != nullptr && negado->pedido == protocolo::TipoMensaje::pedir_historial) {
+      avisos_.negado();
+    }
+  }
+
+  void abrir_aviso(const cliente::Notificacion& aviso) {
+    ventana_.traer_al_frente();
+    avisos_.visto(aviso.canal);
+    if (sala_ && aviso.canal != 0 && (!aviso.voz || aviso.canal == sala_->tu_canal())) {
+      ordenar(aviso.voz ? sala_->elegir_voz(aviso.canal) : sala_->elegir_texto(aviso.canal));
+      servidor_.enfocar_mensaje = true;
+    }
+  }
+
+  void mostrar_avisos() {
+    const bool juego = ventana_.situacion().juego;
+    if (avisos_.version() == version_avisos_ && juego == juego_avisos_) {
+      return;
+    }
+    version_avisos_ = avisos_.version();
+    juego_avisos_ = juego;
+    if (juego) {
+      if (en_pantalla_) {
+        en_pantalla_->ocultar();
+      }
+      return;
+    }
+    const std::vector<cliente::Notificacion> lista = avisos_.lista();
+    if (!en_pantalla_ && lista.empty()) {
+      return;
+    }
+    if (!en_pantalla_) {
+      en_pantalla_ = std::make_unique<AvisosEnPantalla>(ventana_.hwnd(), ventana_.escala());
+    }
+    en_pantalla_->mostrar(lista);
+  }
+
   void entrar_con_formulario() {
     const auto direccion = red::leer_direccion(pantalla_.direccion.data());
     const auto huella = cifrado::leer_huella(pantalla_.huella.data());
@@ -294,6 +379,7 @@ class Programa {
       pendiente_.leidos = guardado->leidos;
     }
     sala_ = std::make_unique<cliente::Sala>(*intento.presentado, pendiente_.leidos, pendiente_.texto);
+    avisos_.conectado(red::a_texto(pendiente_.direccion), sala_->tu_id(), pendiente_.nombre);
     pendiente_.ultima_vez_ms = cliente::ahora_ms();
     guardados_.nombre = pendiente_.nombre;
     if (cliente::recordar(guardados_, pendiente_)) {
@@ -435,7 +521,8 @@ class Programa {
              trafico.udp_enviados - trafico_.udp_enviados, trafico.udp_recibidos - trafico_.udp_recibidos,
              medicion.memoria_propia / 1024, medicion.fallas, ventana_.arranque_ms(), uso.pixeles,
              situacion.con_foco, situacion.juego, situacion.bloqueada, situacion.ahorro,
-             atlas.Width * atlas.Height * atlas.BytesPerPixel / 1024, static_cast<int>(servidor_.silencio));
+             atlas.Width * atlas.Height * atlas.BytesPerPixel / 1024, static_cast<int>(servidor_.silencio),
+             en_pantalla_ ? en_pantalla_->mostrados() : 0u);
       trafico_ = trafico;
     }
     cuadros_ = 0;
@@ -466,6 +553,10 @@ class Programa {
 
   Ventana& ventana_;
   const std::wstring carpeta_;
+  cliente::Avisos avisos_;
+  std::unique_ptr<AvisosEnPantalla> en_pantalla_;
+  std::uint64_t version_avisos_ = 0;
+  bool juego_avisos_ = false;
   const cliente::Calidad calidad_ = cliente::calidad_automatica();
   std::atomic<bool> avisado_{false};
   PantallaInicio pantalla_;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <fstream>
 #include <iterator>
@@ -97,11 +98,12 @@ class Proceso {
     return codigo;
   }
 
-  HWND ventana(std::chrono::milliseconds limite) const {
+  HWND ventana(std::chrono::milliseconds limite, const wchar_t* clase = L"VentrikVentanaPrincipal") const {
     struct Busqueda {
       DWORD id;
+      const wchar_t* clase;
       HWND encontrada;
-    } busqueda{id_, nullptr};
+    } busqueda{id_, clase, nullptr};
     esperar_que(
         [&] {
           EnumWindows(
@@ -109,7 +111,10 @@ class Proceso {
                 auto& buscada = *reinterpret_cast<Busqueda*>(dato);
                 DWORD de = 0;
                 GetWindowThreadProcessId(ventana, &de);
-                if (de != buscada.id || !IsWindowVisible(ventana) || GetWindow(ventana, GW_OWNER)) {
+                std::array<wchar_t, 64> clase{};
+                GetClassNameW(ventana, clase.data(), static_cast<int>(clase.size()));
+                if (de != buscada.id || !IsWindowVisible(ventana) || GetWindow(ventana, GW_OWNER) ||
+                    std::wstring(clase.data()) != buscada.clase) {
                   return TRUE;
                 }
                 buscada.encontrada = ventana;

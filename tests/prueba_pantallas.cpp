@@ -14,6 +14,7 @@
 #include <imgui_internal.h>
 
 #include "client/sala.h"
+#include "client/ui/aviso_ventana.h"
 #include "client/ui/dibujante.h"
 #include "client/ui/inicio.h"
 #include "client/ui/piezas.h"
@@ -782,6 +783,82 @@ TEST_CASE("Las teclas repetidas no piden cuadros salvo las de edición escribien
   CHECK(ui::pide_cuadros(WM_MOUSEMOVE, 0, 8, false, mouse));
   CHECK(ui::espera_entre_cuadros(1.4) == 15);
   CHECK(ui::espera_entre_cuadros(16) == 80);
+}
+
+TEST_CASE("La ventanita de avisos se abre, se actualiza, no pasa de 3, se cierra y un clic la marca tocada") {
+  using ventrik::cliente::Notificacion;
+  ui::AvisosEnPantalla en_pantalla(nullptr, 1.0f);
+  en_pantalla.mostrar({Notificacion{5, false, "srv \xC2\xB7 #general", "Tano: hola", 1}});
+  CHECK(en_pantalla.abiertas() == 1);
+  CHECK(en_pantalla.mostrados() == 1);
+  en_pantalla.mostrar({Notificacion{5, false, "srv \xC2\xB7 #general", "Tano: hola", 1}});
+  CHECK(en_pantalla.mostrados() == 1);
+  en_pantalla.mostrar({Notificacion{5, false, "srv \xC2\xB7 #general", "2 mensajes de Tano", 2}});
+  CHECK(en_pantalla.abiertas() == 1);
+  CHECK(en_pantalla.mostrados() == 1);
+  en_pantalla.mostrar({Notificacion{5, false, "a", "b", 2}, Notificacion{6, false, "a", "b", 3},
+                       Notificacion{7, false, "a", "b", 4}, Notificacion{8, true, "a", "b", 5}});
+  CHECK(en_pantalla.abiertas() == ui::kAvisosALaVez);
+  CHECK(en_pantalla.mostrados() == 4);
+  const auto alguna = [] {
+    HWND ventana = nullptr;
+    while ((ventana = FindWindowExW(nullptr, ventana, L"VentrikAviso", nullptr)) != nullptr &&
+           GetWindowThreadProcessId(ventana, nullptr) != GetCurrentThreadId()) {
+    }
+    return ventana;
+  };
+  const auto clic = [](HWND ventana, int x, int y) {
+    SendMessageW(ventana, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
+    SendMessageW(ventana, WM_LBUTTONUP, 0, MAKELPARAM(x, y));
+  };
+  HWND ventana = alguna();
+  REQUIRE(ventana != nullptr);
+  SendMessageW(ventana, WM_LBUTTONUP, 0, MAKELPARAM(20, 20));
+  CHECK_FALSE(en_pantalla.tocado());
+  CHECK(en_pantalla.abiertas() == ui::kAvisosALaVez);
+  RECT area = {};
+  GetClientRect(ventana, &area);
+  clic(ventana, area.right - 5, 5);
+  CHECK_FALSE(en_pantalla.tocado());
+  CHECK(en_pantalla.abiertas() == ui::kAvisosALaVez - 1);
+  ventana = alguna();
+  REQUIRE(ventana != nullptr);
+  clic(ventana, 20, 20);
+  const auto tocado = en_pantalla.tocado();
+  REQUIRE(tocado);
+  CHECK(tocado->canal >= 6);
+  CHECK_FALSE(en_pantalla.tocado());
+  CHECK(en_pantalla.abiertas() == ui::kAvisosALaVez - 2);
+  en_pantalla.ocultar();
+  CHECK(en_pantalla.abiertas() == 0);
+  en_pantalla.mostrar({Notificacion{6, false, "a", "b", 3}});
+  CHECK(en_pantalla.abiertas() == 0);
+}
+
+TEST_CASE("banco del aviso" * doctest::skip()) {
+  constexpr int kVueltas = 1000;
+  const ui::PiezasAviso piezas(1.0f);
+  const ventrik::cliente::Notificacion aviso{5, false, "192.168.0.10:7700 \xC2\xB7 #general",
+                                             "3 mensajes de Tano, Sofi y 1 m\xC3\xA1s", 1};
+  const HDC pantalla = GetDC(nullptr);
+  const HDC dc = CreateCompatibleDC(pantalla);
+  const SIZE tamano = ui::medir_aviso(dc, aviso, piezas);
+  const HBITMAP lienzo = CreateCompatibleBitmap(pantalla, tamano.cx, tamano.cy);
+  const HGDIOBJ antes = SelectObject(dc, lienzo);
+  const RECT area = {0, 0, tamano.cx, tamano.cy};
+  const auto desde = std::chrono::steady_clock::now();
+  for (int i = 0; i < kVueltas; ++i) {
+    ui::medir_aviso(dc, aviso, piezas);
+    ui::pintar_aviso(dc, area, aviso, piezas, false);
+  }
+  MESSAGE("ventanita de aviso de " << tamano.cx << "x" << tamano.cy << ": "
+                                   << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde)
+                                              .count() / kVueltas
+                                   << " us por dibujo");
+  SelectObject(dc, antes);
+  DeleteObject(lienzo);
+  DeleteDC(dc);
+  ReleaseDC(nullptr, pantalla);
 }
 
 TEST_CASE("banco de las zonas que cambian" * doctest::skip()) {

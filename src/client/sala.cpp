@@ -174,9 +174,13 @@ const protocolo::CanalInfo* Sala::canal(std::uint32_t id) const {
 
 std::uint32_t Sala::nuevos(std::uint32_t id) const {
   const auto* info = canal(id);
-  const auto leido = leidos_.find(id);
-  const std::uint32_t hasta = leido == leidos_.end() ? 0 : leido->second;
+  const std::uint32_t hasta = leido(id);
   return info != nullptr && info->contador > hasta ? info->contador - hasta : 0;
+}
+
+std::uint32_t Sala::leido(std::uint32_t id) const {
+  const auto encontrado = leidos_.find(id);
+  return encontrado == leidos_.end() ? 0 : encontrado->second;
 }
 
 std::vector<Leido> Sala::leidos() const {

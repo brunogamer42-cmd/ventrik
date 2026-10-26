@@ -183,6 +183,8 @@ TEST_CASE("Con lo leído guardado, cada canal sigue desde donde quedó y uno nue
   CHECK(sala.nuevos(3) == 3);
   CHECK(sala.nuevos(4) == 0);
   CHECK(sala.nuevos(2) == 0);
+  CHECK(sala.leido(3) == 2);
+  CHECK(sala.leido(2) == 0);
   sala.aplicar(MensajesNuevos{{{2, 6}, {4, 3}}});
   CHECK(sala.nuevos(2) == 6);
   CHECK(sala.nuevos(4) == 1);

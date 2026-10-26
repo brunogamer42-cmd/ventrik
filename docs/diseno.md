@@ -114,6 +114,11 @@ Avisan de lo que pasa mientras Ventrik no está al frente o está minimizado. Nu
 - **De dónde sale el texto:** de los canales de texto que no estás mirando, el servidor solo avisa el contador (ver "Canales de voz y de texto"). Cuando va a mostrar una notificación, el programa le pide esos mensajes nuevos al servidor como cualquier historial, con sus permisos y topes.
 - **Windows 10 y 11 (versión moderna):** las notificaciones del sistema, las que salen abajo a la derecha y quedan en el Centro de actividades, con el nombre y el ícono de Ventrik. Se cargan con GetProcAddress; si no están, se usa la ventana propia.
 - **Versión clásica (XP a 8.1 y Windows 10 de 32 bits):** una ventana propia, chica, abajo a la derecha, parecida a la de Windows 10 y con el aspecto de Ventrik (docs/aspecto.md). No le quita el foco a lo que estés haciendo, se cierra sola a los pocos segundos y se dibuja sin Direct3D, para no gastar en la netbook.
+- **Para que Windows acepte las de un .exe sin instalador** (decisión del dueño, 2026-10-26):
+  - Ventrik deja en el registro del usuario (no del sistema) su identidad de aplicación (`HKCU\Software\Classes\AppUserModelId\Ventrik`, con nombre, ícono y activador) y el activador COM que abre Ventrik al tocar una notificación, aunque esté cerrado;
+  - escribe el ícono en %APPDATA%\Ventrik;
+  - hay una por canal, que se reemplaza al actualizarse;
+  - si algo de esto falla, se usa la ventana propia.
 - **Privacidad:** Windows guarda sus notificaciones en un archivo propio, fuera de Ventrik y sin cifrar. Por eso, en Ajustes → Avisos se puede elegir que digan solo el canal y la cantidad, sin quién ni el texto.
 
 ### Ajustes

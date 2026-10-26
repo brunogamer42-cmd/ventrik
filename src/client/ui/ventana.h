@@ -51,6 +51,8 @@ class Ventana {
 
   bool ok() const { return lista_; }
   HWND hwnd() const { return ventana_; }
+  float escala() const { return escala_; }
+  void traer_al_frente();
   ImTextureID logo() const;
   std::string placa() const;
   std::string grafica() const;

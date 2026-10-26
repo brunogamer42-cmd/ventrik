@@ -8,11 +8,14 @@
 
 #include <gsl/gsl>
 
+#include "client/avisos.h"
 #include "client/guardados.h"
 #include "client/sala.h"
 #include "common/protocol/bytes.h"
+#include "common/utf.h"
 
 using namespace ventrik::protocolo;
+using ventrik::cliente::Avisos;
 using ventrik::cliente::Sala;
 
 namespace {
@@ -54,6 +57,19 @@ void revisar(const Sala& sala) {
   exigir(!ventrik::cliente::armar_guardados(guardados).empty());
 }
 
+void revisar(const Avisos& avisos, std::uint64_t& version) {
+  exigir(avisos.version() >= version);
+  version = avisos.version();
+  exigir(avisos.pendientes() <= kMaximoCanales);
+  const auto lista = avisos.lista();
+  exigir(lista.size() <= kMaximoCanales + 1);
+  for (std::size_t i = 0; i < lista.size(); ++i) {
+    exigir(i == 0 || lista[i - 1].version < lista[i].version);
+    exigir(ventrik::es_utf8_valido(lista[i].titulo) && ventrik::es_utf8_valido(lista[i].cuerpo));
+    exigir(lista[i].cuerpo.size() <= 512);
+  }
+}
+
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t largo) {
@@ -70,6 +86,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     leidos = {{1, lector.leer_u8()}, {2, lector.leer_u16()}, {7, lector.leer_u8()}};
   }
   Sala sala(presentado, leidos, (inicio >> 2) % 6);
+  ventrik::cliente::OpcionesAvisos opciones;
+  opciones.privado = (inicio & 64) != 0;
+  Avisos avisos(ventrik::elegir_idioma("es"), opciones);
+  avisos.conectado("srv", 1, "Ana");
+  avisos.fuera((inicio & 128) == 0);
+  std::uint64_t version = 0;
+  Avisos::Reloj::time_point reloj{};
+  std::optional<PedirHistorial> del_aviso;
   std::optional<PedirHistorial> pedido;
   const auto anotar = [&pedido](const std::optional<ventrik::cliente::Orden>& orden) {
     if (orden) {
@@ -92,22 +116,33 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     const std::uint16_t c = lector.leer_u16();
     const TipoCanal tipo = (c & 1) != 0 ? TipoCanal::texto : TipoCanal::voz;
     const bool solo_admins = tipo == TipoCanal::texto && (c & 2) != 0;
-    switch (que % 21) {
+    switch (que % 24) {
       case 0: sala.aplicar(UsuarioEntro{{a, "Alguien", b}}); break;
       case 1: sala.aplicar(UsuarioSalio{a}); break;
       case 2: sala.aplicar(UsuarioCambioCanal{a, b}); break;
       case 3: sala.aplicar(CanalCreado{{a, "creado", tipo, solo_admins, c}}); break;
       case 4: sala.aplicar(CanalCambiado{{a, "cambiado", tipo, solo_admins, c}}); break;
       case 5: sala.aplicar(CanalBorrado{a, b}); break;
-      case 6:
-        sala.aplicar(MensajeChat{c, a, b, 2, nombres[b % 5], c * 1000ull, std::string(1 + c % 64, 'x')});
+      case 6: {
+        const MensajeChat mensaje{c, a, b, static_cast<std::uint32_t>(1 + (c & 4) / 4), nombres[b % 5], c * 1000ull,
+                                  std::string(1 + c % ((c & 8) != 0 ? 4000 : 64), 'x')};
+        sala.aplicar(mensaje);
+        avisos.mensaje(mensaje, nombres[a % 5], (c & 16) != 0);
         break;
-      case 7: sala.aplicar(MensajesNuevos{{{a, c}}}); break;
+      }
+      case 7:
+        sala.aplicar(MensajesNuevos{{{a, c}}});
+        avisos.nuevos(a, nombres[a % 5], sala.nuevos(a));
+        break;
       case 8: {
-        const bool responde = pedido && (b & 1) != 0;
-        const Sentido sentido = responde ? pedido->sentido : (c & 2) != 0 ? Sentido::nuevos : Sentido::viejos;
-        const std::uint64_t desde = responde ? pedido->desde : c;
-        Historial historial{responde ? pedido->canal : a, desde, sentido, (c & 1) != 0, {}};
+        const bool al_aviso = del_aviso && (b & 2) != 0;
+        const bool responde = !al_aviso && pedido && (b & 1) != 0;
+        const Sentido sentido = al_aviso   ? Sentido::viejos
+                                : responde ? pedido->sentido
+                                           : (c & 2) != 0 ? Sentido::nuevos : Sentido::viejos;
+        const std::uint64_t desde = al_aviso ? ventrik::cliente::kDesdeAviso : responde ? pedido->desde : c;
+        Historial historial{al_aviso ? del_aviso->canal : responde ? pedido->canal : a, desde, sentido, (c & 1) != 0,
+                            {}};
         const std::size_t cuantos = (c >> 4) % ((c & 8) != 0 ? kMaximoMensajesEnHistorial + 1 : 9);
         for (std::uint32_t k = 1; k <= cuantos; ++k) {
           const std::uint64_t paso = k * (1 + b % 3);
@@ -118,10 +153,26 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
           historial.mensajes.push_back(
               {id, k, nombres[(k + b) % 5], k, std::string(1 + ((k * c) % 7 == 0 ? (k * c) % 4000 : k % 16), 'h')});
         }
-        sala.aplicar(historial);
+        if (desde == ventrik::cliente::kDesdeAviso && avisos.espera(historial.canal)) {
+          avisos.historial(historial, sala.leido(historial.canal));
+          del_aviso.reset();
+        } else {
+          sala.aplicar(historial);
+        }
         break;
       }
-      case 9: sala.aplicar(Negado{static_cast<TipoMensaje>(10 + c % 9), static_cast<MotivoNegado>(1 + b % 7)}); break;
+      case 9: {
+        const Negado negado{static_cast<TipoMensaje>(10 + c % 9), static_cast<MotivoNegado>(1 + b % 7)};
+        if (negado.pedido == TipoMensaje::pedir_historial && avisos.pidiendo() && !sala.esperando()) {
+          avisos.negado();
+        } else {
+          sala.aplicar(negado);
+          if (negado.pedido == TipoMensaje::pedir_historial) {
+            avisos.negado();
+          }
+        }
+        break;
+      }
       case 10: sala.aplicar(ventrik::cliente::PingMedido{c}); break;
       case 11: sala.elegir_voz(a); break;
       case 12: sala.elegir_texto(a); break;
@@ -137,10 +188,19 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       case 18: sala.soltar_lejanos(); break;
       case 19: exigir(sala.salir_de_la_voz().empty() == (sala.tu_canal() == 0)); break;
       case 20: sala.aplicar(UsuarioSilencio{a, static_cast<std::uint8_t>(b % 3 == 2 ? 3 : b % 3)}); break;
+      case 21: avisos.fuera((b & 1) != 0); break;
+      case 22: avisos.visto(a); break;
+      case 23: (b & 1) != 0 ? avisos.corte(std::string(c % 300, 'z')) : avisos.desconectado(); break;
       default: break;
     }
     anotar_todas(sala.revisar());
+    reloj += std::chrono::milliseconds(c % 3000);
+    if (const auto orden = avisos.pedir(reloj, sala.esperando(), (que & 32) != 0)) {
+      del_aviso = std::get<PedirHistorial>(*orden);
+      exigir(del_aviso->desde == ventrik::cliente::kDesdeAviso && avisos.espera(del_aviso->canal));
+    }
     revisar(sala);
+    revisar(avisos, version);
   }
   return 0;
 }

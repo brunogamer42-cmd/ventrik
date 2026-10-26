@@ -73,6 +73,8 @@ class Sala {
   std::uint32_t ultimo_texto() const { return ultimo_texto_; }
   const Chat& chat() const { return texto_.canal != 0 ? texto_ : voz_; }
   std::uint32_t nuevos(std::uint32_t canal) const;
+  std::uint32_t leido(std::uint32_t canal) const;
+  bool esperando() const { return voz_.pidiendo || texto_.pidiendo; }
   bool puede_escribir() const;
   std::optional<std::uint32_t> ping() const { return ping_; }
   const std::optional<protocolo::Negado>& negado() const { return negado_; }

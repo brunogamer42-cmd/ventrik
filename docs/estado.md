@@ -134,7 +134,46 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - `estres_xp.bat` ataca al servidor clásico en la XP real (64 conexiones, 200 idas y vueltas). También es la prueba que confirma en XP que se puede atar a 127.0.1.x (si XP rechaza esos bind, ninguna conexión entra y la carga falla).
   - Si ASan encuentra algo, su informe queda en la salida del servidor (`build\estres\asan\r<n>\salida.txt`), no en `build\registros`: en check.ps1 una falla así se ve como "el servidor se cayó", y el detalle está en ese archivo.
   - **Lo que todavía no cubre, a propósito:** el cliente contra un servidor malo ya lo cubren `fuzz_sala` (con ASan, los 21 mensajes del servidor con sus topes), `prueba_conexion` y `prueba_sesion`; el "servidor malo contra la ventana" quedó para sumar si el dueño lo pide. La inundación de UDP y los saludos DTLS falsos los cubre `fuzz_voz_servidor` (con ASan). Los topes de voces y un hilo por núcleo son de la etapa 8: acá se mide, no se arregla.
-- **Lo que sigue:** la etapa 3; su primer paso son las notificaciones.
+- **Etapa 3, paso 3.1a: notificaciones con ventana propia (hecho, 2026-10-26).** Con Ventrik minimizado o sin el foco, avisa de mensajes en canales de texto, del chat de tu canal de voz y de la conexión cortada; nunca de los propios.
+  - **Lógica** (`client/avisos.h/.cpp`, sin pantalla):
+    - junta por canal: "Tano: texto", "3 mensajes de Tano", "de Tano y Sofi", "de Tano, Sofi y 2 más";
+    - con privacidad, solo "N mensajes nuevos";
+    - el texto se recorta a 200 bytes, sin partir caracteres, y los saltos de línea pasan a espacios;
+    - topes: 60 canales y 32 autores por aviso;
+    - al volver Ventrik al frente se borra todo;
+    - el corte de conexión queda aunque te desconectes;
+    - opciones en `OpcionesAvisos`, con todo prendido y sin privacidad hasta que exista Ajustes → Avisos y sonidos.
+  - **Texto de los canales no mirados** (el servidor solo manda el contador): `Avisos` pide `PedirHistorial{canal, desde = kDesdeAviso (el máximo de u64), viejos, min(nuevos, 10)}`.
+    - El servidor lo trata como "los más nuevos" (`base.cpp:345`) y devuelve el mismo `desde`, así que `Programa` reconoce la respuesta.
+    - Va a `Avisos` solo si tiene ese canal en vuelo; si no, sigue a `Sala`.
+    - Se filtra por número > leído (`Sala::leido`, nuevo) y por autor ≠ vos.
+    - Si llegaron menos mensajes que los sin leer (o ninguno, porque el servidor no guarda historial), dice solo "N mensajes nuevos": una lista de autores sería falsa.
+    - **Cuidado con los topes del servidor** (lo encontró la revisión: historial 3 seguidos y después 1 por segundo, dentro de 20 pedidos y 5 por segundo):
+      - hay un solo pedido de aviso en vuelo, como mucho uno cada 2 s, por turnos entre canales (`Avisos::pedir`);
+      - nunca mientras la pantalla espera su propio historial (`Sala::esperando`), ni con un juego adelante, ni con Ventrik al frente;
+      - un pedido sin respuesta se olvida a los 10 s;
+      - un `Negado` de historial con un pedido de aviso en vuelo y la pantalla sin esperar es del aviso: no llega a `Sala` (si no, mostraría un error rojo sin motivo).
+    - Esos pedidos despiertan la red y la ventana como mucho cada 2 s, y solo mientras Ventrik está fuera y llegan mensajes a canales no mirados.
+  - **Ventana propia** (`ui/aviso_ventana.h/.cpp`, la de aspecto.md: GDI, sin Direct3D ni hilo, 360 de ancho, abajo a la derecha del área de trabajo del monitor de la ventana, hasta 3 apiladas):
+    - se cierra a los 6 s salvo con el mouse encima;
+    - la X la cierra; un clic en el resto (apretar y soltar sobre ella, con `SetCapture`) trae Ventrik al frente (`Ventana::traer_al_frente`: `SW_RESTORE` + `SetForegroundWindow`) y abre ese canal;
+    - un aviso de voz de un canal en el que ya no estás solo trae al frente;
+    - un canal borrado deja de avisar;
+    - con un juego en pantalla completa (`situacion().juego`) se ocultan sin olvidar cuáles ya se mostraron, para que no reaparezcan al terminar;
+    - las fuentes Barlow van a GDI con `AddFontMemResourceEx` desde los recursos del .exe.
+    - Los colores de theme.h están empacados BGRA (`IMGUI_USE_BGRA_PACKED_COLOR`), así que para GDI se separan con `IM_COL32_R/G/B_SHIFT`: al principio salían con rojo y azul cambiados (visto en una captura).
+    - Dibujarla cuesta ~0,45 ms en la PC (banco "banco del aviso"), solo cuando aparece o cambia.
+    - El temporizador de 6 s existe solo mientras hay una ventanita. No hay hilos ni despertares nuevos: Ventrik ya se despierta con las novedades aunque esté minimizado.
+  - **El bucle de `Ventana` ahora mira solo los mensajes de su propia ventana** para `WM_TIMER kTic`, `WM_PAINT` y pedir cuadros; antes la ventanita le habría forzado cuadros.
+  - **"Fuera" de verdad:** `con_foco` salía solo de `WM_ACTIVATEAPP`, y si Ventrik arrancaba sin el foco quedaba "al frente" para siempre. Ahora el tic de cada segundo lo corrige mirando si la ventana del frente es del proceso (`GetForegroundWindow`). Usa el tic que ya existía, sin despertares nuevos.
+  - **Registro:** columna nueva `notificaciones` (cuántas ventanitas aparecieron).
+  - **Pruebas:**
+    - `prueba_avisos.cpp`, 14 casos, entre ellos 4 canales a la vez, el juego y la pantalla esperando;
+    - `prueba_pantallas`: la ventanita se abre, se actualiza y no pasa de 3; soltar sin apretar no cuenta, la X no abre nada y el clic sí; ocultar no hace reaparecer;
+    - `fuzz_sala` también alimenta `Avisos`, con un reloj que avanza, respuestas a sus pedidos y el mismo reparto de respuestas y rechazos que `Programa`;
+    - en las 4 combinaciones (2.6), la ventana real minimizada recibe un mensaje, aparece la ventanita, el registro la cuenta y el clic la restaura.
+  - En la moderna también se usa esta ventanita hasta el paso 3.1b (notificaciones de Windows).
+- **Lo que sigue:** el paso 3.1b, notificaciones de Windows 10/11 en la moderna (plan aprobado el 2026-10-26).
 
 ## Ramas y repositorio
 

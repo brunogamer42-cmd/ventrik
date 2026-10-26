@@ -397,6 +397,9 @@ void Ventana::mirar_situacion() {
   SystemParametersInfoW(SPI_GETSCREENSAVERRUNNING, 0, &protector, 0);
   protector_ = protector != FALSE;
   situacion_.bloqueada = bloqueo_ || protector_;
+  DWORD de = 0;
+  GetWindowThreadProcessId(GetForegroundWindow(), &de);
+  situacion_.con_foco = de == GetCurrentProcessId();
   const bool juego = hay_un_juego_adelante(ventana_);
   if (juego != situacion_.juego) {
     SetThreadPriority(GetCurrentThread(), juego ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_NORMAL);
@@ -471,6 +474,13 @@ bool Ventana::dibujar_cuadro(const std::function<void()>& dibujar) {
   return true;
 }
 
+void Ventana::traer_al_frente() {
+  if (IsIconic(ventana_)) {
+    ShowWindow(ventana_, SW_RESTORE);
+  }
+  SetForegroundWindow(ventana_);
+}
+
 int Ventana::correr(const std::function<bool()>& atender, const std::function<void()>& dibujar) {
   int pendientes = kCuadrosTrasEvento;
   DWORD entre_cuadros = kMilisegundosPorCuadro;
@@ -488,12 +498,13 @@ int Ventana::correr(const std::function<bool()>& atender, const std::function<vo
         return static_cast<int>(mensaje.wParam);
       }
       ++uso_.mensajes[mensaje.message];
-      presentar_igual_ = presentar_igual_ || mensaje.message == WM_PAINT;
-      if (mensaje.message == WM_TIMER && mensaje.wParam == kTic) {
+      const bool propio = mensaje.hwnd == ventana_;
+      presentar_igual_ = presentar_igual_ || (propio && mensaje.message == WM_PAINT);
+      if (propio && mensaje.message == WM_TIMER && mensaje.wParam == kTic) {
         mirar_situacion();
       }
-      const bool pide =
-          pide_cuadros(mensaje.message, mensaje.wParam, mensaje.lParam, ImGui::GetIO().WantTextInput, ultimo_mouse);
+      const bool pide = propio && pide_cuadros(mensaje.message, mensaje.wParam, mensaje.lParam,
+                                               ImGui::GetIO().WantTextInput, ultimo_mouse);
       TranslateMessage(&mensaje);
       DispatchMessageW(&mensaje);
       if (pide) {

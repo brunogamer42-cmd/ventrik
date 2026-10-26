@@ -1,0 +1,256 @@
+#include <chrono>
+#include <string>
+#include <variant>
+
+#include "client/avisos.h"
+#include "common/utf.h"
+#include <doctest/doctest.h>
+
+using namespace ventrik::cliente;
+using namespace ventrik::protocolo;
+using namespace std::chrono_literals;
+
+namespace {
+const std::string kPunto = "\xC2\xB7";
+const Avisos::Reloj::time_point kAhora = Avisos::Reloj::now();
+
+MensajeChat chat(std::uint32_t canal, std::uint32_t autor_id, const std::string& autor, const std::string& texto) {
+  static std::uint32_t numero = 1;
+  return MensajeChat{numero, canal, numero++, autor_id, autor, 1000, texto};
+}
+
+MensajeGuardado guardado(std::uint32_t numero, const std::string& autor, const std::string& texto) {
+  return MensajeGuardado{numero, numero, autor, 1000, texto};
+}
+
+Historial respuesta(std::uint32_t canal, std::vector<MensajeGuardado> mensajes) {
+  return Historial{canal, kDesdeAviso, Sentido::viejos, false, std::move(mensajes)};
+}
+
+Avisos conectados(OpcionesAvisos opciones = {}) {
+  Avisos avisos(ventrik::elegir_idioma("es"), opciones);
+  avisos.conectado("1.2.3.4:7700", 1, "Yo");
+  avisos.fuera(true);
+  return avisos;
+}
+
+std::string cuerpo(const Avisos& avisos) {
+  const auto lista = avisos.lista();
+  REQUIRE(lista.size() == 1);
+  return lista.front().cuerpo;
+}
+
+PedirHistorial pedido(Avisos& avisos, Avisos::Reloj::time_point ahora = kAhora) {
+  const auto orden = avisos.pedir(ahora, false, false);
+  REQUIRE(orden);
+  return std::get<PedirHistorial>(*orden);
+}
+}
+
+TEST_CASE("Un mensaje del chat de voz con Ventrik fuera avisa con quién y el texto") {
+  Avisos avisos = conectados();
+  avisos.mensaje(chat(5, 2, "Tano", "Arrancamos?"), "Partida", true);
+  const auto lista = avisos.lista();
+  REQUIRE(lista.size() == 1);
+  CHECK(lista[0].canal == 5);
+  CHECK(lista[0].voz);
+  CHECK(lista[0].titulo == "1.2.3.4:7700 " + kPunto + " Partida");
+  CHECK(lista[0].cuerpo == "Tano: Arrancamos?");
+}
+
+TEST_CASE("Varios mensajes del mismo canal se juntan en un aviso que dice de quiénes") {
+  Avisos avisos = conectados();
+  avisos.mensaje(chat(6, 2, "Tano", "a"), "general", false);
+  avisos.mensaje(chat(6, 2, "Tano", "b"), "general", false);
+  avisos.mensaje(chat(6, 2, "Tano", "c"), "general", false);
+  CHECK(cuerpo(avisos) == "3 mensajes de Tano");
+  CHECK(avisos.lista()[0].titulo == "1.2.3.4:7700 " + kPunto + " #general");
+  avisos.mensaje(chat(6, 3, "Sofi", "d"), "general", false);
+  CHECK(cuerpo(avisos) == "4 mensajes de Tano y Sofi");
+  avisos.mensaje(chat(6, 4, "Ana", "e"), "general", false);
+  avisos.mensaje(chat(6, 5, "Beto", "f"), "general", false);
+  CHECK(cuerpo(avisos) == "6 mensajes de Tano, Sofi y 2 m\xC3\xA1s");
+}
+
+TEST_CASE("Los mensajes propios no avisan, con Ventrik al frente tampoco, y al volver se borra todo") {
+  Avisos avisos(ventrik::elegir_idioma("es"));
+  avisos.conectado("srv", 1, "Yo");
+  avisos.mensaje(chat(5, 2, "Tano", "hola"), "Partida", true);
+  CHECK(avisos.lista().empty());
+  avisos.fuera(true);
+  avisos.mensaje(chat(5, 1, "Yo", "hola"), "Partida", true);
+  CHECK(avisos.lista().empty());
+  avisos.mensaje(chat(5, 2, "Tano", "hola"), "Partida", true);
+  CHECK(avisos.lista().size() == 1);
+  const auto antes = avisos.version();
+  avisos.fuera(false);
+  CHECK(avisos.lista().empty());
+  CHECK(avisos.version() > antes);
+}
+
+TEST_CASE("Con privacidad solo dice el canal y la cantidad, y no pide el texto al servidor") {
+  OpcionesAvisos opciones;
+  opciones.privado = true;
+  Avisos avisos = conectados(opciones);
+  avisos.mensaje(chat(5, 2, "Tano", "secreto"), "Partida", true);
+  CHECK(cuerpo(avisos) == "1 mensaje nuevo");
+  avisos.mensaje(chat(5, 3, "Sofi", "otro"), "Partida", true);
+  CHECK(cuerpo(avisos) == "2 mensajes nuevos");
+  avisos.nuevos(7, "charla", 4);
+  CHECK_FALSE(avisos.pedir(kAhora, false, false));
+}
+
+TEST_CASE("Un canal no mirado pide sus mensajes y arma el aviso con lo que llega") {
+  Avisos avisos = conectados();
+  avisos.nuevos(7, "charla", 1);
+  CHECK(cuerpo(avisos) == "1 mensaje nuevo");
+  const PedirHistorial primero = pedido(avisos);
+  CHECK(primero.canal == 7);
+  CHECK(primero.desde == kDesdeAviso);
+  CHECK(primero.sentido == Sentido::viejos);
+  CHECK(primero.cantidad == 1);
+  CHECK(avisos.espera(7));
+  CHECK_FALSE(avisos.pedir(kAhora + 5s, false, false));
+  avisos.historial(respuesta(7, {guardado(5, "Tano", "hola")}), 4);
+  CHECK_FALSE(avisos.espera(7));
+  CHECK(cuerpo(avisos) == "Tano: hola");
+  avisos.nuevos(7, "charla", 3);
+  CHECK_FALSE(avisos.pedir(kAhora + 1s, false, false));
+  CHECK(pedido(avisos, kAhora + 2s).cantidad == 3);
+  avisos.historial(respuesta(7, {guardado(12, "Yo", "mio"), guardado(11, "Sofi", "chau"),
+                                 guardado(10, "Tano", "hola"), guardado(9, "Viejo", "ya leido")}),
+                   9);
+  CHECK(cuerpo(avisos) == "3 mensajes de Tano y Sofi");
+}
+
+TEST_CASE("Varios canales a la vez: un solo pedido en vuelo, cada 2 s y por turnos") {
+  Avisos avisos = conectados();
+  for (std::uint32_t canal = 7; canal <= 10; ++canal) {
+    avisos.nuevos(canal, "c", 1);
+  }
+  const std::uint32_t uno = pedido(avisos).canal;
+  CHECK_FALSE(avisos.pedir(kAhora + 3s, false, false));
+  avisos.historial(respuesta(uno, {}), 0);
+  const std::uint32_t dos = pedido(avisos, kAhora + 3s).canal;
+  avisos.historial(respuesta(dos, {}), 0);
+  const std::uint32_t tres = pedido(avisos, kAhora + 6s).canal;
+  avisos.historial(respuesta(tres, {}), 0);
+  const std::uint32_t cuatro = pedido(avisos, kAhora + 9s).canal;
+  avisos.historial(respuesta(cuatro, {}), 0);
+  CHECK(uno + dos + tres + cuatro == 7 + 8 + 9 + 10);
+  CHECK_FALSE(avisos.pedir(kAhora + 12s, false, false));
+}
+
+TEST_CASE("No pide con un juego adelante, mientras la pantalla espera su historial, ni con Ventrik al frente") {
+  Avisos avisos = conectados();
+  avisos.nuevos(7, "charla", 1);
+  CHECK_FALSE(avisos.pedir(kAhora, false, true));
+  CHECK_FALSE(avisos.pedir(kAhora, true, false));
+  avisos.fuera(false);
+  CHECK_FALSE(avisos.pedir(kAhora, false, false));
+}
+
+TEST_CASE("Una respuesta que el aviso no pidió no lo toca") {
+  Avisos avisos = conectados();
+  avisos.nuevos(7, "charla", 1);
+  avisos.historial(respuesta(7, {guardado(5, "Tano", "hola")}), 0);
+  CHECK(cuerpo(avisos) == "1 mensaje nuevo");
+  pedido(avisos);
+  avisos.historial(Historial{7, 0, Sentido::viejos, false, {guardado(5, "Tano", "hola")}}, 0);
+  avisos.historial(Historial{7, kDesdeAviso, Sentido::nuevos, false, {guardado(5, "Tano", "hola")}}, 0);
+  CHECK(avisos.espera(7));
+  CHECK(cuerpo(avisos) == "1 mensaje nuevo");
+}
+
+TEST_CASE("Si llegan menos mensajes que los sin leer, o ninguno, dice solo la cantidad") {
+  Avisos avisos = conectados();
+  avisos.nuevos(7, "charla", 50);
+  CHECK(pedido(avisos).cantidad == kMensajesPorAviso);
+  avisos.historial(respuesta(7, {guardado(50, "Tano", "a"), guardado(49, "Tano", "b")}), 0);
+  CHECK(cuerpo(avisos) == "50 mensajes nuevos");
+  avisos.nuevos(7, "charla", 3);
+  pedido(avisos, kAhora + 2s);
+  avisos.historial(respuesta(7, {}), 0);
+  CHECK(cuerpo(avisos) == "3 mensajes nuevos");
+}
+
+TEST_CASE("Un rechazo o un pedido sin respuesta dejan volver a pedir ese canal") {
+  Avisos avisos = conectados();
+  avisos.nuevos(7, "charla", 1);
+  pedido(avisos);
+  avisos.negado();
+  CHECK_FALSE(avisos.pidiendo());
+  CHECK(pedido(avisos, kAhora + 2s).canal == 7);
+  CHECK_FALSE(avisos.pedir(kAhora + 5s, false, false));
+  avisos.nuevos(7, "charla", 2);
+  CHECK(pedido(avisos, kAhora + 12s).canal == 7);
+}
+
+TEST_CASE("La conexión cortada avisa solo con Ventrik fuera y queda después de desconectar") {
+  Avisos avisos(ventrik::elegir_idioma("es"));
+  avisos.conectado("srv", 1, "Yo");
+  avisos.corte("El servidor cort\xC3\xB3 la conexi\xC3\xB3n.");
+  CHECK(avisos.lista().empty());
+  avisos.fuera(true);
+  avisos.corte("El servidor cort\xC3\xB3 la conexi\xC3\xB3n.");
+  avisos.mensaje(chat(5, 2, "Tano", "hola"), "Partida", true);
+  avisos.desconectado();
+  const auto lista = avisos.lista();
+  REQUIRE(lista.size() == 1);
+  CHECK(lista[0].canal == 0);
+  CHECK(lista[0].titulo == "srv");
+  CHECK(lista[0].cuerpo == "El servidor cort\xC3\xB3 la conexi\xC3\xB3n.");
+  avisos.fuera(false);
+  CHECK(avisos.lista().empty());
+}
+
+TEST_CASE("Cada tipo de aviso y No molestar se apagan") {
+  OpcionesAvisos sin_voz;
+  sin_voz.voz = false;
+  Avisos a = conectados(sin_voz);
+  a.mensaje(chat(5, 2, "Tano", "hola"), "Partida", true);
+  a.mensaje(chat(6, 2, "Tano", "hola"), "general", false);
+  CHECK(a.lista().size() == 1);
+  OpcionesAvisos callado;
+  callado.no_molestar = true;
+  Avisos b = conectados(callado);
+  b.mensaje(chat(5, 2, "Tano", "hola"), "Partida", true);
+  b.nuevos(7, "charla", 1);
+  CHECK_FALSE(b.pedir(kAhora, false, false));
+  b.corte("corte");
+  CHECK(b.lista().empty());
+}
+
+TEST_CASE("Ver un canal borra su aviso y la lista sale en el orden en que cambiaron") {
+  Avisos avisos = conectados();
+  avisos.mensaje(chat(5, 2, "Tano", "a"), "Partida", true);
+  avisos.mensaje(chat(6, 2, "Tano", "b"), "general", false);
+  avisos.mensaje(chat(5, 3, "Sofi", "c"), "Partida", true);
+  auto lista = avisos.lista();
+  REQUIRE(lista.size() == 2);
+  CHECK(lista[0].canal == 6);
+  CHECK(lista[1].canal == 5);
+  avisos.visto(5);
+  lista = avisos.lista();
+  REQUIRE(lista.size() == 1);
+  CHECK(lista[0].canal == 6);
+}
+
+TEST_CASE("Los avisos tienen tope de canales y de texto") {
+  Avisos avisos = conectados();
+  for (std::uint32_t canal = 1; canal <= 200; ++canal) {
+    avisos.mensaje(chat(canal, 2, "Tano", "hola"), "c", false);
+  }
+  CHECK(avisos.pendientes() == kMaximoCanales);
+  Avisos largo = conectados();
+  std::string acentos;
+  for (int i = 0; i < 300; ++i) {
+    acentos += "\xC3\xA1";
+  }
+  largo.mensaje(chat(5, 2, "Tano", std::string(150, 'a') + "\n" + acentos), "Partida", true);
+  const std::string texto = cuerpo(largo);
+  CHECK(texto.size() <= std::string("Tano: ").size() + kTopeTextoAviso + 3);
+  CHECK(texto.find('\n') == std::string::npos);
+  CHECK(texto.substr(texto.size() - 3) == "\xE2\x80\xA6");
+  CHECK(ventrik::es_utf8_valido(texto));
+}
