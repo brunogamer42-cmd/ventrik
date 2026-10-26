@@ -22,6 +22,7 @@ Cada biblioteca se guarda con versión fija y sin modificar su código. De cada 
 | Argon2 (implementación de referencia) | 20190702 | CC0 o Apache 2.0 | Contraseñas | 2026-10-21 |
 | SQLite | 3.54.1 | Dominio público | Base de datos del servidor | 2026-10-21 |
 | stb_image | 2.30 | Dominio público o MIT | GIF del modo Visual | 2026-10-21 |
+| stb_vorbis | 1.22 | Dominio público o MIT | Sonidos OGG de los avisos (etapa 3) | 2026-10-26 |
 | libwebp | 1.6.0 | BSD de 3 cláusulas | WebP del modo Visual | 2026-10-21 |
 | miniupnpc | 2.3.3 | BSD de 3 cláusulas | Abrir el puerto con UPnP | 2026-10-21 |
 | Barlow y Barlow Semi Condensed | 1.408 | SIL Open Font License 1.1 | Letra de la interfaz | 2026-10-23 |
@@ -43,6 +44,7 @@ Cada biblioteca se guarda con versión fija y sin modificar su código. De cada 
 | Argon2 | `https://github.com/P-H-C/phc-winner-argon2/archive/refs/tags/20190702.tar.gz` | SHA-256 `daf972a89577f8772602bf2eb38b6a3dd3d922bf5724d45e7f9589b5e830442c` |
 | SQLite | `https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip` | SHA3-256 `92281c86e2957f9b9305890f9ac04204caa7b677cc868dc326d942689df28e30`, comprobada con la página de descargas; SHA-256 `0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9` |
 | stb_image | `https://github.com/nothings/stb/archive/013ac3beddff3dbffafd5177e7972067cd2b5083.tar.gz` (último cambio de `stb_image.h`, 2024-05-31) | SHA-256 `b01aa93e1a968aed55f43e072c98ee401d2f20e897aabdb1a166c7166886ed11` |
+| stb_vorbis | El mismo paquete que stb_image (en esa versión `stb_vorbis.c` es la 1.22, del 2021-07-11) | La misma huella que stb_image, comprobada otra vez al bajarlo el 2026-10-26 |
 | libwebp | `https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz` | SHA-256 `e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564` (publican una firma PGP, todavía no verificada) |
 | miniupnpc | `https://github.com/miniupnp/miniupnp/archive/refs/tags/miniupnpc_2_3_3.tar.gz` | SHA-256 `8cf2c833b3e76fc4893ff29c2a376e3394962449e5970e373c0a91421724d222` |
 | Barlow | `https://raw.githubusercontent.com/google/fonts/3218ae2acc5bce7ccd97c477965b5b4094241fb0/ofl/barlow/` (`Barlow-Regular.ttf`, `Barlow-SemiBold.ttf`, `Barlow-Bold.ttf`, `OFL.txt`) y `.../ofl/barlowsemicondensed/BarlowSemiCondensed-SemiBold.ttf`; commit del 2026-02-26, el último que tocó esas carpetas | Comprobada con el hash de Git que muestra GitHub para cada archivo. SHA-256 `95aa02c7c43096e0dd44d787ba6216864a67157e402adab59b35572e0c1577ea` (Regular), `86577cb32f8abe3673db53ca0f4221e6856751a4f6730c867e00f720f8bb1fc5` (SemiBold), `84e6a4d61e7c3e21f3c50ea6a4f7e5303a3467864c038be6ea3759bab8d547f9` (Bold), `bd299f4bc5b44d30be8d42e9bad3a5df7d66af1cd55d0ed72a8b8916360a1424` (Semi Condensed SemiBold), `186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f` (OFL.txt) |
@@ -59,7 +61,7 @@ Cada biblioteca se guarda con versión fija y sin modificar su código. De cada 
 - **SpeexDSP:** `include/speex/`, `libspeexdsp/` (sin los `test*.c`) y la licencia.
 - **Argon2:** `include/argon2.h`, la parte de `src/` de la implementación de referencia (sin la versión optimizada, las pruebas ni los programas) y la licencia.
 - **SQLite:** `sqlite3.c` y `sqlite3.h`. Es de dominio público y no trae archivo de licencia (ver https://www.sqlite.org/copyright.html).
-- **stb_image:** `stb_image.h` y la licencia.
+- **stb_image y stb_vorbis:** `stb_image.h`, `stb_vorbis.c` y la licencia del repositorio (una sola para los dos).
 - **libwebp:** `src/` (decodificador, codificador, animaciones y utilidades), `sharpyuv/`, la licencia y `PATENTS`.
 - **miniupnpc:** `miniupnpc/include/`, `miniupnpc/src/` (sin pruebas ni programas de ejemplo), `miniupnpc/VERSION` y la licencia (la de la raíz del repositorio; la de la carpeta es un enlace a esa).
 - **Barlow (en `fuentes/`):** los cuatro pesos que usa docs/aspecto.md (Regular, SemiBold y Bold de Barlow, y SemiBold de Barlow Semi Condensed) y la licencia, que es la misma para las dos familias. Van dentro de `ventrik.exe` como recursos (`src/client/ventrik.rc`).
@@ -92,4 +94,5 @@ Están en `CMakeLists.txt`, junto a cada biblioteca:
   - `SQLITE_OMIT_LOAD_EXTENSION`: no puede cargar código de afuera.
   - `SQLITE_DQS=0`: las comillas dobles son solo para nombres, nunca para texto.
 - **RNNoise:** versión en C común, la misma que Opus usa en `dnn/vec.h`. En la clásica se apaga `restrict`, que el compilador de C de VS 2017 no conoce; es solo una pista para optimizar.
+- **stb_vorbis:** solo desde memoria y con el sonido entero (`STB_VORBIS_NO_STDIO`, `STB_VORBIS_NO_PUSHDATA_API`): no abre archivos por su cuenta. Todavía no lo usa ningún programa; se compila para comprobar que anda en las dos versiones.
 - **doctest (solo en la clásica):** sin su informe de cierres inesperados (`DOCTEST_CONFIG_NO_WINDOWS_SEH`), que usa una función que XP de 32 bits no tiene.
