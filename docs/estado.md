@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-25, con el código del panel de audio (silencio y volúmenes).
+Última actualización: 2026-10-26, con el diseño de los sonidos de los avisos.
 
 ## Dónde estamos
 
@@ -89,6 +89,13 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - **La barra fija de Rendimiento se mantiene** (el dueño, 2026-10-25): las capturas nuevas muestran el medidor con divisiones porque se hicieron sin esa decisión, pero manda el texto. El medidor en vivo con la marca se ve solo dentro de "Cómo transmitís" mientras está abierto, que reemplaza a "Ajustar" y "Guardar".
   - Está en docs/diseno.md ("Panel de audio", y los cambios en "Organización de la ventana", "Voz" y "Entrar a un servidor y a la voz"). Capturas: se borraron las Rendimiento*.png y Visual*.png y entraron las 18 nuevas (base, -por-voz, -por-voz-microfono, -microfono, -salida, -sin-voz, -canal-texto, -silenciado y -sin-audio, en los dos modos). **Falta el código:** silenciar cambia el protocolo y el servidor (los demás ven tu silencio, y sin audio el servidor no te manda voz).
 - **Panel de audio nuevo: hecho y probado en la HP.** Cabecera sin "Micrófono" ni "Audio"; panel de tres filas con "Salir del canal", la barra fija (Rendimiento) y cuatro botones; paneles flotantes "Cómo transmitís" (con el medidor en vivo, la sensibilidad y el volumen del micrófono) y "Volumen de salida"; silenciar con los botones, Ctrl+M y Ctrl+D (solo con Ventrik al frente, decisión del dueño), visible para los demás; volúmenes de 0 a 200 %; se recuerdan al cerrar el volumen y el silencio (decisión del dueño). Cómo está hecho, en "Decisiones técnicas" (Voz). En la HP (registro del dueño): arrancó con el silencio guardado (3), las reglas de Discord dieron 3 → 1 → 0, y sin audio no subió ni bajó voz; el dueño confirmó a mano el ícono tachado desde la PC, los atajos y los volúmenes. Queda por medir: hablando y moviendo el mouse, el procesador subió a 10–24 % (quieto en la voz, ~1 %); XP mide de a 15 ms, repetirlo con el mouse quieto. Medido en la PC: pantalla del servidor 100 a 102 µs por cuadro sin ventana (antes 106 a 109); con `--registro`, la columna nueva `silencio` pasó 0 → 1 → 3 tocando los botones. Capturas de la PC comparadas a ojo con las nueve de Rendimiento (salvo la barra fija).
+- **Diseño actualizado (2026-10-26): sonidos de los avisos (etapa 3, no es para la etapa en curso).** 27 avisos con sonido en 4 grupos (Voz, Chat, Llamadas y amigos, Servidor), con su casilla, prueba y "Predeterminado / Propio / Elegir un archivo…"; volumen de los avisos, "Sonar por" (otro dispositivo de salida), No molestar con la excepción de las llamadas de amigos, sonidos propios (WAV, OGG o MP3; hasta 1 MB y 5 s, los de llamada 10 s; a 48 kHz mono, sin nivelar el volumen, decisión del dueño) y paquetes .vksonidos (zip con un JSON). Está en docs/diseno.md ("Sonidos de los avisos") y en la etapa 3 de docs/plan.md. Capturas: Ajustes.png reemplazada y Ajustes-avisos.png nueva; su nota al pie todavía dice que se empareja el volumen, y manda el texto. Para cuando llegue:
+  - WAV y MP3 se decodifican con dr_wav y dr_mp3, que ya vienen dentro de miniaudio; OGG, con stb_vorbis, que está en el mismo paquete de miniaudio (extras) y hay que sumar a third_party;
+  - el zip y el JSON del paquete .vksonidos piden bibliotecas que hoy no están en third_party: preguntar al dueño antes de sumarlas;
+  - los WAV de fábrica pasan a OGG una sola vez, con una herramienta fuera del programa (el programa solo decodifica);
+  - la mezcla no tiene que saturar al juntar sonidos y voz (hoy el volumen de salida por encima de 100 % recorta si la voz llega fuerte; la mezcla de la etapa 3 lo resuelve para todo);
+  - lo que lee audios y paquetes lleva fuzzing.
+  Los 27 WAV de fábrica ya están en assets/ (01_entrar_canal.wav … 27_error.wav, 37 MB en total), sin guardar en git: al empezar la etapa 3 van a assets/sonidos/ y pasan a OGG. Junto al proyecto hay también un ventrik-sonidos-midi.zip que el dueño no mencionó: no se tocó.
 - **Lo que sigue:** el **paso 2.6**, la prueba en check.ps1 que levanta servidor y programa en las cuatro combinaciones (clásica y moderna en cada lado). Después, la prueba de estrés y ataques que pidió el dueño (propuesta como 2.7). Las notificaciones son el primer paso de la etapa 3.
 
 ## Ramas y repositorio

@@ -95,7 +95,7 @@ El programa abre en **Inicio**. Ventrik se organiza por servidores; desde la eta
 | Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil. Capturas, cada una en docs/pantallas/Rendimiento*.png y Visual*.png: la base (en un canal de voz), -sin-voz (solo con el chat), -canal-texto, -por-voz (transmitiendo por voz), -microfono y -por-voz-microfono (el panel flotante "Cómo transmitís"), -salida (el volumen de salida), -silenciado y -sin-audio |
 | Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados. En Visual, al elegir un servidor se ven su fondo e icono animados |
 | Hostear un servidor | Asistente de 7 pasos (nombre y acceso, conexión, capacidad y voz, seguridad, chat y archivos, pantallas y varias PCs, revisar e iniciar) y la pantalla final Invitar gente (ver "Hostear: asistente por pasos") |
-| Ajustes | General (con el idioma y "Al entrar a un servidor"), teclas (hablar y susurros), apariencia, avisos y sonidos, descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) aparecen desactivadas y marcadas "EN DESARROLLO" |
+| Ajustes | General (con el idioma y "Al entrar a un servidor"), teclas (hablar y susurros), apariencia, avisos y sonidos (ver "Sonidos de los avisos"; captura Ajustes-avisos.png), descargas, seguridad, red y acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) aparecen desactivadas y marcadas "EN DESARROLLO" |
 | Amigos (etapa 14) | Solicitudes, grupos y amigos; chat de a dos y de grupo; agregar amigo; llamada entrante; llamada grupal con personas, chat y cómo viaja; recuperar desde Google Drive (ver "Amigos y llamadas directas") |
 | Audio y micrófono | Dispositivos, cómo transmitís (tecla o voz) con medidor y prueba, limpieza de la voz, consumo de la voz, volúmenes y bajar otros programas cuando alguien habla (desde Windows 7) |
 | Enviar archivo con contraseña | Pide la contraseña, analiza el comprimido con ClamAV en tu PC y lo envía; la contraseña no sale de tu PC |
@@ -115,6 +115,63 @@ Avisan de lo que pasa mientras Ventrik no está al frente o está minimizado. Nu
 - **Windows 10 y 11 (versión moderna):** las notificaciones del sistema, las que salen abajo a la derecha y quedan en el Centro de actividades, con el nombre y el ícono de Ventrik. Se cargan con GetProcAddress; si no están, se usa la ventana propia.
 - **Versión clásica (XP a 8.1 y Windows 10 de 32 bits):** una ventana propia, chica, abajo a la derecha, parecida a la de Windows 10 y con el aspecto de Ventrik (docs/aspecto.md). No le quita el foco a lo que estés haciendo, se cierra sola a los pocos segundos y se dibuja sin Direct3D, para no gastar en la netbook.
 - **Privacidad:** Windows guarda sus notificaciones en un archivo propio, fuera de Ventrik y sin cifrar. Por eso, en Ajustes → Avisos se puede elegir que digan solo el canal y la cantidad, sin quién ni el texto.
+
+### Sonidos de los avisos
+
+Diseño del dueño del 2026-10-26. No es para la etapa en curso: va con las notificaciones, en la etapa 3. Capturas: docs/pantallas/Ajustes-avisos.png (la sección entera, con la lista) y Ajustes.png. La nota al pie de las capturas todavía dice que se empareja el volumen de los sonidos propios: manda este texto, que dice que no.
+
+- **27 avisos con sonido, en 4 grupos.** La lista, con cuándo suena cada uno y si viene encendido, está en Ajustes-avisos.png:
+  - **Voz (14):**
+    - entrás a un canal de voz;
+    - salís del canal;
+    - alguien entra a tu canal;
+    - alguien sale de tu canal;
+    - silenciás el micrófono;
+    - activás el micrófono;
+    - silenciás el audio;
+    - activás el audio;
+    - empezás a transmitir (tecla), apagado de fábrica;
+    - dejás de transmitir (tecla), apagado de fábrica;
+    - un admin te movió o te silenció;
+    - te llega un susurro, suave para no tapar la voz;
+    - se cortó la conexión;
+    - volvió la conexión.
+  - **Chat (4):**
+    - mensaje nuevo en un canal;
+    - te mencionan;
+    - mensaje de un amigo;
+    - terminó de bajar un archivo.
+  - **Llamadas y amigos (5), "EN DESARROLLO" hasta la etapa 14:**
+    - te están llamando;
+    - estás llamando (espera);
+    - termina la llamada;
+    - solicitud de amistad;
+    - un amigo se conectó, apagado de fábrica.
+  - **Servidor (4):**
+    - alguien pide entrar (admins);
+    - alerta de seguridad (admins);
+    - alguien comparte pantalla en tu canal, "PRONTO" hasta la etapa 12;
+    - no se pudo (error).
+- **Los sonidos de fábrica** los produce el autor en WAV. Van en assets/sonidos/, numerados en el orden de la lista (01_entrar_canal.wav … 27_error.wav), y el programa los lleva en OGG.
+- **Reglas al sonar:**
+  - "Mensaje nuevo" suena solo si ese canal no está a la vista.
+  - Los de llamada son bucles de 4 s hasta atender o rechazar.
+  - En No molestar no suena nada, salvo las llamadas de amigos si está tildado "Dejar sonar las llamadas de amigos en No molestar".
+  - "Sonar por" permite un dispositivo de salida distinto del de la voz.
+  - La mezcla del programa no agrega saturación cuando se superponen sonidos o se juntan con la voz. Eso es responsabilidad del programa, no del archivo.
+- **Ajustes → Avisos y sonidos:**
+  - volumen de los avisos;
+  - "Sonar por";
+  - No molestar, con la casilla de las llamadas de amigos;
+  - "Mostrar avisos de Windows con la ventana minimizada";
+  - paquete de sonidos: importar, exportar y volver a los predeterminados;
+  - por cada aviso: casilla para encenderlo, botón para probarlo y "Predeterminado / Propio / Elegir un archivo…".
+- **Sonidos propios:**
+  - **Formatos y límites:** WAV, OGG o MP3; hasta 1 MB y 5 s (los de llamada, hasta 10 s).
+  - **Al elegir uno**, se decodifica con decodificadores de un solo archivo (dr_wav, stb_vorbis, dr_mp3), se rechaza si está dañado o se pasa de los límites, se pasa a 48 kHz mono y se guarda una copia en la carpeta del programa.
+  - **Volumen:** no se nivela ni se limita, porque lo escucha solo el usuario. Solo aplica el volumen general de los avisos.
+  - **Son locales:** nunca se mandan a otros ni a los servidores.
+- **Paquete .vksonidos:** un zip con los audios y un JSON que dice a qué aviso va cada uno. Al importarlo se valida cada archivo con las mismas reglas, y se ignora cualquier archivo que no sea audio.
 
 ### Hostear: asistente por pasos
 
