@@ -115,6 +115,8 @@ function Revisar-Exe([string]$exe, [string]$version) {
         Informar "${nombre}: es de 64 bits" ($cabeceras -match 'machine \(x64\)')
         Informar "${nombre}: direcciones al azar ampliadas (High Entropy)" `
             ($cabeceras -match 'High Entropy Virtual Addresses')
+        Informar "${nombre}: las notificaciones de Windows se cargan recién al usarlas (sin WinRT fijo)" `
+            ($dependencias -notmatch '(?i)combase|api-ms-win-core-winrt')
         return
     }
 

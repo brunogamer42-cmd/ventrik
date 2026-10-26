@@ -26,6 +26,7 @@
 #include "client/ui/ventana.h"
 #include "common/cifrado/inicio.h"
 #include "common/cifrado/tls.h"
+#include "common/archivos.h"
 #include "common/proceso.h"
 #include "common/texto.h"
 #include "common/utf.h"
@@ -46,9 +47,15 @@ void anotar(std::ostream& salida, const Valores&... valores) {
 class Programa {
  public:
   Programa(Idioma idioma, Ventana& ventana, std::wstring carpeta, const std::vector<std::string>& entrada)
-      : ventana_(ventana), carpeta_(std::move(carpeta)), avisos_(idioma) {
+      : ventana_(ventana),
+        carpeta_(std::move(carpeta)),
+        integrar_(carpeta_ == carpeta_de_datos(L"Programa")),
+        avisos_(idioma) {
     pantalla_.idioma = idioma;
     pantalla_.logo = ventana.logo();
+    if (integrar_) {
+      escuchar_clics_de_windows(ventana.hwnd());
+    }
     const cliente::LecturaGuardados lectura = cliente::cargar_guardados(guardados_, carpeta_);
     se_puede_guardar_ = lectura == cliente::LecturaGuardados::leidos || lectura == cliente::LecturaGuardados::danados;
     const Clave aviso = lectura == cliente::LecturaGuardados::version_nueva ? Clave::inicio_lista_nueva
@@ -68,7 +75,10 @@ class Programa {
     }
   }
 
-  ~Programa() { cerrar(); }
+  ~Programa() {
+    cerrar();
+    soltar_clics_de_windows();
+  }
 
   void registrar(const std::wstring& ruta) {
     registro_.open(ruta.c_str(), std::ios::trunc);
@@ -151,7 +161,11 @@ class Programa {
     bool cambio = false;
     const Situacion& situacion = ventana_.situacion();
     avisos_.fuera(!situacion.con_foco || situacion.minimizada);
-    if (const auto tocado = en_pantalla_ ? en_pantalla_->tocado() : std::nullopt) {
+    auto tocado = notificador_ ? notificador_->tocado() : std::nullopt;
+    if (!tocado) {
+      tocado = tomar_clic_de_windows();
+    }
+    if (tocado) {
       abrir_aviso(*tocado);
       cambio = true;
     }
@@ -246,11 +260,9 @@ class Programa {
       case Accion::entrar_con_formulario:
         entrar_con_formulario();
         break;
-      case Accion::entrar_a_guardado: {
-        const cliente::ServidorGuardado& servidor = guardados_.servidores[pedido.cual];
-        entrar(servidor.direccion, cifrado::Huella(servidor.huella), {servidor.nombre, std::nullopt}, false);
+      case Accion::entrar_a_guardado:
+        entrar_a(guardados_.servidores[pedido.cual]);
         break;
-      }
       case Accion::quitar:
         if (pantalla_.intento.direccion == guardados_.servidores[pedido.cual].direccion) {
           desconectar();
@@ -306,7 +318,16 @@ class Programa {
   void abrir_aviso(const cliente::Notificacion& aviso) {
     ventana_.traer_al_frente();
     avisos_.visto(aviso.canal);
-    if (sala_ && aviso.canal != 0 && (!aviso.voz || aviso.canal == sala_->tu_canal())) {
+    const auto direccion = red::leer_direccion(aviso.servidor);
+    const auto* guardado = direccion ? cliente::buscar_guardado(guardados_, *direccion) : nullptr;
+    if (!sesion_ && guardado != nullptr && aviso.canal != 0 && !aviso.voz) {
+      entrar_a(*guardado);
+    }
+    const bool aca = direccion && *direccion == pendiente_.direccion;
+    if (!sala_ && sesion_ && aca && !aviso.voz) {
+      canal_del_aviso_ = aviso.canal;
+    }
+    if (sala_ && aviso.canal != 0 && aca && (!aviso.voz || aviso.canal == sala_->tu_canal())) {
       ordenar(aviso.voz ? sala_->elegir_voz(aviso.canal) : sala_->elegir_texto(aviso.canal));
       servidor_.enfocar_mensaje = true;
     }
@@ -320,19 +341,22 @@ class Programa {
     version_avisos_ = avisos_.version();
     juego_avisos_ = juego;
     if (juego) {
-      if (en_pantalla_) {
-        en_pantalla_->ocultar();
+      if (notificador_) {
+        notificador_->ocultar();
       }
       return;
     }
     const std::vector<cliente::Notificacion> lista = avisos_.lista();
-    if (!en_pantalla_ && lista.empty()) {
+    if (!notificador_ && lista.empty()) {
       return;
     }
-    if (!en_pantalla_) {
-      en_pantalla_ = std::make_unique<AvisosEnPantalla>(ventana_.hwnd(), ventana_.escala());
+    if (!notificador_ && integrar_) {
+      notificador_ = notificaciones_de_windows(ventana_.hwnd(), carpeta_);
     }
-    en_pantalla_->mostrar(lista);
+    if (!notificador_ || !notificador_->mostrar(lista)) {
+      notificador_ = std::make_unique<AvisosEnPantalla>(ventana_.hwnd(), ventana_.escala());
+      notificador_->mostrar(lista);
+    }
   }
 
   void entrar_con_formulario() {
@@ -356,9 +380,14 @@ class Programa {
     entrar(*direccion, *huella, std::move(quien), true);
   }
 
+  void entrar_a(const cliente::ServidorGuardado& servidor) {
+    entrar(servidor.direccion, cifrado::Huella(servidor.huella), {servidor.nombre, std::nullopt}, false);
+  }
+
   void entrar(const red::Direccion& direccion, const cifrado::Huella& huella, cliente::Presentacion quien,
               bool desde_formulario) {
     cerrar();
+    canal_del_aviso_ = 0;
     pantalla_.intento = {direccion, desde_formulario, Fase::conectando, {}};
     pendiente_ = {direccion, huella.bytes(), quien.nombre, 0, {}, 0};
     cliente::OpcionesSesion opciones;
@@ -378,7 +407,10 @@ class Programa {
       pendiente_.nombre_canal = guardado->nombre_canal;
       pendiente_.leidos = guardado->leidos;
     }
-    sala_ = std::make_unique<cliente::Sala>(*intento.presentado, pendiente_.leidos, pendiente_.texto);
+    if (canal_del_aviso_ != 0) {
+      pendiente_.texto = std::exchange(canal_del_aviso_, 0);
+    }
+    sala_ =std::make_unique<cliente::Sala>(*intento.presentado, pendiente_.leidos, pendiente_.texto);
     avisos_.conectado(red::a_texto(pendiente_.direccion), sala_->tu_id(), pendiente_.nombre);
     pendiente_.ultima_vez_ms = cliente::ahora_ms();
     guardados_.nombre = pendiente_.nombre;
@@ -522,7 +554,7 @@ class Programa {
              medicion.memoria_propia / 1024, medicion.fallas, ventana_.arranque_ms(), uso.pixeles,
              situacion.con_foco, situacion.juego, situacion.bloqueada, situacion.ahorro,
              atlas.Width * atlas.Height * atlas.BytesPerPixel / 1024, static_cast<int>(servidor_.silencio),
-             en_pantalla_ ? en_pantalla_->mostrados() : 0u);
+             notificador_ ? notificador_->mostrados() : 0u);
       trafico_ = trafico;
     }
     cuadros_ = 0;
@@ -553,8 +585,10 @@ class Programa {
 
   Ventana& ventana_;
   const std::wstring carpeta_;
+  const bool integrar_;
   cliente::Avisos avisos_;
-  std::unique_ptr<AvisosEnPantalla> en_pantalla_;
+  std::unique_ptr<Notificador> notificador_;
+  std::uint32_t canal_del_aviso_ = 0;
   std::uint64_t version_avisos_ = 0;
   bool juego_avisos_ = false;
   const cliente::Calidad calidad_ = cliente::calidad_automatica();

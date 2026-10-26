@@ -10,6 +10,7 @@
 #include <windows.h>
 
 #include "client/avisos.h"
+#include "client/ui/notificador.h"
 
 namespace ventrik::ui {
 constexpr std::size_t kAvisosALaVez = 3;
@@ -39,17 +40,17 @@ class PiezasAviso {
 SIZE medir_aviso(HDC dc, const cliente::Notificacion& aviso, const PiezasAviso& piezas);
 void pintar_aviso(HDC dc, const RECT& area, const cliente::Notificacion& aviso, const PiezasAviso& piezas, bool cruz);
 
-class AvisosEnPantalla {
+class AvisosEnPantalla final : public Notificador {
  public:
   AvisosEnPantalla(HWND principal, float escala);
-  ~AvisosEnPantalla();
+  ~AvisosEnPantalla() override;
   AvisosEnPantalla(const AvisosEnPantalla&) = delete;
   AvisosEnPantalla& operator=(const AvisosEnPantalla&) = delete;
 
-  void mostrar(const std::vector<cliente::Notificacion>& avisos);
-  void ocultar();
-  std::optional<cliente::Notificacion> tocado() { return std::exchange(tocado_, std::nullopt); }
-  std::uint32_t mostrados() const { return mostrados_; }
+  bool mostrar(const std::vector<cliente::Notificacion>& avisos) override;
+  void ocultar() override;
+  std::optional<cliente::Notificacion> tocado() override { return std::exchange(tocado_, std::nullopt); }
+  std::uint32_t mostrados() const override { return mostrados_; }
   std::size_t abiertas() const { return abiertas_.size(); }
 
  private:

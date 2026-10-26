@@ -173,7 +173,44 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - `fuzz_sala` también alimenta `Avisos`, con un reloj que avanza, respuestas a sus pedidos y el mismo reparto de respuestas y rechazos que `Programa`;
     - en las 4 combinaciones (2.6), la ventana real minimizada recibe un mensaje, aparece la ventanita, el registro la cuenta y el clic la restaura.
   - En la moderna también se usa esta ventanita hasta el paso 3.1b (notificaciones de Windows).
-- **Lo que sigue:** el paso 3.1b, notificaciones de Windows 10/11 en la moderna (plan aprobado el 2026-10-26).
+- **Etapa 3, paso 3.1b: notificaciones de Windows 10/11 en la moderna (hecho, 2026-10-26).** `ui/aviso_windows.cpp` (todo dentro de `#if VENTRIK_MODERNA`; en la clásica devuelve "no hay"); `ui/notificador.h` es la interfaz común con la ventanita (`AvisosEnPantalla`).
+  - **Carga perezosa:** WinRT por ABI con las funciones de combase.dll cargadas con `GetProcAddress` (`RoGetActivationFactory`, `WindowsCreateString`, `WindowsDeleteString`, `WindowsGetStringRawBuffer`), sin `runtimeobject.lib` y de WRL solo `ComPtr`.
+    - check.ps1 comprueba que la moderna no importe combase ni api-ms-win-core-winrt; solo suma ole32 y advapi32.
+    - Se arma recién con la primera notificación.
+  - **Registro del usuario** (decisión del dueño, recién con la primera notificación, y se reescribe solo si cambió):
+    - `HKCU\Software\Classes\AppUserModelId\Ventrik`, con `DisplayName`, `IconUri` (un .ico de un solo cuadro, el mayor de hasta 128 px, rearmado desde los recursos del .exe a `%APPDATA%\Ventrik\Programa\ventrik.ico` cada vez que se registra, por si el .exe cambió de ícono) y `CustomActivator`;
+    - `HKCU\Software\Classes\CLSID\{7222DDF2-…}\LocalServer32` = `"<exe>" -ToastActivated`.
+    - Todo `REG_SZ`: con `REG_EXPAND_SZ`, una ruta con `%` en el nombre de usuario se expandiría mal.
+  - **Activador COM:** objetos estáticos (sin `new`/`delete`) con `CoRegisterClassObject(CLSCTX_LOCAL_SERVER, REGCLS_MULTIPLEUSE)`, en un hilo MTA, igual que miniaudio.
+    - Al arrancar se registra si la clave ya existe y el proceso no está elevado, para que un clic en un aviso viejo vaya a este Ventrik y no abra otro.
+    - **Costo** (medido en la prueba, junto con el notificador de WinRT): 5 hilos y unos 670 KB. Son hilos de COM/RPC que duermen hasta que llega un clic; no agregan despertares. Solo existen si alguna vez se mostró una notificación de Windows.
+    - Al cerrar `Programa` se da de baja (`CoRevokeClassObject`) y se olvida la ventana, para que un clic tardío no escriba a una ventana destruida.
+    - **`REGCLS_AGILE` daba `E_INVALIDARG` en MTA** (medido): con eso COM no encontraba el activador y lanzaba un segundo proceso con `-ToastActivated -Embedding`. Se sacó. `registro_de_clics_de_windows()` devuelve el resultado, y la prueba lo exige.
+    - `Activate` llega en otro hilo: guarda los argumentos (hasta 8, de hasta 96 caracteres) y despierta la ventana con `kMensajeNovedades`.
+    - Los argumentos vienen de afuera (cualquier proceso del usuario puede llamar al activador): `leer_argumentos_de_aviso` es estricto (`servidor=<dirección>;canal=<n>;voz=<0|1>`, la dirección por `red::leer_direccion`), con fuzzing en `fuzz_textos`.
+    - **Qué hace el clic:** trae Ventrik al frente. Si es del servidor conectado, abre ese canal. Si Ventrik no está conectado y el servidor está en la lista guardada, se conecta solo y abre ese canal de texto. Si está conectado a otro servidor, no lo desconecta. La conexión cortada y el chat de voz con Ventrik desconectado solo traen al frente.
+    - Con Ventrik cerrado, Windows lo abre con `-ToastActivated -Embedding` (main lo ignora), arranca normal y recibe el clic.
+  - **Mostrar:**
+    - `ToastGeneric`, con el texto puesto como nodos de texto del `XmlDocument` (nunca concatenado; la prueba lo verifica con `<b>`, `&` y comillas);
+    - los caracteres que XML no admite (U+FFFE, U+FFFF y los de control salvo tabulador y saltos) pasan a U+FFFD: si no, un solo mensaje armado así hacía fallar WinRT y Ventrik se quedaba con la ventanita toda la sesión;
+    - `Tag` = canal, `Group` = un número sacado de la dirección del servidor (FNV-1a; Windows 10 viejo acepta hasta 16 letras): dos servidores con el mismo número de canal no se pisan;
+    - `SuppressPopup` si el mismo canal ya sonó hace menos de 10 s;
+    - `RemoveGroupedTagWithId` cuando el aviso deja de estar (canal visto); `ClearWithId` al crear el notificador (avisos de otra sesión), al volver al frente y si falla un envío (antes de pasar a la ventanita, para que no queden repetidos).
+  - **Respaldo:** si falta combase, el proceso está elevado, no se puede escribir el registro o WinRT falla, se usa la ventanita. Si el usuario apagó las notificaciones de Ventrik en Windows, se respeta: no se usa la ventanita en su lugar (solo `DisabledByManifest` pasa a la ventanita).
+  - **Con `--carpeta` (las pruebas) nunca se toca el registro:** se usa la ventanita, para que las pruebas no pisen la registración del Ventrik de verdad.
+  - **Pruebas** (`prueba_aviso_windows.cpp`, solo moderna), con otra aplicación, "Ventrik.Prueba", con otro CLSID, mudas y sin ventana emergente:
+    - Windows muestra, reemplaza y quita;
+    - el ícono escrito tiene un solo cuadro y la cabecera correcta;
+    - el activador se pide a COM como lo haría Windows y entrega el clic;
+    - se descartan un clic con `<script>`, uno de más de 96 caracteres y uno nulo, y de 9 clics seguidos se guardan 8;
+    - se borran las claves, también si la prueba falla a mitad.
+
+    En modo prueba, `LocalServer32` apunta a un .exe que no existe, para que COM nunca lance `ventrik_pruebas.exe` por error (pasó una vez).
+  - **No verificado** (del informe del 2026-10-26):
+    - si las builds de Windows 10 anteriores a 1809 aceptan la registración por registro;
+    - el Asistente de concentración de Windows 10;
+    - si wpndatabase.db queda sin cifrar.
+- **Lo que sigue:** la prueba a mano del dueño (HP con la notificación de Windows y XP con la ventanita); después, el resto de la etapa 3.
 
 ## Ramas y repositorio
 

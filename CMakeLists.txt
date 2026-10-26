@@ -156,6 +156,7 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
   target_sources(fuzz_base PRIVATE src/server/base.cpp)
   target_sources(fuzz_guardados PRIVATE src/client/guardados.cpp)
   target_sources(fuzz_sala PRIVATE src/client/avisos.cpp src/client/guardados.cpp src/client/sala.cpp)
+  target_sources(fuzz_textos PRIVATE src/client/avisos.cpp)
   target_link_libraries(fuzz_base PRIVATE sqlite)
   target_sources(fuzz_voz_servidor PRIVATE src/server/proteccion.cpp src/server/voz.cpp)
   target_sources(fuzz_voz PRIVATE src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/motor_voz.cpp
@@ -186,7 +187,7 @@ add_library(ventrik_cliente_base STATIC
 target_sources(ventrik_cliente_base PRIVATE src/client/voz_primero.cpp)
 target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm)
 add_library(ventrik_interfaz STATIC
-  src/client/ui/aviso_ventana.cpp src/client/ui/dibujante.cpp src/client/ui/iconos.cpp src/client/ui/inicio.cpp
+  src/client/ui/aviso_ventana.cpp src/client/ui/aviso_windows.cpp src/client/ui/dibujante.cpp src/client/ui/iconos.cpp src/client/ui/inicio.cpp
   src/client/ui/piezas.cpp
   src/client/ui/programa.cpp src/client/ui/servidor.cpp src/client/ui/ventana.cpp)
 target_link_libraries(ventrik_interfaz PUBLIC ventrik_cliente_base imgui d3d9 user32 gdi32)
@@ -201,6 +202,7 @@ enable_testing()
 add_executable(ventrik_pruebas
   tests/main.cpp
   tests/prueba_argon2.cpp
+  tests/prueba_aviso_windows.cpp
   tests/prueba_avisos.cpp
   tests/prueba_base.cpp
   tests/prueba_base32.cpp

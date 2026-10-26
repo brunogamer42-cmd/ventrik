@@ -7,6 +7,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "client/sesion.h"
@@ -36,7 +37,13 @@ struct Notificacion {
   std::string titulo;
   std::string cuerpo;
   std::uint64_t version = 0;
+  std::string servidor;
 };
+
+constexpr std::size_t kTopeArgumentosDeAviso = 96;
+
+std::string argumentos_de_aviso(const Notificacion& aviso);
+std::optional<Notificacion> leer_argumentos_de_aviso(std::string_view texto);
 
 class Avisos {
  public:

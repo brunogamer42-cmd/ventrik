@@ -166,7 +166,7 @@ void AvisosEnPantalla::ocultar() {
   }
 }
 
-void AvisosEnPantalla::mostrar(const std::vector<cliente::Notificacion>& avisos) {
+bool AvisosEnPantalla::mostrar(const std::vector<cliente::Notificacion>& avisos) {
   const auto esta = [&avisos](std::uint32_t canal) {
     return std::any_of(avisos.begin(), avisos.end(), [canal](const cliente::Notificacion& a) { return a.canal == canal; });
   };
@@ -202,6 +202,7 @@ void AvisosEnPantalla::mostrar(const std::vector<cliente::Notificacion>& avisos)
     InvalidateRect(abierta->ventana, nullptr, FALSE);
   }
   acomodar();
+  return true;
 }
 
 SIZE AvisosEnPantalla::medir(const cliente::Notificacion& aviso) const {

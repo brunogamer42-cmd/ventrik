@@ -236,6 +236,30 @@ TEST_CASE("Ver un canal borra su aviso y la lista sale en el orden en que cambia
   CHECK(lista[0].canal == 6);
 }
 
+TEST_CASE("Los datos de un clic en una notificación se leen estrictos y vuelven iguales") {
+  Notificacion aviso;
+  aviso.servidor = "192.168.0.10:7700";
+  aviso.canal = 42;
+  aviso.voz = true;
+  const std::string argumentos = argumentos_de_aviso(aviso);
+  CHECK(argumentos == "servidor=192.168.0.10:7700;canal=42;voz=1");
+  const auto leido = leer_argumentos_de_aviso(argumentos);
+  REQUIRE(leido);
+  CHECK(leido->servidor == aviso.servidor);
+  CHECK(leido->canal == 42);
+  CHECK(leido->voz);
+  CHECK(leer_argumentos_de_aviso("servidor=1.2.3.4;canal=0;voz=0")->servidor == "1.2.3.4:7700");
+  for (const char* malo : {"", "servidor=1.2.3.4:7700;canal=42", "servidor=1.2.3.4:7700;canal=42;voz=1;",
+                           "servidor=1.2.3.4:7700;canal=042;voz=1", "servidor=1.2.3.4:7700;canal=;voz=1",
+                           "servidor=1.2.3.4:7700;canal=4294967296;voz=1", "servidor=1.2.3.4:7700;canal=4a;voz=1",
+                           "servidor=1.2.3.4:7700;canal=4;voz=2", "servidor=host:7700;canal=4;voz=1",
+                           "canal=4;servidor=1.2.3.4:7700;voz=1", "servidor=1.2.3.4:7700;canal=4;voz=1;x=1"}) {
+    CHECK_FALSE(leer_argumentos_de_aviso(malo));
+  }
+  CHECK(leer_argumentos_de_aviso("servidor=1.2.3.4:7700;canal=4294967295;voz=0"));
+  CHECK_FALSE(leer_argumentos_de_aviso("servidor=1.2.3.4:7700;canal=1;voz=0" + std::string(100, ' ')));
+}
+
 TEST_CASE("Los avisos tienen tope de canales y de texto") {
   Avisos avisos = conectados();
   for (std::uint32_t canal = 1; canal <= 200; ++canal) {

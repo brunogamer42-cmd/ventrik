@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <utility>
 
+#include "common/red/red.h"
+
 namespace ventrik::cliente {
 namespace {
 
@@ -25,6 +27,47 @@ void sumar_autor(std::vector<std::string>& autores, const std::string& autor) {
   }
 }
 
+std::optional<std::string_view> campo(std::string_view& texto, std::string_view clave, bool ultimo) {
+  const std::size_t fin = texto.find(';');
+  if (texto.substr(0, clave.size()) != clave || (fin == std::string_view::npos) != ultimo) {
+    return std::nullopt;
+  }
+  const std::string_view valor = texto.substr(clave.size(), fin == std::string_view::npos ? fin : fin - clave.size());
+  texto.remove_prefix(ultimo ? texto.size() : fin + 1);
+  return valor;
+}
+
+}
+
+std::string argumentos_de_aviso(const Notificacion& aviso) {
+  return "servidor=" + aviso.servidor + ";canal=" + std::to_string(aviso.canal) + ";voz=" + (aviso.voz ? "1" : "0");
+}
+
+std::optional<Notificacion> leer_argumentos_de_aviso(std::string_view texto) {
+  if (texto.size() > kTopeArgumentosDeAviso) {
+    return std::nullopt;
+  }
+  const auto servidor = campo(texto, "servidor=", false);
+  const auto canal = campo(texto, "canal=", false);
+  const auto voz = campo(texto, "voz=", true);
+  const auto direccion = servidor ? red::leer_direccion(*servidor) : std::nullopt;
+  if (!direccion || !canal || canal->empty() || canal->size() > 10 || (canal->size() > 1 && canal->front() == '0') ||
+      !std::all_of(canal->begin(), canal->end(), [](char c) { return c >= '0' && c <= '9'; }) || !voz ||
+      (*voz != "0" && *voz != "1")) {
+    return std::nullopt;
+  }
+  std::uint64_t numero = 0;
+  for (const char cifra : *canal) {
+    numero = numero * 10 + static_cast<std::uint64_t>(cifra - '0');
+  }
+  if (numero > std::numeric_limits<std::uint32_t>::max()) {
+    return std::nullopt;
+  }
+  Notificacion aviso;
+  aviso.servidor = red::a_texto(*direccion);
+  aviso.canal = static_cast<std::uint32_t>(numero);
+  aviso.voz = *voz == "1";
+  return aviso;
 }
 
 void Avisos::conectado(std::string servidor, std::uint32_t tu_id, std::string tu_nombre) {
@@ -165,7 +208,7 @@ void Avisos::negado() {
 
 void Avisos::corte(const std::string& texto) {
   if (activo(opciones_.conexion)) {
-    corte_ = Notificacion{0, false, servidor_, texto, ++version_};
+    corte_ = Notificacion{0, false, servidor_, texto, ++version_, servidor_};
   }
 }
 
@@ -193,6 +236,7 @@ void Avisos::actualizar(Pendiente& pendiente) {
   const std::string cantidad = std::to_string(pendiente.cantidad);
   const auto& autores = pendiente.autores;
   Notificacion& aviso = pendiente.aviso;
+  aviso.servidor = servidor_;
   aviso.titulo = con_datos(t(aviso.voz ? Clave::aviso_titulo_voz : Clave::aviso_titulo_texto),
                            {servidor_, pendiente.canal});
   if (!opciones_.privado && pendiente.cantidad == 1 && !pendiente.texto.empty()) {
