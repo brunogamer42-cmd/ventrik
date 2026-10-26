@@ -124,7 +124,7 @@ std::wstring mapear(const std::wstring& texto, Mapear&& funcion) {
 std::wstring nombre_para_comparar(std::string_view nombre) {
   const std::wstring plegado =
       mapear(a_utf16(nombre), [](const wchar_t* texto, int largo, wchar_t* salida, int lugar) {
-        return FoldStringW(MAP_FOLDCZONE | MAP_PRECOMPOSED, texto, largo, salida, lugar);
+        return FoldStringW(MAP_FOLDCZONE | MAP_COMPOSITE, texto, largo, salida, lugar);
       });
   return mapear(plegado, [](const wchar_t* texto, int largo, wchar_t* salida, int lugar) {
     return LCMapStringW(LOCALE_INVARIANT, LCMAP_UPPERCASE, texto, largo, salida, lugar);
