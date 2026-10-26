@@ -77,6 +77,7 @@ struct Servidor::Conexion {
   bool dueno = false;
   std::uint32_t canal = 0;
   std::uint32_t mirando = 0;
+  std::uint8_t silencio = 0;
   std::vector<std::uint32_t> novedades;
   Reloj::time_point ultimo_aviso{};
   Cubeta chat;
@@ -566,12 +567,12 @@ void Servidor::atender_presentacion(Conexion& conexion, const protocolo::Marco& 
   }
   for (const auto& otra : conexiones_) {
     if (otra->estado == Estado::conectada && !otra->terminar) {
-      presentado.usuarios.push_back(protocolo::UsuarioInfo{otra->id, otra->nombre, otra->canal});
+      presentado.usuarios.push_back(protocolo::UsuarioInfo{otra->id, otra->nombre, otra->canal, otra->silencio});
     }
   }
   encolar(conexion, presentado);
   difundir(protocolo::UsuarioEntro{protocolo::UsuarioInfo{conexion.id, conexion.nombre,
-                                                         conexion.canal}},
+                                                         conexion.canal, conexion.silencio}},
            conexion.id);
   proteccion_.saludo_completo(conexion.origen.ipv4, ahora);
   avisar(Evento::presentada, conexion);
@@ -591,6 +592,9 @@ void Servidor::atender_pedido(Conexion& conexion, const protocolo::Marco& marco)
   switch (tipo) {
     case TipoMensaje::entrar_a_canal:
       entrar_a_canal(conexion, marco);
+      return;
+    case TipoMensaje::silenciar:
+      silenciar(conexion, marco);
       return;
     case TipoMensaje::pedir_historial:
       pedir_historial(conexion, marco);
@@ -641,6 +645,7 @@ void Servidor::entrar_a_canal(Conexion& conexion, const protocolo::Marco& marco)
     return;
   } else if (const auto clave = voz_->alta(conexion.id, conexion.origen.ipv4, pedido->canal, Reloj::now(),
                                            derivar_de(*conexion.tls))) {
+    voz_->silencio(conexion.id, conexion.silencio);
     encolar(conexion, *clave);
   } else {
     negar(conexion, TipoMensaje::entrar_a_canal, MotivoNegado::lleno);
@@ -648,6 +653,20 @@ void Servidor::entrar_a_canal(Conexion& conexion, const protocolo::Marco& marco)
   }
   conexion.canal = pedido->canal;
   difundir(protocolo::UsuarioCambioCanal{conexion.id, conexion.canal});
+}
+
+void Servidor::silenciar(Conexion& conexion, const protocolo::Marco& marco) {
+  const auto pedido = protocolo::leer_mensaje<protocolo::Silenciar>(marco.cuerpo);
+  if (!pedido) {
+    error_de_protocolo(conexion);
+    return;
+  }
+  if (conexion.silencio == pedido->silencio) {
+    return;
+  }
+  conexion.silencio = pedido->silencio;
+  voz_->silencio(conexion.id, conexion.silencio);
+  difundir(protocolo::UsuarioSilencio{conexion.id, conexion.silencio});
 }
 
 void Servidor::enviar_chat(Conexion& conexion, const protocolo::Marco& marco) {

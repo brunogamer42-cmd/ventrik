@@ -21,10 +21,12 @@ constexpr float kMargenChat = 36;
 constexpr float kSangria = 40;
 constexpr float kAltoCabecera = 50;
 constexpr float kAltoAbajo = 82;
-constexpr float kAltoTuAudio = 243;
-constexpr float kAltoAjustando = 59;
-constexpr float kAltoEnCanal = 40;
-constexpr float kAltoSinVoz = 168;
+constexpr float kAltoPanelVoz = 102;
+constexpr float kAltoPanelSinVoz = 147;
+constexpr float kAnchoFlotante = 255;
+constexpr float kAltoFlotanteTecla = 212;
+constexpr float kAltoFlotanteVoz = 268;
+constexpr float kAltoFlotanteSalida = 100;
 constexpr float kMargenSalir = 8;
 constexpr float kAltoDia = 30;
 constexpr float kAltoGrupo = 27;
@@ -224,13 +226,23 @@ class Dibujo {
       x -= px(12) + medir(sin_voz, Letra::normal, medida::letra).x;
       escribir_en(x, alto / 2, sin_voz, color::apagado);
     } else {
-      const std::string_view transmite = t(pantalla_.transmitiendo ? Clave::servidor_transmitiendo
-                                                                     : Clave::servidor_sin_transmitir);
-      const float ancho_etiqueta = std::max(ancho_transmitiendo(t(Clave::servidor_transmitiendo)),
-                                            ancho_transmitiendo(t(Clave::servidor_sin_transmitir)));
+      const bool sin_audio = (pantalla_.silencio & protocolo::kSilencioAudio) != 0;
+      const Clave estado = sin_audio                   ? Clave::servidor_sin_audio_ni_microfono
+                           : pantalla_.silencio != 0   ? Clave::servidor_microfono_silenciado
+                           : pantalla_.transmitiendo   ? Clave::servidor_transmitiendo
+                                                       : Clave::servidor_sin_transmitir;
+      float ancho_etiqueta = 0;
+      for (const Clave cual : {Clave::servidor_transmitiendo, Clave::servidor_sin_transmitir,
+                               Clave::servidor_microfono_silenciado, Clave::servidor_sin_audio_ni_microfono}) {
+        ancho_etiqueta = std::max(ancho_etiqueta, ancho_transmitiendo(t(cual)));
+      }
       x -= px(6) + ancho_etiqueta;
-      etiqueta_transmitiendo(ImVec2(x, (alto - px(medida::alto_transmitiendo)) / 2), ancho_etiqueta, transmite,
-                             pantalla_.transmitiendo);
+      const ImVec2 lugar_etiqueta(x, (alto - px(medida::alto_transmitiendo)) / 2);
+      if (pantalla_.silencio != 0) {
+        aviso_silencio(lugar_etiqueta, ancho_etiqueta, t(estado), sin_audio ? Icono::auriculares : Icono::microfono);
+      } else {
+        etiqueta_transmitiendo(lugar_etiqueta, ancho_etiqueta, t(estado), pantalla_.transmitiendo);
+      }
       if (!pantalla_.por_voz) {
         const std::string& tecla_elegida = nombre_de_la_tecla();
         x -= px(9) + ancho_tecla(tecla_elegida);
@@ -253,9 +265,7 @@ class Dibujo {
       const char* etapa;
       const char* id;
     };
-    std::vector<Boton> botones = {{Clave::servidor_microfono, Icono::microfono, "3", "##microfono"},
-                                  {Clave::servidor_audio, Icono::auriculares, "3", "##audio"},
-                                  {Clave::servidor_servidores, Icono::servidor, "6", "##servidores"},
+    std::vector<Boton> botones = {{Clave::servidor_servidores, Icono::servidor, "6", "##servidores"},
                                   {Clave::servidor_perfil, Icono::persona, "10", "##perfil"}};
     if (sala_.dueno()) {
       botones.push_back({Clave::servidor_personalizar, Icono::lapiz, "10", "##personalizar"});
@@ -309,10 +319,7 @@ class Dibujo {
     });
     const float lista = arriba + px(90);
     const bool en_voz = sala_.tu_canal() != 0;
-    const float audio =
-        abajo - px(9 + (!en_voz ? kAltoSinVoz
-                                : kAltoEnCanal + kAltoTuAudio +
-                                      (pantalla_.por_voz && pantalla_.ajustando ? kAltoAjustando : 0)));
+    const float audio = abajo - px(9 + (en_voz ? kAltoPanelVoz : kAltoPanelSinVoz));
     ImGui::SetCursorScreenPos(ImVec2(0, lista));
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, px(medida::barra_lista));
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 0);
@@ -331,33 +338,46 @@ class Dibujo {
     const ImVec2 fin(derecha - px(10), abajo - px(9));
     dibujo.AddRectFilled(panel, fin, tono(color::pozo));
     triangulos(dibujo, panel, fin);
+    const float x = panel.x + px(12);
+    const float hasta = fin.x - px(12);
+    fila_canal(ImVec2(x, panel.y), hasta, en_voz);
     if (en_voz) {
-      en_canal(panel, fin.x);
-      tu_audio(ImVec2(panel.x, panel.y + px(kAltoEnCanal)), fin);
+      dibujo.AddRectFilled(ImVec2(x - px(1), panel.y + px(46)), ImVec2(hasta, panel.y + px(52)),
+                           tono(pantalla_.transmitiendo ? color::naranja : color::linea));
     } else {
-      sin_voz(panel, fin);
+      escribir_envuelto(ImVec2(x - px(1), panel.y + px(47)), t(Clave::servidor_sin_voz_linea), color::apagado,
+                        hasta - x, medida::letra_chica);
     }
+    botones_de_audio(ImVec2(x, fin.y - px(38)), hasta);
   }
 
-  void en_canal(ImVec2 desde, float derecha) {
-    const float x = desde.x + px(13);
-    const float medio = desde.y + px(20);
-    const std::string_view salir = t(Clave::servidor_salir_de_la_voz);
-    const float ancho =
-        ancho_boton(salir, Estilo::contorneado, Icono::colgar) - px(2 * (medida::margen_contorneado - kMargenSalir));
-    const float boton_x = derecha - px(14) - ancho;
+  void fila_canal(ImVec2 desde, float derecha, bool en_voz) {
+    const float medio = desde.y + px(en_voz ? 24.0f : 25.0f);
+    const auto* canal = sala_.canal(en_voz ? sala_.tu_canal() : pantalla_.ultima_voz);
+    const bool volver = !en_voz && canal != nullptr && canal->tipo == TipoCanal::voz;
+    const std::string_view boton_texto =
+        en_voz ? t(Clave::servidor_salir_del_canal)
+        : volver ? std::string_view(guardar(
+                       pantalla_.textos.volver, 0,
+                       [&] { return con_datos(t(Clave::servidor_volver_a), {canal->nombre}); }, canal->nombre))
+                 : std::string_view();
+    const Icono icono = en_voz ? Icono::colgar : Icono::ninguno;
+    const float ancho = boton_texto.empty() ? 0
+                                            : ancho_boton(boton_texto, Estilo::contorneado, icono) -
+                                                  px(2 * (medida::margen_contorneado - kMargenSalir));
+    const float boton_x = derecha - px(1) - ancho;
     ImGui::SetCursorScreenPos(ImVec2(boton_x, medio - px(14)));
-    if (boton("##salir_de_la_voz", salir, Estilo::contorneado, ImVec2(ancho, px(28)), Icono::colgar)) {
-      agregar(sala_.salir_de_la_voz());
+    if (!boton_texto.empty() &&
+        boton("##fila_canal", boton_texto, Estilo::contorneado, ImVec2(ancho, px(28)), icono)) {
+      agregar(en_voz ? sala_.salir_de_la_voz() : sala_.elegir_voz(canal->id));
     }
-    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, medio - px(4)), ImVec2(x + px(8), medio + px(4)),
-                                              tono(color::verde));
-    const auto* canal = sala_.canal(sala_.tu_canal());
-    const std::string_view nombre = canal != nullptr ? std::string_view(canal->nombre) : std::string_view();
-    const std::string& en = guardar(
-        pantalla_.textos.en_canal, 0, [&] { return con_datos(t(Clave::servidor_en_canal), {nombre}); }, nombre);
-    const float fin = escribir_en(x + px(16), medio, en, color::texto, Letra::fuerte, medida::letra, boton_x - x - px(21));
-    if (const auto ping = sala_.ping()) {
+    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(desde.x, medio - px(4)), ImVec2(desde.x + px(8), medio + px(4)),
+                                              tono(en_voz ? color::verde : color::apagado));
+    const std::string_view titulo = en_voz && canal != nullptr ? std::string_view(canal->nombre)
+                                                               : t(Clave::servidor_sin_canal_de_voz);
+    const float fin = escribir_en(desde.x + px(15), medio, titulo, color::texto, Letra::fuerte, medida::letra,
+                                  boton_x - desde.x - px(20));
+    if (const auto ping = sala_.ping(); en_voz && ping) {
       const std::string& demora = guardar(pantalla_.textos.ping_corto, *ping, [&] {
         return con_datos(t(Clave::servidor_ping_corto), {std::to_string(*ping)});
       });
@@ -367,24 +387,166 @@ class Dibujo {
     }
   }
 
-  void sin_voz(ImVec2 desde, ImVec2 hasta) {
-    const float x = desde.x + px(13);
-    const float ancho = hasta.x - px(14) - x;
-    escribir_en(x, desde.y + px(20), t(Clave::servidor_sin_canal_de_voz), color::texto, Letra::negrita);
-    escribir_envuelto(ImVec2(x, desde.y + px(40)), t(Clave::servidor_sin_voz_explica), color::texto2, ancho);
-    escribir_envuelto(ImVec2(x, desde.y + px(83)), t(Clave::servidor_sin_voz_apagados), color::apagado, ancho,
-                      medida::letra_chica);
-    const auto* canal = sala_.canal(pantalla_.ultima_voz);
-    if (canal == nullptr || canal->tipo != TipoCanal::voz) {
+  void botones_de_audio(ImVec2 desde, float derecha) {
+    ImDrawList& dibujo = *ImGui::GetWindowDrawList();
+    const float alto = px(29);
+    const float medio = desde.y + alto / 2;
+    const auto lugar = [&](float x, float ancho, const char* id) {
+      ImGui::SetCursorScreenPos(ImVec2(x, desde.y));
+      return boton(id, "", Estilo::biselado, ImVec2(ancho, alto));
+    };
+    const float chico = px(32);
+    float x = desde.x;
+    for (const bool audio : {false, true}) {
+      if (lugar(x, chico, audio ? "##audio" : "##microfono")) {
+        silenciar(audio);
+      }
+      cartel(t(audio ? Clave::servidor_audio : Clave::servidor_microfono));
+      const Icono icono = audio ? Icono::auriculares : Icono::microfono;
+      const ImVec2 centro(x + chico / 2, medio);
+      if ((pantalla_.silencio & (audio ? protocolo::kSilencioAudio : protocolo::kSilencioMicrofono)) != 0) {
+        dibujar_icono_tachado(dibujo, icono, centro, px(15), tono(color::rojo));
+      } else {
+        dibujar_icono(dibujo, icono, centro, px(15), tono(color::texto2));
+      }
+      x += chico + px(6);
+    }
+    const auto con_flecha = [&](float desde_x, float ancho, const char* id, const char* flotante, Icono icono,
+                                std::string_view texto) {
+      if (lugar(desde_x, ancho, id)) {
+        ImGui::OpenPopup(flotante);
+      }
+      dibujar_icono(dibujo, icono, ImVec2(desde_x + px(12), medio), px(15), tono(color::texto2));
+      escribir_en(desde_x + px(24), medio, texto, color::texto, Letra::normal, medida::letra, ancho - px(40));
+      dibujar_icono(dibujo, Icono::flecha_arriba, ImVec2(desde_x + ancho - px(11), medio), px(11), tono(color::apagado));
+    };
+    const std::string& volumen = por_ciento(pantalla_.textos.volumen_salida, pantalla_.volumen_salida);
+    const float salida = std::max(px(72), px(44) + medir(volumen, Letra::normal, medida::letra).x);
+    const float modo = derecha - x - px(6) - salida;
+    con_flecha(x, modo, "##modo", "##como_transmitis", pantalla_.por_voz ? Icono::pulso : Icono::teclado,
+               pantalla_.por_voz ? t(Clave::servidor_por_voz) : std::string_view(nombre_de_la_tecla()));
+    con_flecha(x + modo + px(6), salida, "##salida", "##volumen_salida", Icono::parlante, volumen);
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_M, ImGuiInputFlags_RouteGlobal)) {
+      silenciar(false);
+    }
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_D, ImGuiInputFlags_RouteGlobal)) {
+      silenciar(true);
+    }
+    const ImVec2 flotante(desde.x - px(5), desde.y - px(11));
+    como_transmitis(flotante);
+    volumen_de_salida(flotante);
+    pantalla_.ajustando = ImGui::IsPopupOpen("##como_transmitis");
+  }
+
+  void silenciar(bool audio) {
+    const std::uint8_t ahora = pedido_.silencio.value_or(pantalla_.silencio);
+    const bool sin_audio = (ahora & protocolo::kSilencioAudio) != 0;
+    if (audio && !sin_audio) {
+      pantalla_.microfono_antes = ahora != 0;
+    }
+    const int todo = protocolo::kSilencioMicrofono | protocolo::kSilencioAudio;
+    pedido_.silencio = static_cast<std::uint8_t>(!audio      ? (ahora != 0 ? 0 : protocolo::kSilencioMicrofono)
+                                                 : !sin_audio ? todo
+                                                 : pantalla_.microfono_antes ? protocolo::kSilencioMicrofono
+                                                                             : 0);
+  }
+
+  const std::string& por_ciento(TextoGuardado& lugar, int valor) const {
+    return guardar(lugar, static_cast<std::uint64_t>(valor),
+                   [&] { return con_datos(t(Clave::servidor_por_ciento), {std::to_string(valor)}); });
+  }
+
+  bool abrir_flotante(const char* id, ImVec2 abajo_izquierda, float alto) const {
+    ImGui::SetNextWindowPos(abajo_izquierda, ImGuiCond_Always, ImVec2(0, 1));
+    ImGui::SetNextWindowSize(ImVec2(px(kAnchoFlotante), px(alto)));
+    if (!ImGui::BeginPopup(id)) {
+      return false;
+    }
+    const ImVec2 desde = ImGui::GetWindowPos();
+    triangulos(*ImGui::GetWindowDrawList(), desde, ImVec2(desde.x + px(kAnchoFlotante), desde.y + px(alto)));
+    return true;
+  }
+
+  void volumen(const char* id, float abajo, float x, float derecha, Clave etiqueta, Clave nota, int valor,
+               std::optional<int>& pedido, TextoGuardado& lugar) {
+    escribir_en(x, abajo - px(80), t(etiqueta), color::texto2);
+    const std::string& texto = por_ciento(lugar, valor);
+    escribir_en(derecha - medir(texto, Letra::negrita, medida::letra).x, abajo - px(80), texto, color::texto,
+                Letra::negrita);
+    if (const auto nuevo = deslizador(id, ImVec2(x, abajo - px(60)), derecha - x,
+                                      static_cast<float>(valor) / cliente::kVolumenMaximo)) {
+      pedido = static_cast<int>(std::lround(*nuevo * cliente::kVolumenMaximo));
+    }
+    pedido_.guardar = pedido_.guardar || ImGui::IsItemDeactivated();
+    escribir_envuelto(ImVec2(x, abajo - px(41)), t(nota), color::apagado, derecha - x, medida::letra_chica);
+  }
+
+  void como_transmitis(ImVec2 abajo_izquierda) {
+    const bool por_voz = pantalla_.por_voz;
+    const float alto = por_voz ? kAltoFlotanteVoz : kAltoFlotanteTecla;
+    if (!abrir_flotante("##como_transmitis", abajo_izquierda, alto)) {
       return;
     }
-    const std::string& volver = guardar(
-        pantalla_.textos.volver, 0, [&] { return con_datos(t(Clave::servidor_volver_a), {canal->nombre}); },
-        canal->nombre);
-    ImGui::SetCursorScreenPos(ImVec2(x, hasta.y - px(44)));
-    if (boton("##volver", volver, Estilo::contorneado, ImVec2(ancho, px(32)))) {
-      agregar(sala_.elegir_voz(canal->id));
+    ImDrawList& dibujo = *ImGui::GetWindowDrawList();
+    const ImVec2 desde = ImGui::GetWindowPos();
+    const float x = desde.x + px(13);
+    const float derecha = desde.x + px(kAnchoFlotante - 14);
+    escribir_en(x, desde.y + px(20), t(Clave::servidor_como_transmitis), color::texto, Letra::negrita);
+    ImGui::SetCursorScreenPos(ImVec2(x, desde.y + px(38)));
+    const int como = selector_opciones("##como", {t(Clave::servidor_tecla_para_hablar), t(Clave::servidor_por_voz)},
+                                       por_voz ? 1 : 0, ImVec2(derecha - x, px(36)), -1, {});
+    if (como >= 0 && (como == 1) != por_voz) {
+      pedido_.por_voz = como == 1;
     }
+    if (por_voz) {
+      constexpr int kSegmentos = 10;
+      const float y = desde.y + px(80);
+      const float paso = (derecha - x + px(3)) / kSegmentos;
+      for (int i = 0; i < kSegmentos; ++i) {
+        const float izquierda = x + paso * static_cast<float>(i);
+        dibujo.AddRectFilled(ImVec2(izquierda, y), ImVec2(izquierda + paso - px(3), y + px(6)),
+                             tono(i < pantalla_.nivel ? color::naranja : color::linea));
+      }
+      const float marca = x + (derecha - x) * static_cast<float>(pantalla_.sensibilidad) / 100;
+      dibujo.AddRectFilled(ImVec2(marca - px(1), y - px(4)), ImVec2(marca + px(1), y + px(10)), tono(color::texto));
+      escribir_en(x, desde.y + px(103), t(Clave::servidor_sensibilidad), color::texto2);
+      if (const auto nueva = deslizador("##sensibilidad", ImVec2(x, desde.y + px(126)), derecha - x,
+                                        static_cast<float>(pantalla_.sensibilidad) / 100)) {
+        pedido_.sensibilidad = static_cast<int>(std::lround(*nueva * 100));
+      }
+      pedido_.guardar = pedido_.guardar || ImGui::IsItemDeactivated();
+      escribir_envuelto(ImVec2(x, desde.y + px(140)), t(Clave::servidor_sensibilidad_ayuda), color::apagado,
+                        derecha - x, medida::letra_chica);
+    } else {
+      const float fila = desde.y + px(98);
+      escribir_en(x, fila, t(Clave::servidor_tecla), color::texto2);
+      if (pantalla_.eligiendo_tecla) {
+        escribir_en(x + px(38), fila, t(Clave::servidor_apreta_tecla), color::celeste);
+      } else {
+        tecla(ImVec2(x + px(38), fila - px(medida::alto_tecla) / 2), nombre_de_la_tecla(), color::elevado);
+        const std::string_view cambiar = t(Clave::servidor_cambiar_tecla);
+        const float ancho = ancho_boton(cambiar, Estilo::contorneado);
+        ImGui::SetCursorScreenPos(ImVec2(derecha - ancho, fila - px(16)));
+        if (boton("##cambiar_tecla", cambiar, Estilo::contorneado, ImVec2(ancho, px(32)))) {
+          pedido_.elegir_tecla = true;
+        }
+      }
+    }
+    volumen("##volumen_microfono", desde.y + px(alto), x, derecha, Clave::servidor_volumen_microfono,
+            Clave::servidor_nota_microfono, pantalla_.volumen_microfono, pedido_.volumen_microfono,
+            pantalla_.textos.volumen_microfono);
+    ImGui::EndPopup();
+  }
+
+  void volumen_de_salida(ImVec2 abajo_izquierda) {
+    if (!abrir_flotante("##volumen_salida", abajo_izquierda, kAltoFlotanteSalida)) {
+      return;
+    }
+    const ImVec2 desde = ImGui::GetWindowPos();
+    volumen("##volumen_salida", desde.y + px(kAltoFlotanteSalida), desde.x + px(13),
+            desde.x + px(kAnchoFlotante - 14), Clave::servidor_volumen_salida, Clave::servidor_nota_salida,
+            pantalla_.volumen_salida, pedido_.volumen_salida, pantalla_.textos.volumen_salida);
+    ImGui::EndPopup();
   }
 
   bool visible(float y, float alto) const {
@@ -555,7 +717,12 @@ class Dibujo {
     avatar(ImVec2(x + px(38), medio - px(medida::avatar_lista) / 2), px(medida::avatar_lista), su_cara.iniciales,
            su_cara.color, color::texto, medida::letra_mini, habla ? color_voz : 0);
     const float derecha = x + ancho - px(15);
-    if (habla) {
+    const std::uint8_t silencio = yo ? pantalla_.silencio : usuario.silencio;
+    if (silencio != 0) {
+      dibujar_icono_tachado(dibujo,
+                            (silencio & protocolo::kSilencioAudio) != 0 ? Icono::auriculares : Icono::microfono,
+                            ImVec2(derecha - px(8), medio), px(14), tono(yo ? color::rojo : color::apagado));
+    } else if (habla) {
       dibujar_icono(dibujo, Icono::voz, ImVec2(derecha - px(8), medio), px(14), tono(color_voz));
     }
     const std::string_view nombre = yo ? t(Clave::servidor_vos) : std::string_view(usuario.nombre);
@@ -563,91 +730,20 @@ class Dibujo {
     return y + alto;
   }
 
-  std::optional<float> deslizador(const char* id, ImVec2 desde, float ancho, float valor, bool anda = false) const {
+  std::optional<float> deslizador(const char* id, ImVec2 desde, float ancho, float valor) const {
     ImDrawList& dibujo = *ImGui::GetWindowDrawList();
     ImGui::SetCursorScreenPos(ImVec2(desde.x, desde.y - px(8)));
     std::optional<float> nuevo;
-    const auto dibujar = [&] {
-      ImGui::InvisibleButton(id, ImVec2(ancho, px(16)));
-      if (anda && ImGui::IsItemActive()) {
-        nuevo = std::clamp((ImGui::GetIO().MousePos.x - desde.x) / ancho, 0.0f, 1.0f);
-      }
-      const float corte = desde.x + ancho * nuevo.value_or(valor);
-      dibujo.AddRectFilled(ImVec2(desde.x, desde.y - px(3)), ImVec2(corte, desde.y + px(3)), tono(color::claro), px(3));
-      dibujo.AddRectFilled(ImVec2(corte, desde.y - px(3)), ImVec2(desde.x + ancho, desde.y + px(3)),
-                           tono(color::linea), px(3));
-      dibujo.AddCircleFilled(ImVec2(corte, desde.y), px(7), tono(color::claro));
-    };
-    if (anda) {
-      dibujar();
-    } else {
-      apagado(llega_en("3"), dibujar);
+    ImGui::InvisibleButton(id, ImVec2(ancho, px(16)));
+    if (ImGui::IsItemActive()) {
+      nuevo = std::clamp((ImGui::GetIO().MousePos.x - desde.x) / ancho, 0.0f, 1.0f);
     }
+    const float corte = desde.x + ancho * nuevo.value_or(valor);
+    dibujo.AddRectFilled(ImVec2(desde.x, desde.y - px(3)), ImVec2(corte, desde.y + px(3)), tono(color::claro), px(3));
+    dibujo.AddRectFilled(ImVec2(corte, desde.y - px(3)), ImVec2(desde.x + ancho, desde.y + px(3)), tono(color::linea),
+                         px(3));
+    dibujo.AddCircleFilled(ImVec2(corte, desde.y), px(7), tono(color::claro));
     return nuevo;
-  }
-
-  void tu_audio(ImVec2 desde, ImVec2 hasta) {
-    ImDrawList& dibujo = *ImGui::GetWindowDrawList();
-    const float x = desde.x + px(13);
-    const float derecha = hasta.x - px(14);
-    escribir_en(x, desde.y + px(22), t(Clave::servidor_tu_audio), color::texto, Letra::negrita);
-    constexpr int kSegmentos = 10;
-    const float ancho_medidor = px(kSegmentos * (medida::segmento + medida::entre_segmentos) - medida::entre_segmentos);
-    const ImVec2 lugar_medidor(derecha - ancho_medidor, desde.y + px(17));
-    const bool ajustando = pantalla_.por_voz && pantalla_.ajustando;
-    if (ajustando) {
-      medidor(lugar_medidor, kSegmentos, pantalla_.nivel, color::naranja);
-      const float marca = lugar_medidor.x + ancho_medidor * static_cast<float>(pantalla_.sensibilidad) / 100;
-      dibujo.AddRectFilled(ImVec2(marca - px(1), lugar_medidor.y - px(4)),
-                           ImVec2(marca + px(1), lugar_medidor.y + px(medida::alto_segmento + 4)), tono(color::texto));
-    } else {
-      dibujo.AddRectFilled(lugar_medidor, ImVec2(derecha, lugar_medidor.y + px(medida::alto_segmento)),
-                           tono(pantalla_.transmitiendo ? color::naranja : color::linea));
-    }
-    escribir_en(x, desde.y + px(48), t(Clave::servidor_como_transmitis), color::texto2);
-    ImGui::SetCursorScreenPos(ImVec2(x, desde.y + px(64)));
-    const int como = selector_opciones("##como", {t(Clave::servidor_tecla_para_hablar), t(Clave::servidor_por_voz)},
-                                       pantalla_.por_voz ? 1 : 0, ImVec2(derecha - x, px(38)), -1, {});
-    if (como >= 0 && (como == 1) != pantalla_.por_voz) {
-      pedido_.por_voz = como == 1;
-      pantalla_.ajustando = false;
-    }
-    const float fila = desde.y + px(126);
-    const auto boton_de_fila = [&](const char* id, std::string_view texto) {
-      const float ancho = ancho_boton(texto, Estilo::contorneado);
-      ImGui::SetCursorScreenPos(ImVec2(derecha - ancho, fila - px(16)));
-      return boton(id, texto, Estilo::contorneado, ImVec2(ancho, px(32)));
-    };
-    if (pantalla_.por_voz) {
-      escribir_en(x, fila, t(Clave::servidor_sensibilidad), color::texto2);
-      if (boton_de_fila("##ajustar", t(ajustando ? Clave::servidor_guardar : Clave::servidor_ajustar))) {
-        pantalla_.ajustando = !ajustando;
-      }
-      if (ajustando) {
-        if (const auto nueva = deslizador("##sensibilidad", ImVec2(x, fila + px(28)), derecha - x,
-                                          static_cast<float>(pantalla_.sensibilidad) / 100, true)) {
-          pedido_.sensibilidad = static_cast<int>(std::lround(*nueva * 100));
-        }
-        pedido_.guardar = pedido_.guardar || ImGui::IsItemDeactivated();
-        escribir_envuelto(ImVec2(x, fila + px(41)), t(Clave::servidor_sensibilidad_ayuda), color::apagado,
-                          derecha - x, medida::letra_chica);
-      }
-    } else {
-      escribir_en(x, fila, t(Clave::servidor_tecla), color::texto2);
-      if (pantalla_.eligiendo_tecla) {
-        escribir_en(x + px(38), fila, t(Clave::servidor_apreta_tecla), color::celeste);
-      } else {
-        tecla(ImVec2(x + px(38), fila - px(medida::alto_tecla) / 2), nombre_de_la_tecla(), color::elevado);
-        if (boton_de_fila("##cambiar_tecla", t(Clave::servidor_cambiar_tecla))) {
-          pedido_.elegir_tecla = true;
-        }
-      }
-    }
-    const float abajo = desde.y + (ajustando ? px(kAltoAjustando) : 0);
-    escribir_en(x, abajo + px(159), t(Clave::servidor_volumen_microfono), color::texto2);
-    deslizador("##volumen_microfono", ImVec2(x, abajo + px(178)), derecha - x, 0.7f);
-    escribir_en(x, abajo + px(202), t(Clave::servidor_volumen_salida), color::texto2);
-    deslizador("##volumen_salida", ImVec2(x, abajo + px(221)), derecha - x, 0.85f);
   }
 
   void chat() {

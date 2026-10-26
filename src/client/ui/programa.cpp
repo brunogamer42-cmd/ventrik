@@ -85,7 +85,7 @@ class Programa {
                  "vaciados_colchon_total,faltas_colchon_total,transmitiendo,hablando,voz_lista,avisos,mensajes,"
                  "mensaje_comun,ram_mb,despertares_ventana,despertares_audio,despertares_red,tcp_sube,tcp_baja,"
                  "udp_sube,udp_baja,memoria_propia_kb,fallas_por_segundo,arranque_ms,pixeles,foco,juego,"
-                 "bloqueada,ahorro,atlas_kb"
+                 "bloqueada,ahorro,atlas_kb,silencio"
               << std::endl;
   }
 
@@ -106,17 +106,25 @@ class Programa {
   void abrir_voz() {
     puente_ = std::make_shared<cliente::PuenteVoz>();
     motor_ = std::make_unique<cliente::MotorVoz>(*puente_, calidad_);
+    motor_->sensibilidad(guardados_.sensibilidad);
+    motor_->por_voz(guardados_.por_voz);
+    aplicar_audio();
     audio_ = std::make_unique<cliente::Audio>();
     servidor_.hay_audio =
         motor_->ok() && audio_->abrir(motor_->frecuencia(), cliente::MotorVoz::procesar_audio, motor_.get());
     vigia_ = std::make_unique<cliente::Vigia>(*motor_, *puente_, cliente::tecla_para_hablar(guardados_.tecla_hablar),
                                               ventana_.hwnd(), [this] { avisar(); });
-    motor_->sensibilidad(guardados_.sensibilidad);
-    motor_->por_voz(guardados_.por_voz);
     vigia_->por_voz(guardados_.por_voz);
     despertares_audio_ = audio_->despertares();
     abrir_desde_ = Reloj::now() + kEntreAperturasDeVoz;
     sesion_->voz(puente_);
+  }
+
+  void aplicar_audio() {
+    if (motor_) {
+      motor_->silenciar(guardados_.silencio != 0, (guardados_.silencio & protocolo::kSilencioAudio) != 0);
+      motor_->volumenes(guardados_.volumen_microfono, guardados_.volumen_salida);
+    }
   }
 
   void cerrar_voz() {
@@ -186,7 +194,20 @@ class Programa {
           vigia_->por_voz(*pedido.por_voz);
         }
       }
-      if (pedido.por_voz || pedido.guardar) {
+      if (pedido.silencio) {
+        servidor_.silencio = guardados_.silencio = *pedido.silencio;
+        ordenar({protocolo::Silenciar{*pedido.silencio}});
+      }
+      if (pedido.volumen_microfono) {
+        servidor_.volumen_microfono = *pedido.volumen_microfono;
+        guardados_.volumen_microfono = static_cast<std::uint8_t>(*pedido.volumen_microfono);
+      }
+      if (pedido.volumen_salida) {
+        servidor_.volumen_salida = *pedido.volumen_salida;
+        guardados_.volumen_salida = static_cast<std::uint8_t>(*pedido.volumen_salida);
+      }
+      aplicar_audio();
+      if (pedido.por_voz || pedido.silencio || pedido.guardar) {
         guardar();
       }
       if (pedido.desconectar) {
@@ -290,6 +311,10 @@ class Programa {
     servidor_.tecla = guardados_.tecla_hablar;
     servidor_.por_voz = guardados_.por_voz;
     servidor_.sensibilidad = guardados_.sensibilidad;
+    servidor_.silencio = guardados_.silencio;
+    servidor_.microfono_antes = guardados_.silencio != 0;
+    servidor_.volumen_microfono = guardados_.volumen_microfono;
+    servidor_.volumen_salida = guardados_.volumen_salida;
     servidor_.enfocar_mensaje = true;
     const std::wstring ultima_voz = nombre_para_comparar(pendiente_.nombre_canal);
     for (const auto& canal : sala_->canales()) {
@@ -307,6 +332,9 @@ class Programa {
     despertares_red_ = sesion_->despertares();
     trafico_ = cifrado::trafico();
     ordenar(sala_->empezar());
+    if (guardados_.silencio != 0) {
+      ordenar({protocolo::Silenciar{guardados_.silencio}});
+    }
   }
 
   bool mirar_voz() {
@@ -349,6 +377,10 @@ class Programa {
       return cambio;
     }
     proxima_muestra_ = ahora + 1s;
+    if (const auto yo = sala_->usuarios().find(sala_->tu_id());
+        yo != sala_->usuarios().end() && yo->second.silencio != guardados_.silencio) {
+      ordenar({protocolo::Silenciar{guardados_.silencio}});
+    }
     const bool tenia_poca_memoria = std::exchange(poca_memoria_, queda_poca_memoria());
     if (poca_memoria_ && !tenia_poca_memoria) {
       ImGui::GetIO().Fonts->CompactCache();
@@ -402,7 +434,7 @@ class Programa {
              trafico.udp_enviados - trafico_.udp_enviados, trafico.udp_recibidos - trafico_.udp_recibidos,
              medicion.memoria_propia / 1024, medicion.fallas, ventana_.arranque_ms(), uso.pixeles,
              situacion.con_foco, situacion.juego, situacion.bloqueada, situacion.ahorro,
-             atlas.Width * atlas.Height * atlas.BytesPerPixel / 1024);
+             atlas.Width * atlas.Height * atlas.BytesPerPixel / 1024, static_cast<int>(servidor_.silencio));
       trafico_ = trafico;
     }
     cuadros_ = 0;

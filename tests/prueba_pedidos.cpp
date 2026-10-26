@@ -72,6 +72,22 @@ TEST_CASE("Los pedidos nuevos tienen bytes fijos") {
         Bytes{2, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 0, 10, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0,
               3, 0, 'A', 'n', 'a', 5, 0, 0, 0, 0, 0, 0, 0, 4, 0, 'h', 'o', 'l', 'a'});
   CHECK(en_bytes(CanalBorrado{4, 1}) == Bytes{4, 0, 0, 0, 1, 0, 0, 0});
+  CHECK(en_bytes(UsuarioEntro{{8, "Ana", 2, 3}}) == Bytes{8, 0, 0, 0, 3, 0, 'A', 'n', 'a', 2, 0, 0, 0, 3});
+  CHECK(en_bytes(Silenciar{1}) == Bytes{1});
+  CHECK(en_bytes(UsuarioSilencio{0x01020304, 3}) == Bytes{4, 3, 2, 1, 3});
+  CHECK(en_bytes(Negado{TipoMensaje::silenciar, MotivoNegado::demasiado_rapido}) == Bytes{19, 0, 4});
+}
+
+TEST_CASE("El silencio solo vale 0, 1 o 3: el audio apagado exige el micrófono apagado") {
+  for (const std::uint8_t silencio : std::initializer_list<std::uint8_t>{0, 1, 3}) {
+    CHECK(leer_mensaje<Silenciar>(Bytes{silencio}));
+    CHECK(leer_mensaje<UsuarioSilencio>(Bytes{1, 0, 0, 0, silencio}));
+  }
+  for (const std::uint8_t silencio : std::initializer_list<std::uint8_t>{2, 4, 7, 255}) {
+    CHECK_FALSE(leer_mensaje<Silenciar>(Bytes{silencio}));
+    CHECK_FALSE(leer_mensaje<UsuarioSilencio>(Bytes{1, 0, 0, 0, silencio}));
+    CHECK_FALSE(leer_mensaje<UsuarioEntro>(Bytes{8, 0, 0, 0, 3, 0, 'A', 'n', 'a', 2, 0, 0, 0, silencio}));
+  }
 }
 
 TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con bytes de más no") {
@@ -86,6 +102,9 @@ TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con byte
   ida_y_vuelta(UsuarioEntro{{8, "Beto", 1}});
   ida_y_vuelta(UsuarioSalio{8});
   ida_y_vuelta(UsuarioCambioCanal{8, 2});
+  ida_y_vuelta(UsuarioEntro{{8, "Beto", 0, 1}});
+  ida_y_vuelta(Silenciar{3});
+  ida_y_vuelta(UsuarioSilencio{8, 1});
   ida_y_vuelta(CanalCreado{{3, "Música"}});
   ida_y_vuelta(CanalCambiado{{3, "Música 2", TipoCanal::texto, false, 5}});
   ida_y_vuelta(CanalBorrado{3, 1});
@@ -120,7 +139,7 @@ TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{1, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 0}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 8}));
-  CHECK_FALSE(leer_mensaje<Negado>(Bytes{19, 0, 1}));
+  CHECK_FALSE(leer_mensaje<Negado>(Bytes{20, 0, 1}));
   CHECK_FALSE(leer_mensaje<Presentado>(Bytes{1, 0, 0, 0, 2, 0, 0, 0, 0}));
   CHECK_FALSE(leer_mensaje<Historial>(Bytes{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1}));
 }

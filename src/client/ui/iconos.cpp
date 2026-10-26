@@ -122,6 +122,26 @@ void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, I
       dibujo.AddCircle(p(0, 0), 6.5f * u, color, 0, grosor);
       trazo({ImVec2(-3, 0), ImVec2(-0.8f, 2.5f), ImVec2(3.2f, -2.5f)}, false);
       break;
+    case Icono::teclado:
+      dibujo.AddRect(p(-7, -4.5f), p(7, 4.5f), color, u, 0, grosor);
+      for (const float x : {-4.5f, -1.5f, 1.5f, 4.5f}) {
+        dibujo.AddRectFilled(p(x - 0.7f, -2.2f), p(x + 0.7f, -0.8f), color);
+      }
+      dibujo.AddLine(p(-3.5f, 2), p(3.5f, 2), color, grosor);
+      break;
+    case Icono::parlante:
+      trazo({ImVec2(-6.5f, -2), ImVec2(-3.5f, -2), ImVec2(0.5f, -5.5f), ImVec2(0.5f, 5.5f), ImVec2(-3.5f, 2),
+             ImVec2(-6.5f, 2)},
+            true);
+      arco(1, 0, 4.5f, -0.3f * kPi, 0.3f * kPi);
+      break;
+    case Icono::pulso:
+      trazo({ImVec2(-7, 0), ImVec2(-3.5f, 0), ImVec2(-1.5f, -4.5f), ImVec2(1.5f, 4.5f), ImVec2(3.5f, 0), ImVec2(7, 0)},
+            false);
+      break;
+    case Icono::flecha_arriba:
+      trazo({ImVec2(-4.5f, 2), ImVec2(0, -2.5f), ImVec2(4.5f, 2)}, false);
+      break;
     case Icono::colgar:
       arco(0, 4, 7, 1.15f * kPi, 1.85f * kPi);
       trazo({ImVec2(-6.2f, 0.8f), ImVec2(-6.8f, 3.5f), ImVec2(-3, 4), ImVec2(-2.6f, 2)}, false);
@@ -130,6 +150,13 @@ void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, I
     case Icono::ninguno:
       break;
   }
+}
+
+void dibujar_icono_tachado(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, ImU32 color) {
+  dibujar_icono(dibujo, icono, centro, lado, color);
+  const float medio = lado / 2;
+  dibujo.AddLine(ImVec2(centro.x - medio, centro.y - medio), ImVec2(centro.x + medio, centro.y + medio), color,
+                 std::max(1.0f, lado / 10));
 }
 
 }

@@ -86,6 +86,7 @@ class Sala {
   std::vector<Orden> atender(const protocolo::UsuarioEntro& entro);
   std::vector<Orden> atender(const protocolo::UsuarioSalio& salio);
   std::vector<Orden> atender(const protocolo::UsuarioCambioCanal& cambio);
+  std::vector<Orden> atender(const protocolo::UsuarioSilencio& silencio);
   std::vector<Orden> atender(const protocolo::CanalCreado& creado);
   std::vector<Orden> atender(const protocolo::CanalCambiado& cambiado);
   std::vector<Orden> atender(const protocolo::CanalBorrado& borrado);

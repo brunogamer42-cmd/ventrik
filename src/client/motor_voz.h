@@ -27,6 +27,7 @@ Calidad calidad_automatica();
 constexpr int kPedazosTrasCallarse = 20;
 
 int umbral_de(int por_ciento);
+std::int16_t con_ganancia(std::int16_t muestra, int por_ciento);
 
 class MotorVoz {
  public:
@@ -36,8 +37,18 @@ class MotorVoz {
 
   bool ok() const { return codificador_ && decodificador_; }
   unsigned frecuencia() const { return calidad_.frecuencia; }
-  void transmitir(bool si) { transmitiendo_ = si; }
+  void transmitir(bool si) { transmitiendo_ = si && !sin_microfono_; }
   bool transmitiendo() const { return transmitiendo_; }
+  void silenciar(bool microfono, bool audio) {
+    if (sin_microfono_.exchange(microfono) != microfono) {
+      transmitiendo_ = false;
+    }
+    sin_audio_ = audio;
+  }
+  void volumenes(int microfono, int salida) {
+    ganancia_microfono_ = microfono;
+    ganancia_salida_ = salida;
+  }
   void solo_en_el_canal(bool si) { solo_ = si; }
   void por_voz(bool si) { por_voz_ = si; }
   void sensibilidad(int por_ciento) { umbral_ = umbral_de(por_ciento); }
@@ -87,6 +98,10 @@ class MotorVoz {
   std::atomic<bool> transmitiendo_{false};
   std::atomic<bool> solo_{false};
   std::atomic<bool> por_voz_{false};
+  std::atomic<bool> sin_microfono_{false};
+  std::atomic<bool> sin_audio_{false};
+  std::atomic<int> ganancia_microfono_{100};
+  std::atomic<int> ganancia_salida_{100};
   std::atomic<int> umbral_{umbral_de(100)};
   std::atomic<std::uint32_t> espera_ms_{0};
   std::atomic<int> pico_{0};

@@ -22,6 +22,12 @@ constexpr std::size_t kMaximoDatagrama = 2048;
 constexpr std::size_t kMaximoCuerpoPresentacion = 128;
 constexpr std::uint32_t kCanalGeneral = 1;
 constexpr std::size_t kMaximoCanales = 60;
+constexpr std::uint8_t kSilencioMicrofono = 1;
+constexpr std::uint8_t kSilencioAudio = 2;
+
+constexpr bool es_silencio_valido(std::uint8_t silencio) {
+  return silencio == 0 || silencio == kSilencioMicrofono || silencio == (kSilencioMicrofono | kSilencioAudio);
+}
 
 struct Presentarse {
   static constexpr TipoMensaje kTipo = TipoMensaje::presentarse;
@@ -45,6 +51,7 @@ struct UsuarioInfo {
   std::uint32_t id = 0;
   std::string nombre;
   std::uint32_t canal = 0;
+  std::uint8_t silencio = 0;
 };
 
 struct Presentado {
@@ -102,6 +109,17 @@ struct CanalBorrado {
 struct EntrarACanal {
   static constexpr TipoMensaje kTipo = TipoMensaje::entrar_a_canal;
   std::uint32_t canal = 0;
+};
+
+struct Silenciar {
+  static constexpr TipoMensaje kTipo = TipoMensaje::silenciar;
+  std::uint8_t silencio = 0;
+};
+
+struct UsuarioSilencio {
+  static constexpr TipoMensaje kTipo = TipoMensaje::usuario_silencio;
+  std::uint32_t id = 0;
+  std::uint8_t silencio = 0;
 };
 
 struct EnviarChat {
@@ -247,6 +265,8 @@ VENTRIK_MENSAJE(CanalCreado)
 VENTRIK_MENSAJE(CanalCambiado)
 VENTRIK_MENSAJE(CanalBorrado)
 VENTRIK_MENSAJE(EntrarACanal)
+VENTRIK_MENSAJE(Silenciar)
+VENTRIK_MENSAJE(UsuarioSilencio)
 VENTRIK_MENSAJE(EnviarChat)
 VENTRIK_MENSAJE(MensajeChat)
 VENTRIK_MENSAJE(PedirHistorial)

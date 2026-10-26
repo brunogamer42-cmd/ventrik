@@ -19,6 +19,8 @@ static_assert(kMaximoLeidosPorServidor >= protocolo::kMaximoCanales);
 constexpr std::uint8_t kTeclaHablarPorDefecto = 0xA4;
 constexpr std::uint8_t kSensibilidadMaxima = 100;
 constexpr std::uint8_t kSensibilidadPorDefecto = 30;
+constexpr std::uint8_t kVolumenMaximo = 200;
+constexpr std::uint8_t kVolumenPorDefecto = 100;
 
 struct Leido {
   std::uint32_t canal = 0;
@@ -39,6 +41,9 @@ struct Guardados {
   std::uint8_t tecla_hablar = 0;
   bool por_voz = false;
   std::uint8_t sensibilidad = kSensibilidadPorDefecto;
+  std::uint8_t silencio = 0;
+  std::uint8_t volumen_microfono = kVolumenPorDefecto;
+  std::uint8_t volumen_salida = kVolumenPorDefecto;
   std::string nombre;
   std::vector<ServidorGuardado> servidores;
 };

@@ -84,6 +84,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   bool dos_en_la_voz = true;
 
   while (entrada.size() >= 3) {
+    if ((entrada[0] & 0x20) != 0) {
+      const unsigned cual = (entrada[1] >> 1) % 3;
+      voz.silencio((entrada[1] & 1u) != 0 ? 1u : 2u, static_cast<std::uint8_t>(cual == 2 ? 3 : cual));
+    }
     if ((entrada[0] & 0x40) != 0 && (entrada[1] & 0x80) != 0) {
       dos_en_la_voz = !dos_en_la_voz;
       if (dos_en_la_voz) {

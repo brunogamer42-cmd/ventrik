@@ -78,6 +78,12 @@ void Voz::mover(std::uint32_t id, std::uint32_t canal) {
   }
 }
 
+void Voz::silencio(std::uint32_t id, std::uint8_t valor) {
+  if (Persona* persona = buscar(id)) {
+    persona->silencio = valor;
+  }
+}
+
 void Voz::baja(std::uint32_t id) {
   personas_.erase(std::remove_if(personas_.begin(), personas_.end(),
                                  [id](const Persona& persona) { return persona.id == id; }),
@@ -194,11 +200,13 @@ void Voz::atender(Persona& persona, gsl::span<const std::uint8_t> datagrama, Ins
 }
 
 void Voz::reenviar(const Persona& hablante, protocolo::Medio medio) {
-  if (!protocolo::armar_datagrama(protocolo::MedioBajada{hablante.id, std::move(medio)}, datagrama_)) {
+  if ((hablante.silencio & protocolo::kSilencioMicrofono) != 0 ||
+      !protocolo::armar_datagrama(protocolo::MedioBajada{hablante.id, std::move(medio)}, datagrama_)) {
     return;
   }
   for (auto& oyente : personas_) {
-    if (oyente.id != hablante.id && oyente.canal == hablante.canal && oyente.sesion) {
+    if (oyente.id != hablante.id && oyente.canal == hablante.canal && oyente.sesion &&
+        (oyente.silencio & protocolo::kSilencioAudio) == 0) {
       escribir(*oyente.sesion, datagrama_);
     }
   }

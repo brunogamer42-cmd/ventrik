@@ -64,7 +64,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   presentado.dueno = (inicio & 1) != 0;
   presentado.canales = {{1, "General"}, {2, "charla", TipoCanal::texto, false, 3},
                         {3, "anuncios", TipoCanal::texto, true, 0}, {4, "Juegos"}};
-  presentado.usuarios = {{1, "Ana", (inicio & 2) != 0 ? 0u : 1u}, {2, "Beto", 4}};
+  presentado.usuarios = {{1, "Ana", (inicio & 2) != 0 ? 0u : 1u}, {2, "Beto", 4, 3}};
   std::vector<ventrik::cliente::Leido> leidos;
   if (presentado.dueno) {
     leidos = {{1, lector.leer_u8()}, {2, lector.leer_u16()}, {7, lector.leer_u8()}};
@@ -92,7 +92,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     const std::uint16_t c = lector.leer_u16();
     const TipoCanal tipo = (c & 1) != 0 ? TipoCanal::texto : TipoCanal::voz;
     const bool solo_admins = tipo == TipoCanal::texto && (c & 2) != 0;
-    switch (que % 20) {
+    switch (que % 21) {
       case 0: sala.aplicar(UsuarioEntro{{a, "Alguien", b}}); break;
       case 1: sala.aplicar(UsuarioSalio{a}); break;
       case 2: sala.aplicar(UsuarioCambioCanal{a, b}); break;
@@ -136,6 +136,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       }
       case 18: sala.soltar_lejanos(); break;
       case 19: exigir(sala.salir_de_la_voz().empty() == (sala.tu_canal() == 0)); break;
+      case 20: sala.aplicar(UsuarioSilencio{a, static_cast<std::uint8_t>(b % 3 == 2 ? 3 : b % 3)}); break;
       default: break;
     }
     anotar_todas(sala.revisar());

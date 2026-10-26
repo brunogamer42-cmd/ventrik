@@ -167,7 +167,8 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
   exigir(armado.size() == kCabeceraMarco + marco.cuerpo.size());
 
   revisar_pedidos<Presentarse, Presentado, PresentacionRechazada, UsuarioEntro, UsuarioSalio,
-                  UsuarioCambioCanal, CanalCreado, CanalCambiado, CanalBorrado, EntrarACanal,
+                  UsuarioCambioCanal, UsuarioSilencio, CanalCreado, CanalCambiado, CanalBorrado, EntrarACanal,
+                  Silenciar,
                   EnviarChat, MensajeChat, PedirHistorial, Historial, CrearCanal, CambiarCanal,
                   MirarCanal, MensajesNuevos, BorrarCanal, Negado, Ping, Pong, ClaveVoz, MedioSubida, MedioBajada>(marco.cuerpo);
   switch (static_cast<TipoMensaje>(marco.tipo)) {

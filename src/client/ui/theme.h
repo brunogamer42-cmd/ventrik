@@ -28,6 +28,9 @@ constexpr ImU32 celeste = rgb(0x5CC2D6);
 constexpr ImU32 verde = rgb(0x6FCB7E);
 constexpr ImU32 amarillo = rgb(0xE7B850);
 constexpr ImU32 rojo = rgb(0xE0705F);
+constexpr ImU32 rojo_claro = rgb(0xF2A397);
+constexpr ImU32 fondo_rojo = rgb(0x3A2622);
+constexpr ImU32 borde_rojo = rgb(0x6B3A33);
 constexpr ImU32 triangulo = rgb(0xC3D0CF);
 
 constexpr ImU32 bisel_arriba = rgb(0x323C40);
@@ -92,9 +95,6 @@ constexpr float corte_transmitiendo = 8;
 constexpr float contador = 18;
 constexpr float barra_lista = 8;
 constexpr float boton_mas = 22;
-constexpr float segmento = 7;
-constexpr float alto_segmento = 9;
-constexpr float entre_segmentos = 2;
 constexpr float alto_campo_chat = 37;
 }
 

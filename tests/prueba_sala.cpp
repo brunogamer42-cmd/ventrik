@@ -87,6 +87,16 @@ TEST_CASE("La sala arranca con lo presentado, todo leído, y pide el historial d
   CHECK(sala.ping() == 20u);
 }
 
+TEST_CASE("El silencio de cada uno se actualiza, y el de alguien que no está se ignora") {
+  Sala sala(presentado());
+  CHECK(sala.usuarios().at(8).silencio == 0);
+  sala.aplicar(UsuarioSilencio{8, 3});
+  CHECK(sala.usuarios().at(8).silencio == 3);
+  sala.aplicar(UsuarioSilencio{99, 1});
+  CHECK(sala.usuarios().count(99) == 0);
+  CHECK(en(sala, 1) == std::vector<std::uint32_t>{7, 8});
+}
+
 TEST_CASE("Sin voz, al empezar se mira el último canal de texto, si no #general, si no el primero, y si no hay, nada") {
   auto sin_voz = presentado();
   sin_voz.usuarios[0].canal = 0;

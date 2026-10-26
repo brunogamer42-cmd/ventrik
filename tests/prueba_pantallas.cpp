@@ -50,9 +50,11 @@ class SinPantalla {
     texto_.clear();
     if (soltar_ != ImGuiKey_None) {
       io.AddKeyEvent(soltar_, false);
+      io.AddKeyEvent(ImGuiMod_Ctrl, false);
     }
     soltar_ = tecla_;
     if (tecla_ != ImGuiKey_None) {
+      io.AddKeyEvent(ImGuiMod_Ctrl, control_);
       io.AddKeyEvent(tecla_, true);
     }
     tecla_ = ImGuiKey_None;
@@ -78,7 +80,10 @@ class SinPantalla {
 
   ImVec2 tamano() const { return tamano_; }
   void teclear(std::string texto) { texto_ = std::move(texto); }
-  void apretar(ImGuiKey tecla) { tecla_ = tecla; }
+  void apretar(ImGuiKey tecla, bool control = false) {
+    tecla_ = tecla;
+    control_ = control;
+  }
   void usar_boton(int boton) { boton_ = boton; }
   void rodar(float cuanto) { rueda_ = cuanto; }
 
@@ -88,6 +93,7 @@ class SinPantalla {
   std::string texto_;
   ImGuiKey tecla_ = ImGuiKey_None;
   ImGuiKey soltar_ = ImGuiKey_None;
+  bool control_ = false;
   int boton_ = 0;
 };
 
@@ -253,8 +259,11 @@ TEST_CASE("La pantalla del servidor se dibuja sin errores a cualquier tamaño, e
       recorrer(sin_pantalla, pantalla, sala);
       sala.elegir_texto(4);
       recorrer(sin_pantalla, pantalla, sala);
+      pantalla.silencio = 1;
+      recorrer(sin_pantalla, pantalla, sala);
       sala.aplicar(UsuarioCambioCanal{1, 0});
       pantalla.ultima_voz = 3;
+      pantalla.silencio = 3;
       recorrer(sin_pantalla, pantalla, sala);
     }
     auto vacia = sala_llena(false, 1, 1, 0);
@@ -266,7 +275,7 @@ TEST_CASE("La pantalla del servidor se dibuja sin errores a cualquier tamaño, e
   }
 }
 
-TEST_CASE("Con voz, \"Salir de la voz\" pide salir; sin voz, \"Volver a\" pide entrar al último canal") {
+TEST_CASE("Con voz, \"Salir del canal\" pide salir; sin voz, \"Volver a\" pide entrar al último canal") {
   SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
   auto sala = sala_llena(false, 4, 3, 5);
   auto pantalla = pantalla_servidor();
@@ -285,14 +294,14 @@ TEST_CASE("Con voz, \"Salir de la voz\" pide salir; sin voz, \"Volver a\" pide e
     }
     return pedido;
   };
-  const auto salir = buscar(410, 470);
+  const auto salir = buscar(630, 672);
   REQUIRE(salir);
   CHECK(salir->canal == 0);
   sala.aplicar(UsuarioCambioCanal{1, 0});
   CHECK(sala.revisar().size() == 2);
-  CHECK_FALSE(buscar(560, 740));
+  CHECK_FALSE(buscar(586, 628));
   pantalla.ultima_voz = 3;
-  const auto volver = buscar(560, 740);
+  const auto volver = buscar(586, 628);
   REQUIRE(volver);
   CHECK(volver->canal == 3);
 }
@@ -465,55 +474,90 @@ TEST_CASE("El gráfico de la barra de estado abre el diagnóstico") {
   }
 }
 
-TEST_CASE("Tocar Por voz lo pide; Ajustar muestra la sensibilidad, que se guarda al soltar, y Guardar la esconde") {
+TEST_CASE("El botón del modo abre \"Cómo transmitís\": Por voz, sensibilidad y volumen del micrófono; afuera lo cierra") {
   SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
   auto sala = sala_llena(false, 4, 3, 5);
   auto pantalla = pantalla_servidor();
-  std::optional<bool> elegido;
-  for (float y = 500; y < 660 && !elegido; y += 4) {
-    sin_pantalla.cuadro(pantalla, sala, ImVec2(205, y));
-    sin_pantalla.cuadro(pantalla, sala, ImVec2(205, y), true);
-    elegido = sin_pantalla.cuadro(pantalla, sala, ImVec2(205, y)).por_voz;
-  }
-  REQUIRE(elegido);
-  CHECK(*elegido);
+  const auto clic = [&](ImVec2 donde) {
+    sin_pantalla.cuadro(pantalla, sala, donde);
+    sin_pantalla.cuadro(pantalla, sala, donde, true);
+    return sin_pantalla.cuadro(pantalla, sala, donde);
+  };
+  CHECK_FALSE(pantalla.ajustando);
+  clic(ImVec2(140, 705));
+  REQUIRE(pantalla.ajustando);
+  const auto voz = clic(ImVec2(200, 524));
+  REQUIRE(voz.por_voz);
+  CHECK(*voz.por_voz);
   pantalla.por_voz = true;
   pantalla.sensibilidad = 30;
-  pantalla.transmitiendo = true;
   pantalla.nivel = 6;
-  const auto barrer = [&](float x, float desde, float hasta, auto&& listo) {
-    float y = desde;
-    for (; y < hasta && !listo(); y += 2) {
-      sin_pantalla.cuadro(pantalla, sala, ImVec2(x, y));
-      sin_pantalla.cuadro(pantalla, sala, ImVec2(x, y), true);
-      sin_pantalla.cuadro(pantalla, sala, ImVec2(x, y));
-    }
-    return y;
-  };
-  std::optional<int> marca;
-  for (float y = 500; y < 700; y += 2) {
-    sin_pantalla.cuadro(pantalla, sala, ImVec2(100, y));
-    marca = marca ? marca : sin_pantalla.cuadro(pantalla, sala, ImVec2(100, y), true).sensibilidad;
-  }
-  CHECK_FALSE(marca);
-  const float ajustar = barrer(240, 500, 700, [&] { return pantalla.ajustando; });
-  REQUIRE(pantalla.ajustando);
-  float fila = 0;
-  for (float y = ajustar - 50; y < ajustar + 20 && !marca; y += 2) {
-    sin_pantalla.cuadro(pantalla, sala, ImVec2(100, y));
-    marca = sin_pantalla.cuadro(pantalla, sala, ImVec2(100, y), true).sensibilidad;
-    fila = y;
-  }
-  REQUIRE(marca);
-  CHECK(*marca > 25);
-  CHECK(*marca < 40);
-  const auto arrastre = sin_pantalla.cuadro(pantalla, sala, ImVec2(200, fila), true);
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(100, 538));
+  const auto marca = sin_pantalla.cuadro(pantalla, sala, ImVec2(100, 538), true);
+  REQUIRE(marca.sensibilidad);
+  CHECK(*marca.sensibilidad > 25);
+  CHECK(*marca.sensibilidad < 35);
+  const auto arrastre = sin_pantalla.cuadro(pantalla, sala, ImVec2(200, 538), true);
   REQUIRE(arrastre.sensibilidad);
-  CHECK(*arrastre.sensibilidad > 60);
+  CHECK(*arrastre.sensibilidad > 70);
   CHECK_FALSE(arrastre.guardar);
-  CHECK(sin_pantalla.cuadro(pantalla, sala, ImVec2(200, fila)).guardar);
-  barrer(240, ajustar - 90, ajustar - 20, [&] { return !pantalla.ajustando; });
+  CHECK(sin_pantalla.cuadro(pantalla, sala, ImVec2(200, 538)).guardar);
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(144, 620));
+  const auto microfono = sin_pantalla.cuadro(pantalla, sala, ImVec2(144, 620), true);
+  REQUIRE(microfono.volumen_microfono);
+  CHECK(*microfono.volumen_microfono >= 95);
+  CHECK(*microfono.volumen_microfono <= 105);
+  CHECK(sin_pantalla.cuadro(pantalla, sala, ImVec2(144, 620)).guardar);
+  clic(ImVec2(800, 300));
   CHECK_FALSE(pantalla.ajustando);
+
+  clic(ImVec2(230, 705));
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(87, 620));
+  const auto salida = sin_pantalla.cuadro(pantalla, sala, ImVec2(87, 620), true);
+  REQUIRE(salida.volumen_salida);
+  CHECK(*salida.volumen_salida >= 45);
+  CHECK(*salida.volumen_salida <= 55);
+  CHECK_FALSE(salida.volumen_microfono);
+}
+
+TEST_CASE("Los botones y Ctrl+M / Ctrl+D silencian como en Discord, también escribiendo en el chat") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(false, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  const auto clic = [&](ImVec2 donde) {
+    sin_pantalla.cuadro(pantalla, sala, donde);
+    sin_pantalla.cuadro(pantalla, sala, donde, true);
+    return sin_pantalla.cuadro(pantalla, sala, donde);
+  };
+  const auto aplicar = [&](const ui::PedidoServidor& pedido) {
+    REQUIRE(pedido.silencio);
+    pantalla.silencio = *pedido.silencio;
+    return static_cast<int>(*pedido.silencio);
+  };
+  const ImVec2 microfono(38, 705);
+  const ImVec2 audio(76, 705);
+  CHECK(aplicar(clic(microfono)) == 1);
+  CHECK(aplicar(clic(audio)) == 3);
+  CHECK(aplicar(clic(audio)) == 1);
+  CHECK(aplicar(clic(microfono)) == 0);
+  CHECK(aplicar(clic(audio)) == 3);
+  CHECK(aplicar(clic(microfono)) == 0);
+  const auto atajo = [&](ImGuiKey tecla, bool control) {
+    sin_pantalla.apretar(tecla, control);
+    const auto pedido = sin_pantalla.cuadro(pantalla, sala, ImVec2(800, 300));
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(800, 300));
+    return pedido;
+  };
+  CHECK(aplicar(atajo(ImGuiKey_M, true)) == 1);
+  CHECK(aplicar(atajo(ImGuiKey_D, true)) == 3);
+  pantalla.enfocar_mensaje = true;
+  for (int vez = 0; vez < 5 && !ImGui::GetIO().WantTextInput; ++vez) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(800, 300));
+  }
+  REQUIRE(ImGui::GetIO().WantTextInput);
+  CHECK(aplicar(atajo(ImGuiKey_D, true)) == 1);
+  CHECK(aplicar(atajo(ImGuiKey_M, true)) == 0);
+  CHECK_FALSE(atajo(ImGuiKey_M, false).silencio);
 }
 
 namespace {

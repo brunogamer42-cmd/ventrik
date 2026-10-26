@@ -69,13 +69,17 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       motor.solo_en_el_canal(solo);
       motor.por_voz((entrada[4] & 32) != 0);
       motor.sensibilidad(entrada[0] >> 1);
+      const bool sin_microfono = (entrada[4] & 64) != 0;
+      motor.silenciar(sin_microfono, sin_microfono && (entrada[4] & 128) != 0);
+      motor.volumenes(entrada[1] % 201, entrada[2] % 201);
       puente.bajada.poner(paquete);
       std::transform(opus.begin(), opus.begin() + std::min(opus.size(), sonido.size()),
                      sonido.begin(), [](std::uint8_t valor) { return static_cast<std::int16_t>(valor << 7); });
       motor.procesar(sonido, salida);
+      exigir(!sin_microfono || !motor.transmitiendo());
       PaqueteVoz salido;
       while (puente.subida.sacar(salido)) {
-        exigir(!solo && salido.largo > 2 && salido.largo <= salido.opus.size());
+        exigir(!solo && !sin_microfono && salido.largo > 2 && salido.largo <= salido.opus.size());
       }
     } else {
       if (hay_ultimo && static_cast<std::int16_t>(static_cast<std::uint16_t>(paquete.numero - ultimo)) <= -64) {

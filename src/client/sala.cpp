@@ -295,6 +295,13 @@ std::vector<Orden> Sala::atender(const protocolo::UsuarioCambioCanal& cambio) {
                                                             : std::vector<Orden>{};
 }
 
+std::vector<Orden> Sala::atender(const protocolo::UsuarioSilencio& silencio) {
+  if (const auto usuario = usuarios_.find(silencio.id); usuario != usuarios_.end()) {
+    usuario->second.silencio = silencio.silencio;
+  }
+  return {};
+}
+
 std::vector<Orden> Sala::atender(const protocolo::CanalCreado& creado) {
   if (creado.canal.id != 0 && canal(creado.canal.id) == nullptr &&
       canales_.size() < protocolo::kMaximoCanalesEnLista) {

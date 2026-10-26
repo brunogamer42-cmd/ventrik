@@ -11,9 +11,10 @@
 namespace ventrik::cliente {
 namespace {
 constexpr std::uint32_t kMarca = 0x52504B56;
-constexpr std::uint16_t kVersion = 3;
+constexpr std::uint16_t kVersion = 4;
 constexpr std::uint16_t kVersionConLeidos = 2;
 constexpr std::uint16_t kVersionConModo = 3;
+constexpr std::uint16_t kVersionConSilencio = 4;
 
 bool nombre_opcional(const std::string& nombre) { return nombre.empty() || es_nombre_valido(nombre); }
 
@@ -39,7 +40,9 @@ bool son_validos(const Guardados& guardados) {
     }
   }
   return servidores.size() <= kMaximoServidoresGuardados && nombre_opcional(guardados.nombre) &&
-         es_tecla_valida(guardados.tecla_hablar) && guardados.sensibilidad <= kSensibilidadMaxima;
+         es_tecla_valida(guardados.tecla_hablar) && guardados.sensibilidad <= kSensibilidadMaxima &&
+         protocolo::es_silencio_valido(guardados.silencio) && guardados.volumen_microfono <= kVolumenMaximo &&
+         guardados.volumen_salida <= kVolumenMaximo;
 }
 
 std::wstring ruta() {
@@ -67,6 +70,11 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
     if (modo > 1) {
       return LecturaGuardados::danados;
     }
+  }
+  if (version >= kVersionConSilencio) {
+    leidos.silencio = lector.leer_u8();
+    leidos.volumen_microfono = lector.leer_u8();
+    leidos.volumen_salida = lector.leer_u8();
   }
   leidos.nombre = lector.leer_texto(kMaximoBytesNombre);
   const std::size_t cantidad = lector.leer_u8();
@@ -106,6 +114,9 @@ std::vector<std::uint8_t> armar_guardados(const Guardados& guardados) {
   escritor.escribir_u8(guardados.tecla_hablar);
   escritor.escribir_u8(guardados.por_voz ? 1 : 0);
   escritor.escribir_u8(guardados.sensibilidad);
+  escritor.escribir_u8(guardados.silencio);
+  escritor.escribir_u8(guardados.volumen_microfono);
+  escritor.escribir_u8(guardados.volumen_salida);
   escritor.escribir_texto(guardados.nombre, kMaximoBytesNombre);
   escritor.escribir_u8(static_cast<std::uint8_t>(guardados.servidores.size()));
   for (const ServidorGuardado& servidor : guardados.servidores) {

@@ -359,7 +359,7 @@ TEST_CASE("La negociación elige la versión más alta que entienden los dos") {
     CHECK(std::get<Bienvenida>(respuesta).protocolo == 3);
   }
   SUBCASE("el servidor es más nuevo") {
-    const auto respuesta = negociar(hola, servidor_de_prueba(2, 5));
+    const auto respuesta = negociar(Hola{1, 3, {0, 2, 0}, 0b1010}, servidor_de_prueba(2, 5));
     REQUIRE(std::holds_alternative<Bienvenida>(respuesta));
     CHECK(std::get<Bienvenida>(respuesta).protocolo == 3);
   }
@@ -406,7 +406,7 @@ TEST_CASE("La negociación rechaza con el motivo correcto") {
     const auto respuesta = negociar(Hola{1, 1, {0, 0, 5}, 0}, ConfigServidor{});
     REQUIRE(std::holds_alternative<Rechazo>(respuesta));
     CHECK(std::get<Rechazo>(respuesta) ==
-          Rechazo{MotivoRechazo::programa_viejo, ventrik::kPrimeraVersionDelProtocolo[0]});
+          Rechazo{MotivoRechazo::programa_viejo, ventrik::kPrimeraVersionDelProtocolo[ventrik::kProtocoloMinimo - 1]});
   }
   SUBCASE("protocolo 0") {
     const auto respuesta = negociar(Hola{0, 3, kVersion012, 0}, servidor_de_prueba(1, 3));

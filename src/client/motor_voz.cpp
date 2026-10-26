@@ -19,6 +19,10 @@ constexpr unsigned kQuietosParaCambiar = 50;
 constexpr opus_int32 kSoloCabecera = 2;
 }
 
+std::int16_t con_ganancia(std::int16_t muestra, int por_ciento) {
+  return static_cast<std::int16_t>(std::clamp(muestra * por_ciento / 100, -32768, 32767));
+}
+
 Calidad calidad_automatica() {
   using Consultar = BOOL(WINAPI*)(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION, PDWORD);
   const auto consultar = reinterpret_cast<Consultar>(
@@ -80,13 +84,14 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     return;
   }
   const bool por_voz = por_voz_;
-  const bool escuchar = por_voz || transmitiendo_;
+  const bool escuchar = !sin_microfono_ && (por_voz || transmitiendo_);
+  const int ganancia = ganancia_microfono_;
   int pico = 0;
   for (const std::int16_t muestra : escuchar ? entrada : gsl::span<const std::int16_t>()) {
     pico = std::max(pico, std::abs(static_cast<int>(muestra)));
   }
-  pico_.store(pico, std::memory_order_relaxed);
-  if (!por_voz) {
+  pico_.store(std::min(pico * ganancia / 100, 32767), std::memory_order_relaxed);
+  if (!por_voz || !escuchar) {
     abierto_ = hay_anterior_ = false;
     restante_ = 0;
   }
@@ -96,7 +101,8 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
   }
   while (!entrada.empty()) {
     const auto parte = entrada.first(std::min(entrada.size(), por_paquete_ - capturadas_));
-    std::copy(parte.begin(), parte.end(), capturado_.begin() + static_cast<std::ptrdiff_t>(capturadas_));
+    std::transform(parte.begin(), parte.end(), capturado_.begin() + static_cast<std::ptrdiff_t>(capturadas_),
+                   [ganancia](std::int16_t muestra) { return con_ganancia(muestra, ganancia); });
     capturadas_ += parte.size();
     entrada = entrada.subspan(parte.size());
     if (capturadas_ == por_paquete_) {
@@ -104,11 +110,12 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
       capturadas_ = 0;
     }
   }
+  const int volumen = sin_audio_ ? 0 : ganancia_salida_.load();
   for (std::int16_t& muestra : salida) {
     if (reproducidas_ == por_reproducir_) {
       decodificar();
     }
-    muestra = reproducir_[reproducidas_++];
+    muestra = con_ganancia(reproducir_[reproducidas_++], volumen);
   }
 }
 

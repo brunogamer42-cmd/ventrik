@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -62,8 +63,8 @@ double energia(const std::vector<std::int16_t>& muestras, std::size_t desde) {
   return suma / static_cast<double>(muestras.size() - desde);
 }
 
-std::vector<std::int16_t> hablar_y_escuchar(const Calidad& habla, const Calidad& escucha,
-                                            std::uint32_t& hablando) {
+std::vector<std::int16_t> hablar_y_escuchar(const Calidad& habla, const Calidad& escucha, std::uint32_t& hablando,
+                                            const std::function<void(MotorVoz&, MotorVoz&)>& ajustar = {}) {
   PuenteVoz de_ida;
   PuenteVoz de_vuelta;
   MotorVoz emisor(de_ida, habla);
@@ -71,6 +72,9 @@ std::vector<std::int16_t> hablar_y_escuchar(const Calidad& habla, const Calidad&
   REQUIRE(emisor.ok());
   REQUIRE(receptor.ok());
   emisor.transmitir(true);
+  if (ajustar) {
+    ajustar(emisor, receptor);
+  }
   const std::size_t por_tanda_emisor = habla.frecuencia / 100;
   const std::size_t por_tanda_receptor = escucha.frecuencia / 100;
   std::vector<std::int16_t> sonido(por_tanda_emisor);
@@ -175,6 +179,85 @@ TEST_CASE("La voz comprimida se escucha del otro lado, también con otra calidad
     CHECK(energia(escuchado, escuchado.size() / 2) > 1e6);
     CHECK(hablando == 9);
   }
+}
+
+TEST_CASE("El volumen multiplica cada muestra con tope, y sin audio no suena pero se sabe quién habla") {
+  CHECK(ventrik::cliente::con_ganancia(1000, 0) == 0);
+  CHECK(ventrik::cliente::con_ganancia(1000, 100) == 1000);
+  CHECK(ventrik::cliente::con_ganancia(1000, 200) == 2000);
+  CHECK(ventrik::cliente::con_ganancia(-1000, 50) == -500);
+  CHECK(ventrik::cliente::con_ganancia(30000, 200) == 32767);
+  CHECK(ventrik::cliente::con_ganancia(-30000, 200) == -32768);
+  std::uint32_t hablando = 0;
+  const auto normal = hablar_y_escuchar(Calidad{}, Calidad{}, hablando);
+  const auto a_la_mitad = hablar_y_escuchar(Calidad{}, Calidad{}, hablando,
+                                            [](MotorVoz&, MotorVoz& receptor) { receptor.volumenes(100, 50); });
+  const double proporcion = energia(a_la_mitad, a_la_mitad.size() / 2) / energia(normal, normal.size() / 2);
+  CHECK(proporcion > 0.2);
+  CHECK(proporcion < 0.3);
+  hablando = 0;
+  const auto sin_audio = hablar_y_escuchar(Calidad{}, Calidad{}, hablando,
+                                           [](MotorVoz&, MotorVoz& receptor) { receptor.silenciar(true, true); });
+  CHECK(energia(sin_audio, 0) == 0);
+  CHECK(hablando == 9);
+}
+
+TEST_CASE("Con el micrófono silenciado no se comprime ni se manda nada, aunque se pida transmitir") {
+  PuenteVoz puente;
+  MotorVoz motor(puente, Calidad{});
+  REQUIRE(motor.ok());
+  motor.silenciar(true, false);
+  motor.transmitir(true);
+  CHECK_FALSE(motor.transmitiendo());
+  std::vector<std::int16_t> entrada(480);
+  std::vector<std::int16_t> salida(480);
+  std::size_t muestra = 0;
+  PaqueteVoz sacado;
+  for (const bool por_voz : {false, true}) {
+    motor.por_voz(por_voz);
+    motor.sensibilidad(0);
+    for (int i = 0; i < 10; ++i) {
+      tono(entrada, muestra, 48000);
+      motor.procesar(entrada, salida);
+    }
+    CHECK_FALSE(puente.subida.sacar(sacado));
+    CHECK(motor.nivel(10) == 0);
+    CHECK_FALSE(motor.transmitiendo());
+  }
+  motor.por_voz(false);
+  motor.silenciar(false, false);
+  CHECK_FALSE(motor.transmitiendo());
+  std::vector<std::int16_t> callado(480);
+  for (int i = 0; i < 10; ++i) {
+    tono(entrada, muestra, 48000);
+    motor.procesar(entrada, salida);
+  }
+  CHECK_FALSE(puente.subida.sacar(sacado));
+
+  motor.por_voz(true);
+  for (int i = 0; i < 10; ++i) {
+    tono(entrada, muestra, 48000);
+    motor.procesar(entrada, salida);
+  }
+  CHECK(motor.transmitiendo());
+  while (puente.subida.sacar(sacado)) {
+  }
+  motor.silenciar(true, false);
+  motor.procesar(entrada, salida);
+  motor.silenciar(false, false);
+  for (int i = 0; i < 10; ++i) {
+    motor.procesar(callado, salida);
+  }
+  CHECK_FALSE(puente.subida.sacar(sacado));
+  CHECK_FALSE(motor.transmitiendo());
+
+  motor.por_voz(false);
+  motor.transmitir(true);
+  for (int i = 0; i < 10; ++i) {
+    tono(entrada, muestra, 48000);
+    motor.procesar(entrada, salida);
+  }
+  CHECK(puente.subida.sacar(sacado));
 }
 
 TEST_CASE("Sin transmitir no sale nada, y un segundo hablante espera su turno") {

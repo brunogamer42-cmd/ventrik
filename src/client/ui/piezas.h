@@ -37,7 +37,11 @@ enum class Icono {
   clip,
   panel,
   verificado,
-  colgar
+  colgar,
+  teclado,
+  parlante,
+  pulso,
+  flecha_arriba
 };
 
 using Campo = std::array<char, 128>;
@@ -79,6 +83,7 @@ void escribir_envuelto(ImVec2 donde, std::string_view texto, ImU32 color, float 
 void cartel(std::string_view texto);
 
 void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, ImU32 color);
+void dibujar_icono_tachado(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, ImU32 color);
 void escuadras(ImDrawList& dibujo, ImVec2 desde, ImVec2 hasta, float largo, float grosor, ImU32 color);
 void triangulos(ImDrawList& dibujo, ImVec2 desde, ImVec2 hasta);
 void panel(ImVec2 desde, ImVec2 hasta);
@@ -100,7 +105,7 @@ float ancho_tecla(std::string_view nombre);
 void tecla(ImVec2 desde, std::string_view nombre, ImU32 relleno);
 float ancho_transmitiendo(std::string_view texto);
 void etiqueta_transmitiendo(ImVec2 desde, float ancho, std::string_view texto, bool transmitiendo);
-void medidor(ImVec2 desde, int segmentos, int encendidos, ImU32 color);
+void aviso_silencio(ImVec2 desde, float ancho, std::string_view texto, Icono icono);
 float contador_nuevos(ImVec2 derecha, std::uint32_t cantidad);
 float ancho_chip(std::string_view texto);
 void chip(ImVec2 desde, std::string_view texto);

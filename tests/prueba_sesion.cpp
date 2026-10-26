@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <optional>
 #include <string>
@@ -82,6 +83,37 @@ class Cliente {
   ventrik::cliente::Sesion sesion_;
   std::vector<Novedad> recibidas_;
 };
+
+std::uint16_t hablar(ventrik::cliente::PuenteVoz& puente) {
+  static std::uint16_t numero = 7;
+  ventrik::cliente::PaqueteVoz paquete;
+  paquete.numero = numero++;
+  paquete.largo = 3;
+  paquete.opus[0] = 1;
+  paquete.opus[1] = 2;
+  paquete.opus[2] = 3;
+  REQUIRE(puente.subida.poner(paquete));
+  puente.despertador.despertar();
+  return paquete.numero;
+}
+
+std::optional<ventrik::cliente::PaqueteVoz> escuchar(ventrik::cliente::PuenteVoz& puente,
+                                                     std::chrono::milliseconds limite) {
+  ventrik::cliente::PaqueteVoz paquete;
+  return esperar_que([&] { return puente.bajada.sacar(paquete); }, limite)
+             ? std::optional<ventrik::cliente::PaqueteVoz>(paquete)
+             : std::nullopt;
+}
+
+bool llega_alguno(ventrik::cliente::PuenteVoz& habla, ventrik::cliente::PuenteVoz& escucha) {
+  for (int intento = 0; intento < 50; ++intento) {
+    hablar(habla);
+    if (escuchar(escucha, 100ms)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 struct ConDueno {
   ventrik::cifrado::CodigoDueno codigo = *ventrik::cifrado::CodigoDueno::generar();
@@ -514,28 +546,11 @@ TEST_CASE("La voz va por UDP solo a los del mismo canal, y sigue andando al rota
     REQUIRE(esperar_que([puente] { return puente->estado == EstadoVoz::lista; }));
   }
   CHECK(pd->estado == EstadoVoz::sin_clave);
-  std::uint16_t numero = 7;
-  const auto hablar = [&numero](PuenteVoz& puente) {
-    PaqueteVoz paquete;
-    paquete.numero = numero++;
-    paquete.largo = 3;
-    paquete.opus[0] = 1;
-    paquete.opus[1] = 2;
-    paquete.opus[2] = 3;
-    REQUIRE(puente.subida.poner(paquete));
-    puente.despertador.despertar();
-  };
-  const auto escuchar = [](PuenteVoz& puente, std::chrono::milliseconds limite) {
-    PaqueteVoz paquete;
-    return esperar_que([&] { return puente.bajada.sacar(paquete); }, limite)
-               ? std::optional<PaqueteVoz>(paquete)
-               : std::nullopt;
-  };
-  hablar(*pa);
+  const std::uint16_t enviado = hablar(*pa);
   const auto en_beto = escuchar(*pb, 5s);
   REQUIRE(en_beto);
   CHECK(en_beto->hablante == ana_id);
-  CHECK(en_beto->numero == 7);
+  CHECK(en_beto->numero == enviado);
   CHECK(en_beto->largo == 3);
   CHECK(en_beto->opus[2] == 3);
   CHECK_FALSE(escuchar(*pc, 300ms));
@@ -589,6 +604,56 @@ TEST_CASE("La voz va por UDP solo a los del mismo canal, y sigue andando al rota
     llego = escuchar(*otra_vez, 100ms).has_value();
   }
   CHECK(llego);
+}
+
+TEST_CASE("El silencio llega a todos y al que entra después; sin audio no te llega voz y silenciado tu voz no sale") {
+  using ventrik::cliente::EstadoVoz;
+  using ventrik::cliente::PaqueteVoz;
+  using ventrik::cliente::PuenteVoz;
+  ServidorDePrueba servidor;
+  Cliente ana(servidor, "Ana");
+  const auto ana_id = ana.entrar().tu_id;
+  ana.ordenar(Silenciar{1});
+  REQUIRE(ana.esperar<UsuarioSilencio>([&](const UsuarioSilencio& s) { return s.id == ana_id && s.silencio == 1; }));
+  Cliente beto(servidor, "Beto");
+  const auto presentado = beto.entrar();
+  const auto vista = std::find_if(presentado.usuarios.begin(), presentado.usuarios.end(),
+                                  [&](const UsuarioInfo& usuario) { return usuario.id == ana_id; });
+  REQUIRE(vista != presentado.usuarios.end());
+  CHECK(vista->silencio == 1);
+  for (Cliente* cliente : {&ana, &beto}) {
+    cliente->ordenar(EntrarACanal{kCanalGeneral});
+  }
+  REQUIRE(beto.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id != ana_id; }));
+  REQUIRE(beto.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == ana_id; }));
+  const auto pa = std::make_shared<PuenteVoz>();
+  const auto pb = std::make_shared<PuenteVoz>();
+  ana.voz(pa);
+  beto.voz(pb);
+  REQUIRE(esperar_que([&] { return pa->estado == EstadoVoz::lista && pb->estado == EstadoVoz::lista; }));
+  for (int vez = 0; vez < 5; ++vez) {
+    hablar(*pa);
+  }
+  CHECK_FALSE(escuchar(*pb, 500ms));
+
+  ana.ordenar(Silenciar{0});
+  REQUIRE(beto.esperar<UsuarioSilencio>([&](const UsuarioSilencio& s) { return s.id == ana_id && s.silencio == 0; }));
+  CHECK(llega_alguno(*pa, *pb));
+
+  const auto beto_id = presentado.tu_id;
+  beto.ordenar(Silenciar{3});
+  REQUIRE(ana.esperar<UsuarioSilencio>([&](const UsuarioSilencio& s) { return s.id == beto_id && s.silencio == 3; }));
+  std::this_thread::sleep_for(200ms);
+  PaqueteVoz viejo;
+  while (pb->bajada.sacar(viejo)) {
+  }
+  for (int vez = 0; vez < 5; ++vez) {
+    hablar(*pa);
+  }
+  CHECK_FALSE(escuchar(*pb, 500ms));
+
+  ana.ordenar(Silenciar{2});
+  CHECK(ana.esperar<Fin>());
 }
 
 TEST_CASE("Cerrar una sesión que todavía está saludando no espera el plazo del saludo") {

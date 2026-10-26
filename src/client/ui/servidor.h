@@ -61,7 +61,8 @@ struct TextosGuardados {
   TextoGuardado subtitulo;
   TextoGuardado pista;
   TextoGuardado sin_voz;
-  TextoGuardado en_canal;
+  TextoGuardado volumen_microfono;
+  TextoGuardado volumen_salida;
   TextoGuardado ping_corto;
   TextoGuardado volver;
   std::deque<TextoGuardado> etapas;
@@ -91,6 +92,10 @@ struct PantallaServidor {
   int sensibilidad = 0;
   bool ajustando = false;
   std::uint32_t ultima_voz = 0;
+  std::uint8_t silencio = 0;
+  bool microfono_antes = false;
+  int volumen_microfono = 100;
+  int volumen_salida = 100;
   bool transmitiendo = false;
   std::uint32_t hablando = 0;
   int nivel = 0;
@@ -120,6 +125,9 @@ struct PedidoServidor {
   bool elegir_tecla = false;
   std::optional<bool> por_voz;
   std::optional<int> sensibilidad;
+  std::optional<std::uint8_t> silencio;
+  std::optional<int> volumen_microfono;
+  std::optional<int> volumen_salida;
   bool guardar = false;
   std::vector<cliente::Orden> ordenes;
 };

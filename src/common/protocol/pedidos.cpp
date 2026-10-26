@@ -98,16 +98,26 @@ void leer_canal(Lector& lector, CanalInfo& canal) {
   canal.contador = lector.leer_u32();
 }
 
+std::uint8_t leer_silencio(Lector& lector) {
+  const std::uint8_t silencio = lector.leer_u8();
+  if (!es_silencio_valido(silencio)) {
+    lector.marcar_error();
+  }
+  return silencio;
+}
+
 void escribir_usuario(Escritor& escritor, const UsuarioInfo& usuario) {
   escritor.escribir_u32(usuario.id);
   escribir_nombre(escritor, usuario.nombre);
   escritor.escribir_u32(usuario.canal);
+  escritor.escribir_u8(usuario.silencio);
 }
 
 void leer_usuario(Lector& lector, UsuarioInfo& usuario) {
   usuario.id = lector.leer_u32();
   leer_nombre(lector, usuario.nombre);
   usuario.canal = lector.leer_u32();
+  usuario.silencio = leer_silencio(lector);
 }
 
 bool medio_valido(TipoFlujo tipo, std::uint8_t flujo, std::size_t largo) {
@@ -168,7 +178,7 @@ bool sigue(Sentido sentido, std::uint64_t anterior, std::uint64_t id) {
 
 bool es_pedido(std::uint16_t tipo) {
   return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
-         tipo <= static_cast<std::uint16_t>(TipoMensaje::mirar_canal);
+         tipo <= static_cast<std::uint16_t>(TipoMensaje::silenciar);
 }
 
 }
@@ -409,6 +419,24 @@ void escribir(Escritor& escritor, const MirarCanal& mensaje) {
 
 void leer(Lector& lector, MirarCanal& mensaje) {
   mensaje.canal = lector.leer_u32();
+}
+
+void escribir(Escritor& escritor, const Silenciar& mensaje) {
+  escritor.escribir_u8(mensaje.silencio);
+}
+
+void leer(Lector& lector, Silenciar& mensaje) {
+  mensaje.silencio = leer_silencio(lector);
+}
+
+void escribir(Escritor& escritor, const UsuarioSilencio& mensaje) {
+  escritor.escribir_u32(mensaje.id);
+  escritor.escribir_u8(mensaje.silencio);
+}
+
+void leer(Lector& lector, UsuarioSilencio& mensaje) {
+  mensaje.id = lector.leer_u32();
+  mensaje.silencio = leer_silencio(lector);
 }
 
 void escribir(Escritor& escritor, const MensajesNuevos& mensaje) {

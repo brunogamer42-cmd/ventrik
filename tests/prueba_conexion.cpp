@@ -428,7 +428,7 @@ TEST_CASE("Un programa demasiado viejo recibe a qué versión actualizar") {
   opciones.hola.programa = {0, 0, 9};
   const auto resultado = entrar(servidor.direccion(), servidor.huella(), opciones);
   CHECK(resultado.estado == EstadoConexion::programa_viejo);
-  CHECK(resultado.version_pedida == ventrik::kPrimeraVersionDelProtocolo[0]);
+  CHECK(resultado.version_pedida == ventrik::kPrimeraVersionDelProtocolo[ventrik::kProtocoloMinimo - 1]);
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::rechazo_saludo) == 1; }));
 }
 

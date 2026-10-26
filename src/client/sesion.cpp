@@ -194,6 +194,8 @@ bool Sesion::procesar(const protocolo::Marco& marco) {
       return publicar_si(protocolo::UsuarioSalio{});
     case TipoMensaje::usuario_cambio_canal:
       return publicar_si(protocolo::UsuarioCambioCanal{});
+    case TipoMensaje::usuario_silencio:
+      return publicar_si(protocolo::UsuarioSilencio{});
     case TipoMensaje::canal_creado:
       return publicar_si(protocolo::CanalCreado{});
     case TipoMensaje::canal_cambiado:

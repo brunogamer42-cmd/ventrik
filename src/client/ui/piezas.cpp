@@ -484,12 +484,17 @@ void etiqueta_transmitiendo(ImVec2 desde, float ancho, std::string_view texto, b
            medida::letra_transmitiendo);
 }
 
-void medidor(ImVec2 desde, int segmentos, int encendidos, ImU32 color) {
-  for (int i = 0; i < segmentos; ++i) {
-    const float x = desde.x + static_cast<float>(i) * px(medida::segmento + medida::entre_segmentos);
-    lienzo().AddRectFilled(ImVec2(x, desde.y), ImVec2(x + px(medida::segmento), desde.y + px(medida::alto_segmento)),
-                           tono(i < encendidos ? color : color::linea));
-  }
+void aviso_silencio(ImVec2 desde, float ancho, std::string_view texto, Icono icono) {
+  const ImVec2 hasta(desde.x + ancho, desde.y + px(medida::alto_transmitiendo));
+  const auto forma = cortes_opuestos(desde, hasta, px(medida::corte_transmitiendo), false);
+  ImDrawList& dibujo = lienzo();
+  dibujo.AddConvexPolyFilled(forma.data(), static_cast<int>(forma.size()), tono(color::fondo_rojo));
+  dibujo.AddPolyline(forma.data(), static_cast<int>(forma.size()), tono(color::borde_rojo), ImDrawFlags_Closed, 1.0f);
+  const float medio = (desde.y + hasta.y) / 2;
+  dibujar_icono_tachado(dibujo, icono, ImVec2(desde.x + px(19), medio), px(13), tono(color::rojo_claro));
+  const ImVec2 tamano = medir(texto, Letra::negrita, medida::letra_transmitiendo);
+  escribir(ImVec2(desde.x + px(32), medio - tamano.y / 2), texto, color::rojo_claro, Letra::negrita,
+           medida::letra_transmitiendo);
 }
 
 float contador_nuevos(ImVec2 derecha, std::uint32_t cantidad) {
