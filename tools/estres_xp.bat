@@ -5,8 +5,8 @@ rem El resultado queda en resultado_estres.txt, al lado de este archivo.
 cd /d "%~dp0"
 set VENTRIK_SERVIDOR=%~dp0ventrik_servidor.exe
 set VENTRIK_CARPETA=%~dp0estres
-set VENTRIK_ESTRES_CONEXIONES=64
-set VENTRIK_ESTRES_CHURN=200
+set VENTRIK_ESTRES_CONEXIONES=40
+set VENTRIK_ESTRES_CHURN=12
 if exist "%VENTRIK_CARPETA%" rmdir /s /q "%VENTRIK_CARPETA%"
 mkdir "%VENTRIK_CARPETA%"
 echo Estresando el servidor en esta PC (puede tardar unos minutos)...

@@ -33,19 +33,11 @@ int env_num(const wchar_t* nombre, int por_defecto) {
 
 ventrik::red::Direccion origen_n(unsigned i) { return {0x7F000100u + i, 0}; }
 
-ventrik::cliente::OpcionesConexion desde(unsigned i, const ventrik::protocolo::Hola& hola) {
-  ventrik::cliente::OpcionesConexion opciones;
-  opciones.hola = hola;
-  opciones.origen = origen_n(i);
-  return opciones;
-}
-
 class Liviana {
  public:
-  Liviana(const ServidorExterno& servidor, unsigned i)
+  Liviana(const ServidorExterno& servidor, unsigned i, std::optional<ventrik::red::Direccion> origen)
       : resultado_(ventrik::cliente::conectar(servidor.direccion(), servidor.huella(),
-                                              {"carga" + std::to_string(i), {}},
-                                              desde(i, hola_))) {}
+                                              {"carga" + std::to_string(i), {}}, opciones(origen))) {}
   bool conectada() const { return resultado_.estado == EstadoConexion::conectado && resultado_.abierta; }
 
   void drenar() {
@@ -77,11 +69,15 @@ class Liviana {
   }
 
  private:
-  static const ventrik::protocolo::Hola hola_;
+  static ventrik::cliente::OpcionesConexion opciones(std::optional<ventrik::red::Direccion> origen) {
+    ventrik::cliente::OpcionesConexion opciones;
+    opciones.origen = origen;
+    opciones.tiempo_para_conectar = 4s;
+    opciones.tiempo_para_saludar = 4s;
+    return opciones;
+  }
   ventrik::cliente::ResultadoConexion resultado_;
 };
-const ventrik::protocolo::Hola Liviana::hola_{ventrik::kProtocoloMinimo, ventrik::kProtocoloMaximo,
-                                              ventrik::kVersionPrograma, 0};
 
 }
 
@@ -126,11 +122,19 @@ TEST_CASE("estres: el servidor aguanta carga y ataques, y el canario sigue atend
   const std::size_t memoria_base = servidor.proceso().memoria_kb();
   const std::uint32_t manijas_base = servidor.proceso().manijas();
 
+  // Cada usuario simulado sale de una IP 127.0.x.y distinta para esquivar el tope por IP; XP solo deja
+  // atar 127.0.0.1, así que ahí todos salen de esa y el tope por IP limita cuántos entran.
+  const bool multi_ip = ventrik::red::abrir_udp(origen_n(1)).valido();
+  MESSAGE("IP de origen distinta por conexion, 1=si 127.0.x.y 0=todas 127.0.0.1: " << (multi_ip ? 1 : 0));
+  const auto origen_de = [&](unsigned i) -> std::optional<ventrik::red::Direccion> {
+    return multi_ip ? std::optional<ventrik::red::Direccion>(origen_n(i)) : std::nullopt;
+  };
+
   SUBCASE("carga: muchas conexiones a la vez, el canario sigue chateando") {
     std::vector<std::unique_ptr<Liviana>> lote;
     int conectadas = 0;
     for (int i = 0; i < conexiones; ++i) {
-      auto liviana = std::make_unique<Liviana>(servidor, static_cast<unsigned>(i));
+      auto liviana = std::make_unique<Liviana>(servidor, static_cast<unsigned>(i), origen_de(static_cast<unsigned>(i)));
       if (liviana->conectada()) {
         ++conectadas;
       }
@@ -143,7 +147,7 @@ TEST_CASE("estres: el servidor aguanta carga y ataques, y el canario sigue atend
     MESSAGE("con " << conectadas << "/" << conexiones << " conexiones: canario " << (durante ? *durante : -1)
                    << " ms; servidor " << servidor.proceso().memoria_kb() / 1024 << " MB, "
                    << servidor.proceso().manijas() << " manijas");
-    CHECK(conectadas >= conexiones / 2);
+    CHECK(conectadas >= (multi_ip ? conexiones / 2 : 1));
     CHECK(durante);
     CHECK(servidor.proceso().vivo());
   }
@@ -151,8 +155,9 @@ TEST_CASE("estres: el servidor aguanta carga y ataques, y el canario sigue atend
   SUBCASE("inundacion: conexiones TCP que no terminan el saludo") {
     std::vector<ventrik::red::Socket> crudas;
     for (int i = 0; i < conexiones; ++i) {
-      const ventrik::red::Direccion origen = origen_n(static_cast<unsigned>(1000 + i));
-      ventrik::red::Socket cruda = ventrik::red::conectar(servidor.direccion(), 2s, nullptr, &origen);
+      const auto origen = origen_de(static_cast<unsigned>(1000 + i));
+      ventrik::red::Socket cruda =
+          ventrik::red::conectar(servidor.direccion(), 2s, nullptr, origen ? &*origen : nullptr);
       if (cruda.valido()) {
         crudas.push_back(std::move(cruda));
       }
@@ -164,7 +169,7 @@ TEST_CASE("estres: el servidor aguanta carga y ataques, y el canario sigue atend
   }
 
   SUBCASE("basura: un cliente conectado manda un marco imposible y lo echan") {
-    Liviana atacante(servidor, 5000);
+    Liviana atacante(servidor, 5000, origen_de(5000));
     REQUIRE(atacante.conectada());
     const std::vector<std::uint8_t> basura(100000, 0xFF);
     atacante.mandar(basura);
@@ -182,7 +187,8 @@ TEST_CASE("estres: el servidor aguanta carga y ataques, y el canario sigue atend
   SUBCASE("entrar y salir muchas veces no deja fugas") {
     int reconectadas = 0;
     for (int i = 0; i < vueltas_churn; ++i) {
-      Liviana ida(servidor, static_cast<unsigned>(6000 + (i % 200)));
+      const unsigned cual = static_cast<unsigned>(6000 + (i % 200));
+      Liviana ida(servidor, cual, origen_de(cual));
       if (ida.conectada()) {
         ++reconectadas;
       }
