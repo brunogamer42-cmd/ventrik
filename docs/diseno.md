@@ -15,7 +15,7 @@ Principios:
 - **Gratis y propio.** El servidor lo hostea quien quiera, sin pagar y sin un límite artificial de usuarios.
 - **Seguro.** Todo viaja cifrado entre cada programa y el servidor.
 
-Lo que no hace en la primera versión: video de cámara, compartir pantalla, app para celular, bots, búsqueda de GIFs en servicios externos, grabación de la voz ni overlay dentro de los juegos (ver "Viabilidad como programa gratuito"). Compartir pantalla llega después, en la etapa 12 (ver "Compartir pantalla"), y los amigos con chats y llamadas directas, en la etapa 14 (ver "Amigos y llamadas directas").
+Lo que no hace en la primera versión: video de cámara, compartir pantalla, app para celular, bots, búsqueda de GIFs en servicios externos, grabación de la voz ni overlay dentro de los juegos (ver "Viabilidad como programa gratuito"). Compartir pantalla llega después, en la etapa 12 (ver "Compartir pantalla"), los amigos con chats y llamadas directas, en la etapa 14 (ver "Amigos y llamadas directas"), y los bots, en la etapa 15 (ver "Bots").
 
 ## Cómo funciona
 
@@ -97,6 +97,7 @@ El programa abre en **Inicio**. Ventrik se organiza por servidores; desde la eta
 | Hostear un servidor | Asistente de 7 pasos (nombre y acceso, conexión, capacidad y voz, seguridad, chat y archivos, pantallas y varias PCs, revisar e iniciar) y la pantalla final Invitar gente (ver "Hostear: asistente por pasos") |
 | Ajustes | Una sección por vez, con un menú a la izquierda con buscador (ver "Ajustes"): General (con el idioma y "Al entrar a un servidor"), Apariencia, Teclas (hablar y susurros), Audio y micrófono, Avisos y sonidos (ver "Sonidos de los avisos"), Red, Descargas, Seguridad y Acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) llevan "PRONTO" en el menú y aparecen desactivadas y marcadas "EN DESARROLLO". Capturas: docs/pantallas/Ajustes-*.png, una por sección |
 | Amigos (etapa 14) | Solicitudes, grupos y amigos; chat de a dos y de grupo; agregar amigo; llamada entrante; llamada grupal con personas, chat y cómo viaja; recuperar desde Google Drive (ver "Amigos y llamadas directas") |
+| Bots (etapa 15) | Los bots del servidor, los oficiales para agregar y "Bot de otra persona", con sus permisos y ajustes; solo para quien tiene "Manejar bots" (ver "Bots") |
 | Enviar archivo con contraseña | Pide la contraseña, analiza el comprimido con ClamAV en tu PC y lo envía; la contraseña no sale de tu PC |
 | Reportar un error o sugerir | Error o idea, datos técnicos que se pueden ver antes de enviar, captura opcional y contacto opcional |
 | Perfil y Personalizar servidor | Lo del modo Visual, incluida la tarjeta de perfil |
@@ -928,6 +929,136 @@ Primero, amigos, solicitudes, chat de a dos, llamadas de voz de a dos, Ajustes �
 - **Copias:** formatear y recuperar desde Drive en Windows 10 y en XP (con el código); una contraseña equivocada falla sin romper nada; un adjunto que aparece en varias copias se sube una sola vez.
 - **Fuzzing:** de los mensajes entre PCs y de la red DHT.
 
+## Bots (etapa 15)
+
+Diseño del dueño del 2026-10-26. Es la última etapa.
+
+| Captura (docs/pantallas) | Qué muestra |
+| --- | --- |
+| BotsServidor.png | Pantalla de Bots, con Rocola elegida. A la izquierda, los bots del servidor con su estado, los oficiales para agregar y "Bot de otra persona" (pegar el código VKB-…). A la derecha, "Qué puede hacer" (permisos) y "Ajustes" del bot |
+| BotsServidor-guardia.png y BotsServidor-partidas.png | Los permisos y ajustes de Guardia y de Partidas |
+| BotsServidor-externo.png | Un bot externo: aviso amarillo, permisos y datos (comandos, huella del bot, uso de los últimos 7 días, registro) |
+| BotsEnUso.png | En el servidor: Rocola en Partida 1 con la marca BOT y su indicador de música, tarjetas con botones en el chat y la lista de comandos al escribir "/" |
+| BotsEnUso-mensajes.png | Las mismas tarjetas, sin la lista de comandos |
+
+La lista de la izquierda del servidor dice "N conectados · M bots".
+
+### Qué es un bot
+
+- **Una cuenta especial con identidad propia** (su propia llave). Entra a un servidor con los permisos que le da un admin.
+- **Siempre lleva la marca BOT**, que no se puede sacar, y no puede hacerse pasar por una persona.
+- **Puede:**
+  - leer y escribir en los canales permitidos;
+  - responder comandos con "/";
+  - mandar mensajes con botones y menús;
+  - entrar a canales de voz y pasar audio;
+  - con permiso, mover gente o borrar mensajes.
+
+### Dos tipos
+
+- **Oficiales:**
+  - vienen con el servidor de Ventrik y se agregan con un clic;
+  - corren en la misma PC del servidor, cada uno en su propio proceso: si uno falla, el servidor sigue;
+  - son código del proyecto, revisado, de la misma versión que el servidor;
+  - funcionan también en XP.
+- **Externos (de la comunidad):**
+  - son programas aparte, en cualquier lenguaje, que se conectan por la API de bots desde la PC de quien los hostea;
+  - el que lo hace genera un código de invitación (VKB-…). El admin lo pega en la pantalla de Bots, ve qué permisos pide y elige cuáles le da (puede darle menos);
+  - la pantalla avisa que su código no lo revisa Ventrik y que lo que lee pasa por la PC de quien lo hostea.
+
+### API de bots
+
+- **Conexión:** WebSocket sobre TLS, al mismo servidor y puerto. El bot se identifica firmando un desafío con su llave: no hay un "token" de texto que se pueda filtrar.
+- **Eventos:** mensajes, comandos, botones, alguien que entra o sale de la voz, etc. Llegan solo los que sus permisos dejan ver.
+- **Acciones:**
+  - mandar, editar y borrar mensajes;
+  - responder comandos;
+  - mandar tarjetas con botones y menús;
+  - entrar a un canal de voz y mandar audio en Opus;
+  - mover gente.
+- **Comandos "/":** el bot los registra con nombre, descripción y parámetros. El programa los muestra al escribir "/", con el nombre del bot al lado, y en el chat queda la línea "<persona> usó /<comando>".
+- **Límites de velocidad** por bot.
+- **Archivos:** los que manda un bot pasan por el antivirus igual que los de cualquiera.
+- **SDK:** uno chico en C, con ejemplos, y la guía "Cómo hacer tu propio bot".
+
+### Permisos
+
+- **Por bot y por canal:**
+  - leer y escribir en tal canal;
+  - leer todos los canales;
+  - responder comandos;
+  - entrar a voz;
+  - hablar (pasar audio);
+  - mover gente;
+  - borrar mensajes;
+  - silenciar;
+  - expulsar;
+  - banear;
+  - dar roles;
+  - mencionar a todos;
+  - crear canales temporales;
+  - ver quién está conectado.
+- **"Leer todos los canales" es sensible:** se marca así y se pide aparte. Sin él, el bot solo ve los mensajes que lo nombran y los comandos que le escriben.
+- **Permiso de admin nuevo, "Manejar bots":** solo quien lo tiene ve la pantalla de Bots, que se abre desde el menú del servidor.
+- **Registro:** todo lo que hace un bot queda en el registro de seguridad del servidor, con el motivo.
+- **Lo que un bot nunca ve:** los chats de amigos (etapa 14), los canales donde no tiene permiso y las IP de los usuarios.
+- **Sacar un bot:** se revoca su llave.
+
+### Bots oficiales
+
+- **Rocola** (música en los canales de voz):
+  - **De dónde saca la música:**
+    - la biblioteca del servidor: archivos MP3, OGG, FLAC u Opus que suben los admins, analizados por el antivirus;
+    - radios por internet: streams Icecast o SHOUTcast que agrega un admin;
+    - enlaces directos a archivos de audio.
+  - **YouTube y Spotify no:** sus condiciones prohíben bajar o retransmitir su contenido y entrar con bots. Por eso Google hizo cerrar a Groovy y Rythm en 2021.
+  - **Comandos:** /poner, /saltar (por votación o como elija el admin), /cola, /pausa y /volumen.
+  - **Audio:**
+    - 48, 64 o 96 kbps;
+    - "Bajar la música cuando alguien habla";
+    - cada usuario le puede bajar el volumen solo para sí, como a cualquier persona;
+    - la música cuenta para la capacidad del servidor igual que una voz.
+  - **Tarjeta "Sonando en <canal>":** tema, origen, quién lo pidió, barra de avance y botones Pausar, Saltar (con votos) y Cola.
+  - **Responsabilidad:** el dueño del servidor responde por los derechos de lo que suena.
+- **Guardia** (moderación automática):
+  - bienvenida y rol "Nuevo" automático;
+  - anti-spam: el mismo mensaje 3 veces o menciones masivas borran el mensaje y silencian 5 minutos;
+  - filtro de palabras y de enlaces (solo dominios permitidos);
+  - si entran más de 10 en un minuto, pasa a pedir aprobación;
+  - modo lento.
+
+  Todo va al registro de seguridad.
+- **Partidas:**
+  - **/partida <día hora juego>:**
+    - publica una tarjeta con Voy, Quizás y No;
+    - avisa 15 minutos antes a los que dijeron "Voy";
+    - crea un canal de voz para la partida, que se borra solo cuando queda vacío.
+  - **/equipos <cantidad>:** reparte en equipos, al azar o parejos, a los del canal de voz de quien lo pide. Con el permiso de mover gente, ofrece "Mover a <canales>".
+  - **/dados** (por ejemplo 2d6) y **/moneda**.
+- **Encuestas:** /encuesta <pregunta> con opciones y voto con botones, anónima si se elige, con cierre automático.
+- **Lector:**
+  - lee en voz alta, para los que están en voz, los mensajes de un canal de texto elegido;
+  - motor de voz eSpeak NG (GPL versión 3, compatible con Ventrik); hay que verificar que funcione en XP;
+  - cada usuario lo puede silenciar solo para sí.
+- **Estado de juegos:**
+  - consulta servidores de juego: Minecraft con Server List Ping, y juegos de Steam con A2S_INFO;
+  - publica en un canal si están en línea, cuántos jugadores hay y el mapa;
+  - avisa si se caen.
+
+**Bibliotecas:** WebSocket, FLAC y eSpeak NG no están en third_party. Se piden al dueño al empezar la etapa.
+
+### Orden y pruebas
+
+1. Identidad de bot, permisos, la API y los comandos "/".
+2. Bots oficiales: primero Partidas, Encuestas y Guardia; después Rocola, Lector y Estado de juegos.
+3. SDK en C con ejemplos y la guía.
+
+- **Permisos:** un bot sin "Leer todos los canales" no recibe mensajes de otros canales; un bot no puede mover gente sin el permiso.
+- **Bots que fallan o abusan:** si se cae un bot oficial, el servidor sigue; un bot que manda demasiado queda frenado por el límite de velocidad.
+- **Bots sacados:** un bot sacado ya no puede volver a conectarse con su llave.
+- **Rocola:** con 20 escuchando, la voz no se corta y la música baja cuando alguien habla.
+- **Fuzzing:** de los mensajes de la API de bots.
+
 ## Rendimiento
 
 En modo Rendimiento, el programa apunta a usar como máximo 50 MB de RAM y casi nada de procesador cuando nadie habla. Son metas propuestas, para comprobar midiendo cada versión.
@@ -1117,6 +1248,7 @@ Para que Ventrik sea gratis y siga funcionando sin una empresa detrás, no puede
 
 - **Grabación:** cualquiera puede grabar con otro programa y eso no se puede impedir. Si algún día el programa graba, la regla ya queda fijada: todos ven un indicador mientras alguien graba con Ventrik, y el servidor puede prohibirlo.
 - **Amigos, chats y llamadas directas:** llegan en la etapa 14, sin servidor y cifrados de punta a punta (ver "Amigos y llamadas directas").
+- **Bots:** llegan en la etapa 15, la última, con la marca BOT siempre a la vista y los permisos que les dé un admin (ver "Bots").
 - **Compartir pantalla:** llega en la etapa 12, con el programa ya completo. El protocolo, la subida del servidor, los permisos y el proceso de medios se arman desde antes para sumarla sin rehacer nada (ver "Compartir pantalla").
 - **Overlay dentro de los juegos:** se mete en el dibujo de cada juego, choca con lo liviano, los anti-trampas lo pueden marcar y es muy difícil en XP. A lo sumo, más adelante y solo en la versión moderna.
 
@@ -1144,7 +1276,7 @@ Cuenta de la subida del host: tope de voces × (personas − 1) × kbps por oyen
 
 ## Plan de trabajo
 
-El desarrollo va en catorce etapas, y la primera es una prueba chica de voz para medir demora y consumo antes de construir el resto. Las dos versiones (moderna y clásica) se compilan y prueban desde el principio.
+El desarrollo va en quince etapas, y la primera es una prueba chica de voz para medir demora y consumo antes de construir el resto. Las dos versiones (moderna y clásica) se compilan y prueban desde el principio.
 
 1. **Prueba de voz:** voz entre dos PCs en red local, con tecla para hablar. Se mide demora y consumo, también en la netbook.
 2. **Base:** servidor, canales de voz y de texto, chat, cifrado con TLS 1.3 y DTLS 1.2, permisos básicos verificados en el servidor y panel de diagnóstico.
@@ -1160,6 +1292,7 @@ El desarrollo va en catorce etapas, y la primera es una prueba chica de voz para
 12. **Compartir pantalla:** VP8 en todos los equipos, incluido XP, con captura, reenvío y topes; después, la copia H.264 por la placa de video y los cuadros en capas.
 13. **Varias PCs:** un servidor sostenido entre varias PCs (todavía sin diseñar en este documento).
 14. **Amigos y llamadas directas:** amigos, chats y llamadas de PC a PC sin servidor, cifrados de punta a punta con MLS, y copias en Google Drive.
+15. **Bots:** identidad de bot, permisos, la API de bots con comandos "/", los bots oficiales (Partidas, Encuestas, Guardia, Rocola, Lector y Estado de juegos) y el SDK en C.
 
 **Cómo se prueba cada versión:**
 
