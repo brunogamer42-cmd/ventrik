@@ -8,9 +8,6 @@
 #include <miniaudio.h>
 #include <opus.h>
 
-#define STB_VORBIS_HEADER_ONLY
-#include <stb_vorbis.c>
-
 #include "client/motor_voz.h"
 #include "common/archivos.h"
 #include "common/protocol/bytes.h"
@@ -22,12 +19,7 @@ constexpr std::array<std::uint8_t, 4> kMarcaVksn = {'V', 'K', 'S', 'N'};
 constexpr std::uint8_t kVersionVksn = 1;
 constexpr opus_int32 kBitsDeSonido = 48000;
 constexpr int kPrimerRecurso = 101;
-constexpr std::size_t kMemoriaDeVorbis = 2 * 1024 * 1024;
 constexpr auto kRetirado = static_cast<Sonido>(0xFF);
-
-struct CerrarVorbis {
-  void operator()(stb_vorbis* vorbis) const { stb_vorbis_close(vorbis); }
-};
 
 bool empieza_con(gsl::span<const std::uint8_t> datos, std::string_view marca) {
   return datos.size() >= marca.size() && std::equal(marca.begin(), marca.end(), datos.begin(),
@@ -38,48 +30,6 @@ bool empieza_con(gsl::span<const std::uint8_t> datos, std::string_view marca) {
 
 bool es_mp3(gsl::span<const std::uint8_t> datos) {
   return empieza_con(datos, "ID3") || (datos.size() >= 2 && datos[0] == 0xFF && (datos[1] & 0xE0) == 0xE0);
-}
-
-std::optional<Muestras> convertir(gsl::span<const std::int16_t> entrada, ma_uint32 canales, ma_uint32 frecuencia,
-                                  std::size_t maximo) {
-  const ma_uint64 cuadros = entrada.size() / canales;
-  const ma_uint64 salen = ma_convert_frames(nullptr, 0, ma_format_s16, 1, kFrecuenciaDeSonidos, entrada.data(),
-                                            cuadros, ma_format_s16, canales, frecuencia);
-  if (salen == 0 || salen > maximo) {
-    return std::nullopt;
-  }
-  Muestras muestras(static_cast<std::size_t>(salen));
-  muestras.resize(static_cast<std::size_t>(ma_convert_frames(muestras.data(), salen, ma_format_s16, 1,
-                                                             kFrecuenciaDeSonidos, entrada.data(), cuadros,
-                                                             ma_format_s16, canales, frecuencia)));
-  return muestras.empty() ? std::nullopt : std::optional<Muestras>(std::move(muestras));
-}
-
-std::optional<Muestras> de_ogg(gsl::span<const std::uint8_t> datos, std::size_t maximo) {
-  std::vector<char> memoria(kMemoriaDeVorbis);
-  const stb_vorbis_alloc reserva{memoria.data(), static_cast<int>(memoria.size())};
-  int error = 0;
-  const std::unique_ptr<stb_vorbis, CerrarVorbis> vorbis(
-      stb_vorbis_open_memory(datos.data(), static_cast<int>(datos.size()), &error, &reserva));
-  if (!vorbis) {
-    return std::nullopt;
-  }
-  const stb_vorbis_info info = stb_vorbis_get_info(vorbis.get());
-  if (info.channels < 1 || info.channels > 2 || info.sample_rate < 8000 || info.sample_rate > kFrecuenciaDeSonidos) {
-    return std::nullopt;
-  }
-  const auto canales = static_cast<std::size_t>(info.channels);
-  const std::uint64_t tope = (std::uint64_t{maximo} * info.sample_rate / kFrecuenciaDeSonidos + 1) * canales;
-  Muestras leidas;
-  std::array<short, 4096> tramo{};
-  for (int cuadros = 0; (cuadros = stb_vorbis_get_samples_short_interleaved(vorbis.get(), info.channels, tramo.data(),
-                                                                             static_cast<int>(tramo.size()))) > 0;) {
-    leidas.insert(leidas.end(), tramo.begin(), tramo.begin() + static_cast<std::ptrdiff_t>(cuadros * canales));
-    if (leidas.size() > tope) {
-      return std::nullopt;
-    }
-  }
-  return convertir(leidas, static_cast<ma_uint32>(canales), info.sample_rate, maximo);
 }
 
 std::optional<Muestras> de_miniaudio(gsl::span<const std::uint8_t> datos, ma_encoding_format formato,
@@ -175,9 +125,6 @@ std::optional<Muestras> decodificar_vksn(gsl::span<const std::uint8_t> datos, st
 std::optional<Muestras> decodificar_archivo(gsl::span<const std::uint8_t> datos, std::size_t maximo) {
   if (datos.empty() || datos.size() > kMaximoArchivoDeSonido) {
     return std::nullopt;
-  }
-  if (empieza_con(datos, "OggS")) {
-    return de_ogg(datos, maximo);
   }
   if (empieza_con(datos, "RIFF") && datos.size() >= 12 && empieza_con(datos.subspan(8), "WAVE")) {
     return de_miniaudio(datos, ma_encoding_format_wav, maximo);

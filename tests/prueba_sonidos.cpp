@@ -150,8 +150,10 @@ TEST_CASE("Un sonido propio en WAV se pasa a 48 kHz mono, y uno largo, pesado o 
   CHECK_FALSE(decodificar_archivo({}, 480000));
 }
 
-TEST_CASE("OGG y MP3 de verdad se pasan a 48 kHz mono, también en un paquete, en las dos versiones") {
-  for (const int id : {201, 202, 203}) {
+TEST_CASE("Un MP3 de verdad se pasa a 48 kHz mono, también en un paquete, y un OGG se rechaza (stb_vorbis no es seguro)") {
+  CHECK_FALSE(decodificar_archivo(recurso(201), maximo_de_muestras(Sonido::mensaje)));
+  CHECK_FALSE(decodificar_archivo(recurso(202), maximo_de_muestras(Sonido::mensaje)));
+  for (const int id : {203}) {
     CAPTURE(id);
     const auto muestras = decodificar_archivo(recurso(id), maximo_de_muestras(Sonido::mensaje));
     REQUIRE(muestras);
@@ -164,19 +166,20 @@ TEST_CASE("OGG y MP3 de verdad se pasan a 48 kHz mono, también en un paquete, e
                                          {"a.ogg", recurso(202)},
                                          {"b.mp3", recurso(203)}}));
   REQUIRE(paquete);
-  CHECK(paquete->size() == 2);
+  REQUIRE(paquete->size() == 1);
+  CHECK((*paquete)[0].sonido == Sonido::error);
 }
 
 TEST_CASE("Un paquete que repite el mismo aviso muchas veces se decodifica una sola vez") {
   std::string indice = "{\"version\":1,\"sonidos\":{";
   for (int vez = 0; vez < 60; ++vez) {
-    indice += (vez == 0 ? "" : ",") + std::string("\"mencion\":\"a.ogg\"");
+    indice += (vez == 0 ? "" : ",") + std::string("\"mencion\":\"a.mp3\"");
   }
   indice += "}}";
   const auto pedidos = leer_indice(indice);
   REQUIRE(pedidos);
   CHECK(pedidos->size() == 1);
-  const auto paquete = leer_paquete(zip({{"paquete.json", texto(indice)}, {"a.ogg", recurso(201)}}));
+  const auto paquete = leer_paquete(zip({{"paquete.json", texto(indice)}, {"a.mp3", recurso(203)}}));
   REQUIRE(paquete);
   CHECK(paquete->size() == 1);
 }

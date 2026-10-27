@@ -68,7 +68,7 @@ foreach ($nombre in 'fuzz_base', 'fuzz_guardados', 'fuzz_identidad', 'fuzz_nombr
 }
 
 Write-Host ("Fuzzing: {0} fuzzers durante {1} segundos, a la vez" -f $corridas.Count, $Segundos)
-$limite = (Get-Date).AddSeconds($Segundos + 120)
+$limite = (Get-Date).AddSeconds($Segundos + [math]::Max(120, $Segundos))
 foreach ($corrida in $corridas) {
     $restante = [math]::Max(1, ($limite - (Get-Date)).TotalMilliseconds)
     if (-not $corrida.Proceso.WaitForExit([int]$restante)) {

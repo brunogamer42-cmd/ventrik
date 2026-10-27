@@ -167,7 +167,7 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
     target_sources(${fuzzer} PRIVATE src/client/audio.cpp src/client/buffer_voz.cpp src/client/limpieza.cpp
                    src/client/motor_voz.cpp src/client/paquete_de_sonidos.cpp src/client/sonidos.cpp
                    src/client/voz_primero.cpp)
-    target_link_libraries(${fuzzer} PRIVATE opus rnnoise speexdsp miniaudio miniz jsmn stb_vorbis winmm ole32)
+    target_link_libraries(${fuzzer} PRIVATE opus rnnoise speexdsp miniaudio miniz jsmn winmm ole32)
   endforeach()
   return()
 endif()
@@ -194,7 +194,7 @@ add_library(ventrik_cliente_base STATIC
   src/client/sesion.cpp src/client/silencios.cpp src/client/sonidos.cpp src/client/vigia.cpp)
 target_sources(ventrik_cliente_base PRIVATE src/client/voz_primero.cpp)
 target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm rnnoise speexdsp ole32 miniz jsmn
-                      stb_vorbis comdlg32)
+                      comdlg32)
 add_library(ventrik_interfaz STATIC
   src/client/ui/aviso_ventana.cpp src/client/ui/aviso_windows.cpp src/client/ui/dibujante.cpp src/client/ui/iconos.cpp src/client/ui/inicio.cpp
   src/client/ui/ajustes.cpp src/client/ui/menu_avisos.cpp src/client/ui/piezas.cpp

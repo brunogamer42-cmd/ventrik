@@ -551,7 +551,7 @@ class Programa {
   }
 
   void elegir_sonido(cliente::Sonido sonido) {
-    const auto ruta = elegir_archivo(Clave::archivo_elegir_sonido, Clave::archivo_filtro_sonidos, L"*.wav;*.ogg;*.mp3", false);
+    const auto ruta = elegir_archivo(Clave::archivo_elegir_sonido, Clave::archivo_filtro_sonidos, L"*.wav;*.mp3", false);
     if (!ruta) {
       return;
     }

@@ -22,7 +22,7 @@ Cada biblioteca se guarda con versión fija y sin modificar su código. De cada 
 | Argon2 (implementación de referencia) | 20190702 | CC0 o Apache 2.0 | Contraseñas | 2026-10-21 |
 | SQLite | 3.54.1 | Dominio público | Base de datos del servidor | 2026-10-21 |
 | stb_image | 2.30 | Dominio público o MIT | GIF del modo Visual | 2026-10-21 |
-| stb_vorbis | 1.22 | Dominio público o MIT | Sonidos OGG de los avisos (etapa 3) | 2026-10-26 |
+| stb_vorbis | 1.22 | Dominio público o MIT | Sonidos OGG de los avisos. **Sin usar desde el 2026-10-27:** el fuzzing le encontró fallas con OGG armados a propósito, y no tiene arreglos desde 2021 (ver docs/estado.md, paso 3.7) | 2026-10-26 |
 | miniz | 3.0.2 | MIT | Leer y armar los paquetes de sonidos (.vksonidos, que son zip) | 2026-10-27 |
 | jsmn | 1.1.0 | MIT | Leer el índice JSON de los paquetes de sonidos | 2026-10-27 |
 | libwebp | 1.6.0 | BSD de 3 cláusulas | WebP del modo Visual | 2026-10-21 |
