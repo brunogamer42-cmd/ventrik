@@ -228,7 +228,10 @@ TEST_CASE("combinaciones: servidor y programa de verdad, de la misma versión o 
   };
   PostMessageW(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
   REQUIRE(esperar_que([&] { return IsIconic(hwnd) != FALSE; }));
-  ana.ordenar(EnviarChat{canal, "aviso para la ventana"});
+  ana.ordenar(EnviarChat{canal, "sin mencionar no avisa"});
+  REQUIRE(ana.esperar<MensajeChat>([](const MensajeChat& m) { return m.texto == "sin mencionar no avisa"; }));
+  CHECK(ventana.ventana(4s, L"VentrikAviso") == nullptr);
+  ana.ordenar(EnviarChat{canal, "@ventana esto s\xC3\xAD avisa"});
   const HWND aviso = ventana.ventana(10s, L"VentrikAviso");
   REQUIRE(aviso != nullptr);
   CHECK(esperar_que([&] { return notificaciones() >= 1; }));

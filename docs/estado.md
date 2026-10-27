@@ -299,7 +299,34 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - reloj del que habla 0,6 % rápido durante 60 s: acelera 333 ms y el colchón no pasa de 80 ms;
     - acortar y estirar 50 veces un tono de 200 Hz deja la frecuencia dentro del 1 % y sin saltos mayores;
     - `fuzz_voz` cambia la espera del colchón y comprueba el objetivo.
-- **Lo que sigue:** la prueba a mano de las notificaciones (3.1b) y del paso 3.2; después, silenciar avisos por servidor y por canal.
+- **Etapa 3, paso 3.3a: menciones y ajustes de avisos por servidor y por canal (hecho, 2026-10-27).** La lógica y lo que se guarda; las pantallas son el 3.3b.
+  - **`client/silencios`:**
+    - `AvisosDelServidor` es el ajuste del servidor ("Solo menciones" por defecto, "Avisarme igual si me mencionan" tildado, "No contar @todos" tildado, sonidos de la voz prendidos) más los canales con ajuste propio, ordenados por id, hasta 60;
+    - `mencion_en` busca las menciones;
+    - `avisa` aplica las reglas: el canal silenciado o con modo propio manda, si no el servidor; silenciado, solo una mención y si está tildado;
+    - `normalizar` borra lo vencido y lo que quedó igual al servidor.
+  - **`Avisos`:**
+    - un mensaje completo (canal mirado o chat de tu canal de voz) avisa solo si `avisa`;
+    - en un canal no mirado, si solo avisarían las menciones, el pendiente queda oculto (no entra en `lista()`) y se piden los últimos mensajes (hasta 25, en vez de 10) aunque esté la privacidad; si alguno te nombra, el aviso aparece;
+    - **`revisado`** guarda hasta qué mensaje ya se buscaron menciones: cada pedido mira solo los nuevos, suma las menciones nuevas al aviso y, si no hay, no lo toca (ni vuelve a sonar). Lo encontró la revisión: antes cada mensaje común volvía a mandar el aviso y, después de 10 mensajes comunes, la mención salía de la tanda pedida y el aviso se borraba;
+    - si llegan más de 25 mensajes antes de que toque pedir ese canal (un juego adelante, otros canales en turno), una mención más vieja que esos 25 no avisa: el contador igual la cuenta;
+    - `total` guarda el contador para no volver a pedir mientras no suba;
+    - el vencimiento se compara con la hora de la PC (`reloj(ahora_ms)`, en cada vuelta de `atender`).
+  - **programa.dat versión 6:**
+    - por servidor, el ajuste (u64 vencimiento, u8, u8), u8 contar_todos, u8 sonidos y los canales (u32 id más el ajuste);
+    - el lector rechaza modos o casillas fuera de rango, canal 0, desorden y más de 60;
+    - el tope del archivo pasa a 128 KB (peor caso calculado con `static_assert`);
+    - `conectado()` lo copia del guardado, como `personas`.
+  - **Pruebas:**
+    - menciones: mayúsculas, acentos, borde, nombres con espacio, @todos/@aquí, UTF-8 cortado y 1000 "@";
+    - la tabla de reglas y los topes;
+    - por defecto solo menciones, también en un canal no mirado y con privacidad;
+    - un canal en "Todos" con el servidor silenciado;
+    - programa.dat v6 (ida y vuelta, rechazos, el archivo más grande con 60 canales por servidor);
+    - doce tandas de mensajes comunes después de una mención no la borran ni la vuelven a mandar;
+    - en las 4 combinaciones, la ventana de verdad minimizada no abre aviso en 4 s con un mensaje común y sí con "@ventana";
+    - fuzzing: `fuzz_textos` (`mencion_en`), `fuzz_sala` (mensajes con @Ana y @todos, y ajustes al azar) y `fuzz_guardados` (semilla v6).
+- **Lo que sigue:** paso 3.3b (las pantallas de silenciar avisos); después, la prueba a mano de las notificaciones, del paso 3.2 y del 3.3 juntas.
 
 ## Ramas y repositorio
 

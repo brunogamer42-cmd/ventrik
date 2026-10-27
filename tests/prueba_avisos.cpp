@@ -27,9 +27,16 @@ Historial respuesta(std::uint32_t canal, std::vector<MensajeGuardado> mensajes) 
   return Historial{canal, kDesdeAviso, Sentido::viejos, false, std::move(mensajes)};
 }
 
-Avisos conectados(OpcionesAvisos opciones = {}) {
+AvisosDelServidor de_todo() {
+  AvisosDelServidor ajustes;
+  ajustes.servidor.avisar = Avisar::todos;
+  return ajustes;
+}
+
+Avisos conectados(OpcionesAvisos opciones = {}, AvisosDelServidor ajustes = de_todo()) {
   Avisos avisos(ventrik::elegir_idioma("es"), opciones);
   avisos.conectado("1.2.3.4:7700", 1, "Yo");
+  avisos.ajustes(std::move(ajustes));
   avisos.fuera(true);
   return avisos;
 }
@@ -75,6 +82,7 @@ TEST_CASE("Varios mensajes del mismo canal se juntan en un aviso que dice de qui
 TEST_CASE("Los mensajes propios no avisan, con Ventrik al frente tampoco, y al volver se borra todo") {
   Avisos avisos(ventrik::elegir_idioma("es"));
   avisos.conectado("srv", 1, "Yo");
+  avisos.ajustes(de_todo());
   avisos.mensaje(chat(5, 2, "Tano", "hola"), "Partida", true);
   CHECK(avisos.lista().empty());
   avisos.fuera(true);
@@ -277,4 +285,117 @@ TEST_CASE("Los avisos tienen tope de canales y de texto") {
   CHECK(texto.find('\n') == std::string::npos);
   CHECK(texto.substr(texto.size() - 3) == "\xE2\x80\xA6");
   CHECK(ventrik::es_utf8_valido(texto));
+}
+
+TEST_CASE("Una mención es @ y tu nombre, sin importar mayúsculas, con sus acentos y con borde") {
+  CHECK(mencion_en("hola @Tano", "Tano") == Mencion::directa);
+  CHECK(mencion_en("@tano, vení", "Tano") == Mencion::directa);
+  CHECK(mencion_en("che @REN\xC3\x89!", "Ren\xC3\xA9") == Mencion::directa);
+  CHECK(mencion_en("@Jos\xC3\xA9 hola", "Jose") == Mencion::ninguna);
+  CHECK(mencion_en("@Juan Perez llegaste?", "Juan Perez") == Mencion::directa);
+  CHECK(mencion_en("@Tanoo hola", "Tano") == Mencion::ninguna);
+  CHECK(mencion_en("@Tano_2", "Tano") == Mencion::ninguna);
+  CHECK(mencion_en("Tano sin arroba", "Tano") == Mencion::ninguna);
+  CHECK(mencion_en("@todos a jugar", "Tano") == Mencion::todos);
+  CHECK(mencion_en("@aqu\xC3\xAD y @aqui", "Tano") == Mencion::todos);
+  CHECK(mencion_en("@todos y @Tano", "Tano") == Mencion::directa);
+  CHECK(mencion_en("@\xC3", "\xC3\xA9") == Mencion::ninguna);
+  CHECK(mencion_en(std::string(1000, '@') + "Tano", "Tano") == Mencion::ninguna);
+  CHECK(mencion_en(std::string(31, '@') + "Tano", "Tano") == Mencion::directa);
+}
+
+TEST_CASE("El canal manda sobre el servidor, y silenciado solo avisa una mención si se pidió") {
+  AvisosDelServidor avisos;
+  constexpr std::uint64_t kHora = 1'000'000;
+  CHECK_FALSE(avisa(avisos, 5, Mencion::ninguna, kHora));
+  CHECK(avisa(avisos, 5, Mencion::directa, kHora));
+  CHECK_FALSE(avisa(avisos, 5, Mencion::todos, kHora));
+  avisos.contar_todos = true;
+  CHECK(avisa(avisos, 5, Mencion::todos, kHora));
+  avisos.servidor.silenciado_hasta = kHora + 1;
+  CHECK(avisa(avisos, 5, Mencion::directa, kHora));
+  avisos.servidor.aun_con_mencion = false;
+  CHECK_FALSE(avisa(avisos, 5, Mencion::directa, kHora));
+  CHECK(avisa(avisos, 5, Mencion::directa, kHora + 1));
+  cambiar_canal(avisos, 5, {0, true, Avisar::todos});
+  CHECK(avisa(avisos, 5, Mencion::ninguna, kHora));
+  CHECK_FALSE(avisa(avisos, 6, Mencion::directa, kHora));
+  cambiar_canal(avisos, 6, {kHastaQueLoActive, false, Avisar::todos});
+  CHECK_FALSE(avisa(avisos, 6, Mencion::directa, kHora));
+  cambiar_canal(avisos, 7, {0, true, Avisar::nada});
+  CHECK_FALSE(avisa(avisos, 7, Mencion::directa, kHora + 5));
+  REQUIRE(avisos.canales.size() == 3);
+  cambiar_canal(avisos, 7, {});
+  CHECK(avisos.canales.size() == 2);
+  cambiar_canal(avisos, 5, {kHora + 10, true, Avisar::como_el_servidor});
+  normalizar(avisos, kHora + 10);
+  CHECK(avisos.canales.size() == 1);
+  CHECK(avisos.servidor.silenciado_hasta == 0);
+  CHECK(son_validos(avisos));
+  for (std::uint32_t canal = 1; canal <= ventrik::protocolo::kMaximoCanales + 5; ++canal) {
+    cambiar_canal(avisos, canal, {0, true, Avisar::todos});
+  }
+  CHECK(avisos.canales.size() == ventrik::protocolo::kMaximoCanales);
+  CHECK(son_validos(avisos));
+  avisos.servidor.avisar = Avisar::como_el_servidor;
+  CHECK_FALSE(son_validos(avisos));
+}
+
+TEST_CASE("Por defecto avisa solo de las menciones, también en un canal no mirado") {
+  Avisos avisos = conectados({}, {});
+  avisos.mensaje(chat(6, 2, "Tano", "hola"), "general", false);
+  CHECK(avisos.lista().empty());
+  avisos.mensaje(chat(6, 2, "Tano", "@yo mir\xC3\xA1"), "general", false);
+  CHECK(cuerpo(avisos) == "Tano: @yo mir\xC3\xA1");
+
+  avisos.nuevos(7, "charla", 2);
+  CHECK(avisos.lista().size() == 1);
+  CHECK(pedido(avisos).canal == 7);
+  avisos.historial(respuesta(7, {guardado(1, "Sofi", "hola"), guardado(2, "Sofi", "chau")}), 0);
+  CHECK(avisos.lista().size() == 1);
+  CHECK_FALSE(avisos.pedir(kAhora + 3s, false, false));
+  avisos.nuevos(7, "charla", 3);
+  CHECK(pedido(avisos, kAhora + 6s).canal == 7);
+  avisos.historial(respuesta(7, {guardado(1, "Sofi", "hola"), guardado(2, "Sofi", "chau"), guardado(3, "Ana", "@Yo ven\xC3\xAD")}), 0);
+  REQUIRE(avisos.lista().size() == 2);
+  CHECK(avisos.lista()[1].cuerpo == "Ana: @Yo ven\xC3\xAD");
+
+  const auto version = avisos.version();
+  for (std::uint32_t total = 4; total <= 15; ++total) {
+    avisos.nuevos(7, "charla", total);
+    CHECK(pedido(avisos, kAhora + 6s + 3s * total).canal == 7);
+    std::vector<MensajeGuardado> ultimos;
+    for (std::uint32_t numero = total > 10 ? total - 9 : 1; numero <= total; ++numero) {
+      ultimos.push_back(guardado(numero, "Sofi", "algo com\xC3\xBAn"));
+    }
+    avisos.historial(respuesta(7, ultimos), 0);
+  }
+  CHECK(avisos.version() == version);
+  REQUIRE(avisos.lista().size() == 2);
+  CHECK(avisos.lista()[1].cuerpo == "Ana: @Yo ven\xC3\xAD");
+}
+
+TEST_CASE("Con privacidad igual busca las menciones, pero solo muestra la cantidad") {
+  OpcionesAvisos opciones;
+  opciones.privado = true;
+  Avisos avisos = conectados(opciones, {});
+  avisos.nuevos(7, "charla", 1);
+  CHECK(avisos.lista().empty());
+  CHECK(pedido(avisos).canal == 7);
+  avisos.historial(respuesta(7, {guardado(1, "Ana", "@Yo secreto")}), 0);
+  CHECK(cuerpo(avisos) == "1 mensaje nuevo");
+}
+
+TEST_CASE("Un canal en Todos los mensajes avisa aunque el servidor esté silenciado") {
+  AvisosDelServidor ajustes;
+  ajustes.servidor.silenciado_hasta = kHastaQueLoActive;
+  cambiar_canal(ajustes, 6, {0, true, Avisar::todos});
+  cambiar_canal(ajustes, 9, {0, true, Avisar::nada});
+  Avisos avisos = conectados({}, ajustes);
+  avisos.mensaje(chat(5, 2, "Tano", "hola"), "otro", false);
+  avisos.mensaje(chat(6, 2, "Tano", "hola"), "general", false);
+  REQUIRE(avisos.lista().size() == 1);
+  CHECK(avisos.lista()[0].canal == 6);
+  avisos.nuevos(9, "silencioso", 4);
+  CHECK_FALSE(avisos.pedir(kAhora, false, false));
 }

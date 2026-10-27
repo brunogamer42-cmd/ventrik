@@ -162,6 +162,7 @@ class Programa {
     bool cambio = false;
     const Situacion& situacion = ventana_.situacion();
     avisos_.fuera(!situacion.con_foco || situacion.minimizada);
+    avisos_.reloj(cliente::ahora_ms());
     auto tocado = notificador_ ? notificador_->tocado() : std::nullopt;
     if (!tocado) {
       tocado = tomar_clic_de_windows();
@@ -437,12 +438,14 @@ class Programa {
       pendiente_.nombre_canal = guardado->nombre_canal;
       pendiente_.leidos = guardado->leidos;
       pendiente_.personas = guardado->personas;
+      pendiente_.avisos = guardado->avisos;
     }
     if (canal_del_aviso_ != 0) {
       pendiente_.texto = std::exchange(canal_del_aviso_, 0);
     }
     sala_ =std::make_unique<cliente::Sala>(*intento.presentado, pendiente_.leidos, pendiente_.texto);
     avisos_.conectado(red::a_texto(pendiente_.direccion), sala_->tu_id(), pendiente_.nombre);
+    avisos_.ajustes(pendiente_.avisos);
     pendiente_.ultima_vez_ms = cliente::ahora_ms();
     guardados_.nombre = pendiente_.nombre;
     if (cliente::recordar(guardados_, pendiente_)) {

@@ -11,18 +11,52 @@
 namespace ventrik::cliente {
 namespace {
 constexpr std::uint32_t kMarca = 0x52504B56;
-constexpr std::uint16_t kVersion = 5;
+constexpr std::uint16_t kVersion = 6;
 constexpr std::uint16_t kVersionConLeidos = 2;
 constexpr std::uint16_t kVersionConModo = 3;
 constexpr std::uint16_t kVersionConSilencio = 4;
 constexpr std::uint16_t kVersionConPersonas = 5;
+constexpr std::uint16_t kVersionConAvisos = 6;
 constexpr std::size_t kTexto = 2 + kMaximoBytesNombre;
+constexpr std::size_t kAjuste = 10;
 static_assert(kMaximoArchivoGuardados >=
               13 + kTexto + kMaximoServidoresGuardados *
                                 (6 + std::tuple_size<cifrado::Huella::Bytes>::value + 2 * kTexto + 14 +
-                                 kMaximoLeidosPorServidor * 8 + kMaximoPersonasPorServidor * (kTexto + 2)));
+                                 kMaximoLeidosPorServidor * 8 + kMaximoPersonasPorServidor * (kTexto + 2) +
+                                 kAjuste + 3 + protocolo::kMaximoCanales * (4 + kAjuste)));
 
 bool nombre_opcional(const std::string& nombre) { return nombre.empty() || es_nombre_valido(nombre); }
+
+bool leer_ajuste(protocolo::Lector& lector, AjusteDeAvisos& ajuste) {
+  ajuste.silenciado_hasta = lector.leer_u64();
+  const std::uint8_t aun = lector.leer_u8();
+  const std::uint8_t avisar = lector.leer_u8();
+  ajuste.aun_con_mencion = aun == 1;
+  ajuste.avisar = static_cast<Avisar>(avisar);
+  return aun <= 1 && avisar <= static_cast<std::uint8_t>(Avisar::nada);
+}
+
+void escribir_ajuste(protocolo::Escritor& escritor, const AjusteDeAvisos& ajuste) {
+  escritor.escribir_u64(ajuste.silenciado_hasta);
+  escritor.escribir_u8(ajuste.aun_con_mencion ? 1 : 0);
+  escritor.escribir_u8(static_cast<std::uint8_t>(ajuste.avisar));
+}
+
+bool leer_avisos(protocolo::Lector& lector, AvisosDelServidor& avisos) {
+  bool bien = leer_ajuste(lector, avisos.servidor);
+  const std::uint8_t contar_todos = lector.leer_u8();
+  const std::uint8_t sonidos = lector.leer_u8();
+  avisos.contar_todos = contar_todos == 1;
+  avisos.sonidos_de_voz = sonidos == 1;
+  const std::size_t canales = lector.leer_u8();
+  for (std::size_t i = 0; i < canales && lector.ok(); ++i) {
+    AvisosDeCanal canal;
+    canal.canal = lector.leer_u32();
+    bien = leer_ajuste(lector, canal.ajuste) && bien;
+    avisos.canales.push_back(canal);
+  }
+  return bien && contar_todos <= 1 && sonidos <= 1;
+}
 
 bool es_valida(const PersonaGuardada& persona) {
   return es_nombre_valido(persona.nombre) && persona.volumen <= kVolumenMaximo;
@@ -45,7 +79,7 @@ bool es_valido(const ServidorGuardado& servidor) {
   }
   return servidor.direccion.ipv4 != 0 && servidor.direccion.puerto != 0 && es_nombre_valido(servidor.nombre) &&
          nombre_opcional(servidor.nombre_canal) && leidos.size() <= kMaximoLeidosPorServidor &&
-         personas.size() <= kMaximoPersonasPorServidor;
+         personas.size() <= kMaximoPersonasPorServidor && son_validos(servidor.avisos);
 }
 
 bool son_validos(const Guardados& guardados) {
@@ -125,6 +159,9 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
       }
       servidor.personas.push_back(std::move(persona));
     }
+    if (version >= kVersionConAvisos && !leer_avisos(lector, servidor.avisos)) {
+      return LecturaGuardados::danados;
+    }
     leidos.servidores.push_back(std::move(servidor));
   }
   if (version == 0 || !lector.terminado() || !son_validos(leidos)) {
@@ -167,6 +204,14 @@ std::vector<std::uint8_t> armar_guardados(const Guardados& guardados) {
       escritor.escribir_texto(persona.nombre, kMaximoBytesNombre);
       escritor.escribir_u8(persona.volumen);
       escritor.escribir_u8(persona.silenciada ? 1 : 0);
+    }
+    escribir_ajuste(escritor, servidor.avisos.servidor);
+    escritor.escribir_u8(servidor.avisos.contar_todos ? 1 : 0);
+    escritor.escribir_u8(servidor.avisos.sonidos_de_voz ? 1 : 0);
+    escritor.escribir_u8(static_cast<std::uint8_t>(servidor.avisos.canales.size()));
+    for (const AvisosDeCanal& canal : servidor.avisos.canales) {
+      escritor.escribir_u32(canal.canal);
+      escribir_ajuste(escritor, canal.ajuste);
     }
   }
   return escritor.datos();

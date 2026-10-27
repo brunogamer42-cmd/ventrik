@@ -9,13 +9,14 @@
 
 #include <gsl/gsl>
 
+#include "client/silencios.h"
 #include "common/cifrado/huella.h"
 #include "common/protocol/pedidos.h"
 #include "common/red/red.h"
 
 namespace ventrik::cliente {
 constexpr std::size_t kMaximoServidoresGuardados = 32;
-constexpr std::size_t kMaximoArchivoGuardados = 65536;
+constexpr std::size_t kMaximoArchivoGuardados = 131072;
 constexpr std::size_t kMaximoLeidosPorServidor = 64;
 constexpr std::size_t kMaximoPersonasPorServidor = 16;
 static_assert(kMaximoLeidosPorServidor >= protocolo::kMaximoCanales);
@@ -45,6 +46,7 @@ struct ServidorGuardado {
   std::uint64_t ultima_vez_ms = 0;
   std::vector<Leido> leidos;
   std::vector<PersonaGuardada> personas;
+  AvisosDelServidor avisos;
 };
 
 struct AjustesDeVoz {

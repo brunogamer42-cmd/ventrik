@@ -109,14 +109,16 @@ Avisos::Pendiente* Avisos::buscar_o_crear(std::uint32_t canal) {
 }
 
 void Avisos::mensaje(const protocolo::MensajeChat& mensaje, const std::string& canal, bool voz) {
-  Pendiente* pendiente =
-      activo(voz ? opciones_.voz : opciones_.texto) && mensaje.autor_id != tu_id_ ? buscar_o_crear(mensaje.canal)
-                                                                                : nullptr;
+  Pendiente* pendiente = activo(voz ? opciones_.voz : opciones_.texto) && mensaje.autor_id != tu_id_ &&
+                                 avisa(ajustes_, mensaje.canal, mencion_en(mensaje.texto, tu_nombre_), ahora_ms_)
+                             ? buscar_o_crear(mensaje.canal)
+                             : nullptr;
   if (pendiente == nullptr) {
     return;
   }
   pendiente->aviso.voz = voz;
   pendiente->canal = canal;
+  pendiente->mostrar = true;
   ++pendiente->cantidad;
   sumar_autor(pendiente->autores, mensaje.autor);
   pendiente->autor = mensaje.autor;
@@ -129,12 +131,20 @@ void Avisos::nuevos(std::uint32_t canal, const std::string& nombre, std::uint32_
     visto(canal);
     return;
   }
-  Pendiente* pendiente = activo(opciones_.texto) ? buscar_o_crear(canal) : nullptr;
-  if (pendiente == nullptr || pendiente->cantidad == cantidad) {
+  Pendiente* pendiente = activo(opciones_.texto) && avisa(ajustes_, canal, Mencion::directa, ahora_ms_)
+                             ? buscar_o_crear(canal)
+                             : nullptr;
+  if (pendiente == nullptr || pendiente->total == cantidad) {
     return;
   }
   pendiente->canal = nombre;
+  pendiente->total = cantidad;
+  if (!avisa(ajustes_, canal, Mencion::ninguna, ahora_ms_)) {
+    pendiente->falta_texto = true;
+    return;
+  }
   pendiente->cantidad = cantidad;
+  pendiente->mostrar = true;
   pendiente->falta_texto = !opciones_.privado;
   actualizar(*pendiente);
 }
@@ -160,9 +170,10 @@ std::optional<Orden> Avisos::pedir(Reloj::time_point ahora, bool sala_esperando,
   en_vuelo_ = elegido->aviso.canal;
   en_vuelo_desde_ = ahora;
   proximo_pedido_ = ahora + kEntrePedidosDeAviso;
+  const std::uint32_t tope =
+      avisa(ajustes_, en_vuelo_, Mencion::ninguna, ahora_ms_) ? kMensajesPorAviso : kMensajesParaMenciones;
   return protocolo::PedirHistorial{en_vuelo_, kDesdeAviso, protocolo::Sentido::viejos,
-                                   static_cast<std::uint16_t>(std::min<std::uint32_t>(elegido->cantidad,
-                                                                                      kMensajesPorAviso))};
+                                   static_cast<std::uint16_t>(std::min(elegido->total, tope))};
 }
 
 void Avisos::historial(const protocolo::Historial& historial, std::uint32_t leido) {
@@ -175,18 +186,37 @@ void Avisos::historial(const protocolo::Historial& historial, std::uint32_t leid
     return;
   }
   Pendiente& pendiente = encontrado->second;
+  const bool todo = avisa(ajustes_, historial.canal, Mencion::ninguna, ahora_ms_);
+  const std::uint64_t desde = todo ? leido : std::max<std::uint64_t>(leido, pendiente.revisado);
   std::vector<const protocolo::MensajeGuardado*> nuevos;
   std::size_t sin_leer = 0;
   for (const auto& mensaje : historial.mensajes) {
-    if (mensaje.numero > leido) {
+    pendiente.revisado = std::max<std::uint64_t>(pendiente.revisado, mensaje.numero);
+    if (mensaje.numero > desde) {
       ++sin_leer;
-      if (mensaje.autor != tu_nombre_) {
+      if (mensaje.autor != tu_nombre_ &&
+          (todo || avisa(ajustes_, historial.canal, mencion_en(mensaje.texto, tu_nombre_), ahora_ms_))) {
         nuevos.push_back(&mensaje);
       }
     }
   }
   std::sort(nuevos.begin(), nuevos.end(), [](const auto* a, const auto* b) { return a->numero < b->numero; });
-  if (sin_leer < pendiente.cantidad) {
+  if (!todo) {
+    if (nuevos.empty()) {
+      return;
+    }
+    pendiente.cantidad += static_cast<std::uint32_t>(nuevos.size());
+    pendiente.mostrar = true;
+    for (const auto* mensaje : nuevos) {
+      sumar_autor(pendiente.autores, mensaje->autor);
+    }
+    const bool uno = pendiente.cantidad == 1;
+    pendiente.autor = uno ? nuevos.front()->autor : std::string();
+    pendiente.texto = uno ? recortado(nuevos.front()->texto) : std::string();
+    actualizar(pendiente);
+    return;
+  }
+  if (sin_leer < pendiente.total) {
     nuevos.clear();
   }
   pendiente.autores.clear();
@@ -221,7 +251,9 @@ void Avisos::visto(std::uint32_t canal) {
 std::vector<Notificacion> Avisos::lista() const {
   std::vector<Notificacion> lista;
   for (const auto& par : pendientes_) {
-    lista.push_back(par.second.aviso);
+    if (par.second.mostrar) {
+      lista.push_back(par.second.aviso);
+    }
   }
   if (corte_) {
     lista.push_back(*corte_);

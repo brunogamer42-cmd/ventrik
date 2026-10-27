@@ -8,15 +8,18 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "client/sesion.h"
+#include "client/silencios.h"
 #include "common/protocol/pedidos.h"
 #include "common/textos.h"
 
 namespace ventrik::cliente {
 constexpr std::uint64_t kDesdeAviso = std::numeric_limits<std::uint64_t>::max();
 constexpr std::uint16_t kMensajesPorAviso = 10;
+constexpr std::uint16_t kMensajesParaMenciones = 25;
 constexpr std::size_t kTopeTextoAviso = 200;
 constexpr std::size_t kAutoresPorAviso = 32;
 constexpr std::chrono::seconds kEntrePedidosDeAviso{2};
@@ -54,6 +57,8 @@ class Avisos {
   void conectado(std::string servidor, std::uint32_t tu_id, std::string tu_nombre);
   void desconectado();
   void fuera(bool si);
+  void ajustes(AvisosDelServidor ajustes) { ajustes_ = std::move(ajustes); }
+  void reloj(std::uint64_t ahora_ms) { ahora_ms_ = ahora_ms; }
   void mensaje(const protocolo::MensajeChat& mensaje, const std::string& canal, bool voz);
   void nuevos(std::uint32_t canal, const std::string& nombre, std::uint32_t cantidad);
   std::optional<Orden> pedir(Reloj::time_point ahora, bool sala_esperando, bool juego);
@@ -73,10 +78,13 @@ class Avisos {
     Notificacion aviso;
     std::string canal;
     std::uint32_t cantidad = 0;
+    std::uint32_t total = 0;
+    std::uint64_t revisado = 0;
     std::vector<std::string> autores;
     std::string autor;
     std::string texto;
     bool falta_texto = false;
+    bool mostrar = false;
     Reloj::time_point pedido_en{};
   };
 
@@ -89,6 +97,8 @@ class Avisos {
   std::string servidor_;
   std::uint32_t tu_id_ = 0;
   std::string tu_nombre_;
+  AvisosDelServidor ajustes_;
+  std::uint64_t ahora_ms_ = 0;
   bool fuera_ = false;
   std::map<std::uint32_t, Pendiente> pendientes_;
   std::optional<Notificacion> corte_;

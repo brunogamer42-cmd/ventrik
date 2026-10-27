@@ -116,7 +116,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     const std::uint16_t c = lector.leer_u16();
     const TipoCanal tipo = (c & 1) != 0 ? TipoCanal::texto : TipoCanal::voz;
     const bool solo_admins = tipo == TipoCanal::texto && (c & 2) != 0;
-    switch (que % 24) {
+    switch (que % 25) {
       case 0: sala.aplicar(UsuarioEntro{{a, "Alguien", b}}); break;
       case 1: sala.aplicar(UsuarioSalio{a}); break;
       case 2: sala.aplicar(UsuarioCambioCanal{a, b}); break;
@@ -125,7 +125,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       case 5: sala.aplicar(CanalBorrado{a, b}); break;
       case 6: {
         const MensajeChat mensaje{c, a, b, static_cast<std::uint32_t>(1 + (c & 4) / 4), nombres[b % 5], c * 1000ull,
-                                  std::string(1 + c % ((c & 8) != 0 ? 4000 : 64), 'x')};
+                                  ((c & 32) != 0 ? "@Ana " : (c & 64) != 0 ? "@todos " : "") +
+                                      std::string(1 + c % ((c & 8) != 0 ? 3900 : 64), 'x')};
         sala.aplicar(mensaje);
         avisos.mensaje(mensaje, nombres[a % 5], (c & 16) != 0);
         break;
@@ -189,6 +190,17 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       case 19: exigir(sala.salir_de_la_voz().empty() == (sala.tu_canal() == 0)); break;
       case 20: sala.aplicar(UsuarioSilencio{a, static_cast<std::uint8_t>(b % 3 == 2 ? 3 : b % 3)}); break;
       case 21: avisos.fuera((b & 1) != 0); break;
+      case 24: {
+        ventrik::cliente::AvisosDelServidor ajustes;
+        ajustes.servidor = {(b & 1) != 0 ? c * 1000ull : 0, (b & 2) != 0,
+                            static_cast<ventrik::cliente::Avisar>(1 + (b >> 2) % 3)};
+        ajustes.contar_todos = (b & 32) != 0;
+        ventrik::cliente::cambiar_canal(ajustes, a, {(b & 64) != 0 ? ventrik::cliente::kHastaQueLoActive : 0,
+                                                     (b & 128) != 0, static_cast<ventrik::cliente::Avisar>(c % 4)});
+        avisos.ajustes(ajustes);
+        avisos.reloj(c * 500ull);
+        break;
+      }
       case 22: avisos.visto(a); break;
       case 23: (b & 1) != 0 ? avisos.corte(std::string(c % 300, 'z')) : avisos.desconectado(); break;
       default: break;

@@ -141,7 +141,11 @@ Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Rendimiento-silencia
   - por 15 minutos, 1 hora, 3 horas, 8 horas o 24 horas, o "Hasta que lo vuelva a activar";
   - una casilla "Avisarme igual si me mencionan", tildada por defecto.
 - **Avisarme de ▸:** Igual que el servidor (lo que viene en los canales), Todos los mensajes, Solo menciones o Nada. En el servidor, "Solo menciones" viene elegido (decisión del dueño, 2026-10-26): un mensaje común solo sube el contador.
-- **Menciones:** llegan con este paso (hoy el chat no las tiene): tu nombre con @ adelante, y @todos y @aquí, salvo que el servidor tenga tildado "No contar @todos ni @aquí como mención".
+- **Menciones:** tu nombre con @ adelante, y @todos y @aquí (también "@aqui"), salvo que el servidor tenga tildado "No contar @todos ni @aquí como mención" (viene tildado).
+  - No importan las mayúsculas, pero sí los acentos: en un servidor "José" y "Jose" pueden ser dos personas distintas, así que "@Jose" no nombra a José.
+  - Después del nombre tiene que venir un espacio, un signo o el final: "@Tanoo" no nombra a Tano.
+  - Se miran como mucho 32 "@" por mensaje.
+  - En un canal que no estás mirando, el servidor solo manda el contador: para saber si te nombraron, el programa pide esos mensajes (como para mostrar el aviso), también con la privacidad prendida; el texto se usa solo para buscar la mención.
 - **Silenciado:**
   - sin sonido ni aviso de Windows;
   - campana tachada junto al nombre;

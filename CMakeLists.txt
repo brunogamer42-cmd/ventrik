@@ -154,9 +154,10 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
       VERBATIM)
   endforeach()
   target_sources(fuzz_base PRIVATE src/server/base.cpp)
-  target_sources(fuzz_guardados PRIVATE src/client/guardados.cpp)
-  target_sources(fuzz_sala PRIVATE src/client/avisos.cpp src/client/guardados.cpp src/client/sala.cpp)
-  target_sources(fuzz_textos PRIVATE src/client/avisos.cpp)
+  target_sources(fuzz_guardados PRIVATE src/client/guardados.cpp src/client/silencios.cpp)
+  target_sources(fuzz_sala PRIVATE src/client/avisos.cpp src/client/guardados.cpp src/client/sala.cpp
+                                   src/client/silencios.cpp)
+  target_sources(fuzz_textos PRIVATE src/client/avisos.cpp src/client/silencios.cpp)
   target_link_libraries(fuzz_base PRIVATE sqlite)
   target_sources(fuzz_voz_servidor PRIVATE src/server/proteccion.cpp src/server/voz.cpp)
   target_sources(fuzz_voz PRIVATE src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/motor_voz.cpp
@@ -182,7 +183,7 @@ endif()
 add_library(ventrik_cliente_base STATIC
   src/client/audio.cpp src/client/avisos.cpp src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/conexion.cpp
   src/client/diagnostico.cpp src/client/guardados.cpp src/client/horas.cpp
-  src/client/motor_voz.cpp src/client/sala.cpp src/client/sesion.cpp
+  src/client/motor_voz.cpp src/client/sala.cpp src/client/sesion.cpp src/client/silencios.cpp
   src/client/vigia.cpp)
 target_sources(ventrik_cliente_base PRIVATE src/client/voz_primero.cpp)
 target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm)

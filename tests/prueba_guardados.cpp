@@ -94,7 +94,7 @@ TEST_CASE("el archivo de servidores rechaza lo que no armó Ventrik") {
   marca[0] ^= 1;
   CHECK(leer_sin_tocar(marca) == LecturaGuardados::danados);
   auto version = bien;
-  version[4] = 6;
+  version[4] = 7;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::version_nueva);
   version[4] = 0;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::danados);
@@ -154,7 +154,7 @@ TEST_CASE("una lista de la versión 3 se lee sin silencio y con los volúmenes a
   CHECK(leidos.volumen_salida == ventrik::cliente::kVolumenPorDefecto);
   const auto nuevo = armar_guardados(leidos);
   REQUIRE(nuevo.size() == escritor.datos().size() + 3);
-  CHECK(nuevo[4] == 5);
+  CHECK(nuevo[4] == 6);
   CHECK(nuevo[9] == 0);
   CHECK(nuevo[10] == 100);
   CHECK(nuevo[11] == 100);
@@ -174,7 +174,7 @@ TEST_CASE("una lista de la versión 2 se lee con la tecla para hablar y la sensi
   CHECK(leidos.sensibilidad == ventrik::cliente::kSensibilidadPorDefecto);
   const auto nuevo = armar_guardados(leidos);
   REQUIRE(nuevo.size() == escritor.datos().size() + 5);
-  CHECK(nuevo[4] == 5);
+  CHECK(nuevo[4] == 6);
   CHECK(nuevo[7] == 0);
   CHECK(nuevo[8] == ventrik::cliente::kSensibilidadPorDefecto);
 }
@@ -273,8 +273,8 @@ TEST_CASE("una lista de la versión 1 se lee con sus servidores y sin lo leído"
   CHECK(leidos.servidores[0].nombre == "Tano");
   CHECK(leidos.servidores[0].leidos.empty());
   const auto nuevo = armar_guardados(leidos);
-  REQUIRE(nuevo.size() == escritor.datos().size() + 7);
-  CHECK(nuevo[4] == 5);
+  REQUIRE(nuevo.size() == escritor.datos().size() + 20);
+  CHECK(nuevo[4] == 6);
   auto con_leidos = escritor.datos();
   con_leidos.push_back(0);
   CHECK(leer_sin_tocar(con_leidos) == LecturaGuardados::danados);
@@ -311,6 +311,10 @@ TEST_CASE("se aceptan 64 leídos por servidor y la lista más grande entra en el
     for (std::size_t i = 0; i < ventrik::cliente::kMaximoPersonasPorServidor; ++i) {
       uno.personas.push_back({largo.substr(0, 60) + std::to_string(10 + i), 200, true});
     }
+    for (std::uint32_t canal = 1; canal <= ventrik::protocolo::kMaximoCanales; ++canal) {
+      ventrik::cliente::cambiar_canal(uno.avisos, canal, {ventrik::cliente::kHastaQueLoActive, false,
+                                                          ventrik::cliente::Avisar::nada});
+    }
     grande.servidores.push_back(uno);
   }
   const auto bytes = armar_guardados(grande);
@@ -335,7 +339,7 @@ TEST_CASE("el volumen de cada persona se guarda por servidor y por nombre, hasta
   CHECK(leidos.servidores[1].personas[1].volumen == 150);
   CHECK(armar_guardados(leidos) == bytes);
   auto silenciada_mal = bytes;
-  silenciada_mal[silenciada_mal.size() - 1] = 2;
+  silenciada_mal[silenciada_mal.size() - 14] = 2;
   CHECK(leer_sin_tocar(silenciada_mal) == LecturaGuardados::danados);
 
   std::vector<PersonaGuardada> personas;
@@ -362,6 +366,51 @@ TEST_CASE("el volumen de cada persona se guarda por servidor y por nombre, hasta
                                                         usuarios);
   CHECK(ajustes.volumenes == std::vector<std::pair<std::uint32_t, std::uint8_t>>{{3, 30}, {9, 0}});
   CHECK(ajustes.silenciados == std::vector<std::uint32_t>{9});
+}
+
+TEST_CASE("los avisos de cada servidor se guardan con sus canales, y lo fuera de rango no se lee") {
+  using ventrik::cliente::Avisar;
+  Guardados guardados = ejemplo();
+  auto& avisos = guardados.servidores[1].avisos;
+  avisos.servidor = {1761234567890, false, Avisar::todos};
+  avisos.contar_todos = true;
+  avisos.sonidos_de_voz = false;
+  ventrik::cliente::cambiar_canal(avisos, 9, {0, true, Avisar::nada});
+  ventrik::cliente::cambiar_canal(avisos, 3, {ventrik::cliente::kHastaQueLoActive, true, Avisar::como_el_servidor});
+  const auto bytes = armar_guardados(guardados);
+  REQUIRE_FALSE(bytes.empty());
+  Guardados leidos;
+  REQUIRE(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
+  const auto& vuelta = leidos.servidores[1].avisos;
+  CHECK(vuelta.servidor.silenciado_hasta == 1761234567890);
+  CHECK_FALSE(vuelta.servidor.aun_con_mencion);
+  CHECK(vuelta.servidor.avisar == Avisar::todos);
+  CHECK(vuelta.contar_todos);
+  CHECK_FALSE(vuelta.sonidos_de_voz);
+  REQUIRE(vuelta.canales.size() == 2);
+  CHECK(vuelta.canales[0].canal == 3);
+  CHECK(vuelta.canales[1].ajuste.avisar == Avisar::nada);
+  CHECK(leidos.servidores[0].avisos.servidor.avisar == Avisar::menciones);
+  CHECK(armar_guardados(leidos) == bytes);
+
+  const auto sin_armar = [](auto cambiar) {
+    Guardados malos = ejemplo();
+    cambiar(malos.servidores[0].avisos);
+    CHECK(armar_guardados(malos).empty());
+  };
+  sin_armar([](auto& a) { a.servidor.avisar = Avisar::como_el_servidor; });
+  sin_armar([](auto& a) { a.servidor.avisar = static_cast<Avisar>(4); });
+  sin_armar([](auto& a) { a.canales = {{5, {}}, {4, {}}}; });
+  sin_armar([](auto& a) { a.canales = {{0, {}}}; });
+  sin_armar([](auto& a) { a.canales.assign(ventrik::protocolo::kMaximoCanales + 1, {}); });
+
+  const std::size_t fin = bytes.size();
+  auto avisar_mal = bytes;
+  avisar_mal[fin - 13 - 2 * 14 + 9] = 4;
+  CHECK(leer_sin_tocar(avisar_mal) == LecturaGuardados::danados);
+  auto aun_mal = bytes;
+  aun_mal[fin - 13 - 2 * 14 + 8] = 2;
+  CHECK(leer_sin_tocar(aun_mal) == LecturaGuardados::danados);
 }
 
 TEST_CASE("recordar conserva lo leído del mismo servidor, salvo que cambie la huella") {
