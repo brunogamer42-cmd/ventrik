@@ -358,6 +358,17 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - **los clics del diálogo se sentían lentos:** a pedido del dueño, los cambios del diálogo se aplican al momento pero se guardan en programa.dat recién al cerrarlo (Listo o Escape). Los menús (▾, clic derecho y la tarjeta de Inicio) guardan en el acto, porque son un solo clic. Si se cierra Ventrik o se cambia de servidor con algo sin guardar, se guarda igual (`sin_guardar_` en Programa);
     - **las casillas y el desplegable** no se parecían a la captura (sin cuadradito, tilde azul, flecha en un cuadrado azul): ahora la casilla es un cuadrado dibujado (claro con tilde oscuro si está marcada) y el desplegable tiene fondo y borde, sin el cuadrado azul;
     - para mandar clics a la ventana de verdad sin mover el mouse del dueño, `PostMessage` no es confiable: la ventana recibe enseguida "el mouse salió" y a veces le gana al clic.
+  - **Tercera prueba: búsqueda de animaciones en todo Rendimiento (2026-10-27, con dos agentes).** En la XP el cuadro se iba en dos pasos (la ventana y después el oscuro). En esta PC también, a 50 ms: ImGui cierra a mitad del dibujo y la ventana se dibuja una vez más sin el oscurecido. Arreglos:
+    - `cerrar_ventana_emergente` (piezas.cpp) cierra y oculta en el mismo dibujo; la usan todos los cierres;
+    - Ctrl+Tab de ImGui (un selector de ventanas en inglés, con velo claro que se funde) apagado (`ConfigNavWindowingKeyNext/Prev = 0`);
+    - clic en el carril de una barra de desplazamiento: salta directo al lugar en vez de repetir por tiempo (`ConfigScrollbarScrollByPage = false`);
+    - menús, combos, carteles y cuadros nacen ocultos un dibujo (ImGui mide su tamaño): `dibujar_cuadro` (ventana.cpp) vuelve a armar el dibujo, hasta 2 veces, si hay alguno por aparecer (`por_aparecer`), así se ven en el mismo dibujo del clic; antes, sin cambios en pantalla, el bucle dejaba de dibujar y aparecían con el próximo movimiento del mouse;
+    - el chat baja hasta el final en el mismo dibujo en que llega el mensaje (antes `SetScrollHereY` lo dejaba para el siguiente, que con la red podía llegar recién con el tic de 1 s), y el ancho del texto ya cuenta la barra de desplazamiento siempre, para no volver a cortar las líneas un dibujo después;
+    - el chat no se mueve con las flechas (`NoNavInputs`): con el tiempo real entre dibujos, la primera flecha después de estar quieto saltaba hasta el tope;
+    - Escape en "Avisos de…" se mira al principio: no deja el menú de "Agregar canal" flotando solo, y si ese menú o el combo están abiertos, cierra solo eso;
+    - la ventanita de aviso propia se pinta antes de verse (`UpdateWindow`) y sin el fundido de Windows al abrir y cerrar (`DWMWA_TRANSITIONS_FORCEDISABLED` con `GetProcAddress`; en XP no existe y no hace falta);
+    - los carteles siguen apareciendo tras una pequeña demora, de golpe y sin fundido; los submenús se abren al pasar el mouse.
+  - **Pruebas nuevas (prueba_pantallas):** con el mouse quieto, ninguna pantalla, menú ni cuadro cambia en 90 dibujos; el oscurecido y el cuadro están juntos en cada dibujo al abrir y cerrar ("Listo", Escape y el cuadro de canal); los menús nacen ocultos solo con `por_aparecer` avisando y después no se mueven; Escape cierra primero "Agregar canal".
 - **Lo que sigue:** la prueba a mano de las notificaciones, del paso 3.2 y del 3.3 juntas, en la PC y en la XP.
 
 ## Ramas y repositorio

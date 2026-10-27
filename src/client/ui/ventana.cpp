@@ -420,10 +420,16 @@ bool Ventana::dibujar_cuadro(const std::function<void()>& dibujar) {
   }
   perdido_ = false;
   const auto empezo = Reloj::now();
-  ImGui_ImplWin32_NewFrame();
-  ImGui::NewFrame();
-  pantalla_completa(dibujar);
-  ImGui::Render();
+  const auto armar = [&dibujar] {
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+    pantalla_completa(dibujar);
+    ImGui::Render();
+  };
+  armar();
+  for (int vez = 0; vez < 2 && por_aparecer(); ++vez) {
+    armar();
+  }
   const ImDrawData& datos = *ImGui::GetDrawData();
   const std::vector<RECT>& zonas = grafica_->zonas.cambiadas(datos);
   uso_.imgui_ms += ms_desde(empezo);

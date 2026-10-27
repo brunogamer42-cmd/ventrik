@@ -350,6 +350,22 @@ ImVec2 en_dialogo(float x, float y) {
   return ImVec2(dialogo.Pos.x + x, dialogo.Pos.y + y);
 }
 
+std::pair<bool, bool> velo_y_ventana(std::string_view nombre) {
+  bool velo = false;
+  bool ventana = false;
+  const ImDrawData& datos = *ImGui::GetDrawData();
+  for (const ImDrawList* lista : datos.CmdLists) {
+    ventana = ventana || (lista->_OwnerName != nullptr && nombre == lista->_OwnerName);
+    for (int v = 0; v + 2 < lista->VtxBuffer.Size; ++v) {
+      const ImDrawVert& desde = lista->VtxBuffer[v];
+      const ImDrawVert& hasta = lista->VtxBuffer[v + 2];
+      velo = velo || (desde.pos.x <= 0.5f && desde.pos.y <= 0.5f && hasta.pos.x >= datos.DisplaySize.x - 1 &&
+                      hasta.pos.y >= datos.DisplaySize.y - 1 && (desde.col >> IM_COL32_A_SHIFT) < 255);
+    }
+  }
+  return {velo, ventana};
+}
+
 template <typename Pedido>
 std::optional<ventrik::cliente::AvisosDelServidor> avisos_de(const std::vector<Pedido>& pedidos) {
   std::optional<ventrik::cliente::AvisosDelServidor> avisos;
@@ -1214,3 +1230,177 @@ TEST_CASE("Listo cierra el diálogo de avisos, con canales propios o sin ninguno
   }
 }
 
+TEST_CASE("Los cuadros y su fondo oscuro aparecen y se van en el mismo dibujo, sin pasos intermedios") {
+  for (const int como : {0, 1, 2}) {
+    SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+    auto sala = sala_llena(true, 4, 3, 5);
+    auto pantalla = pantalla_servidor();
+    const std::string_view nombre = como == 2 ? "##dialogo" : "##avisos";
+    const auto abrir = [&] {
+      if (como == 2) {
+        pantalla.dialogo = ui::Dialogo::crear_texto;
+        pantalla.abrir_dialogo = true;
+      } else {
+        pantalla.abrir_avisos = true;
+      }
+    };
+    std::vector<std::pair<bool, bool>> vistos;
+    const auto cuadro = [&](ImVec2 donde, bool clic = false) {
+      sin_pantalla.cuadro(pantalla, sala, donde, clic);
+      vistos.push_back(velo_y_ventana(nombre));
+    };
+    for (int vez = 0; vez < 2; ++vez) {
+      abrir();
+      for (int i = 0; i < 3; ++i) {
+        cuadro(ImVec2(5, 5));
+      }
+      REQUIRE(vistos.back() == std::make_pair(true, true));
+      if (como == 0) {
+        const ImGuiWindow& dialogo = *ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+        const ImVec2 listo = en_dialogo(dialogo.Size.x - 40, dialogo.Size.y - 39);
+        cuadro(listo);
+        cuadro(listo, true);
+        cuadro(listo);
+      } else {
+        sin_pantalla.apretar(ImGuiKey_Escape);
+        cuadro(ImVec2(5, 5));
+      }
+      for (int i = 0; i < 3; ++i) {
+        cuadro(ImVec2(5, 5));
+      }
+      CHECK(vistos.back() == std::make_pair(false, false));
+    }
+    for (const auto& [velo, ventana] : vistos) {
+      CHECK(velo == ventana);
+    }
+  }
+}
+
+TEST_CASE("En Rendimiento nada se anima: con el mouse quieto, ninguna pantalla, menú ni cuadro cambia solo") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  const ImVec2 quieto(5, 5);
+  const auto preparar = [&](int cual, ui::PantallaServidor& pantalla) {
+    const auto tocar = [&](ImVec2 donde) {
+      sin_pantalla.cuadro(pantalla, sala, donde);
+      sin_pantalla.cuadro(pantalla, sala, donde, true);
+      sin_pantalla.cuadro(pantalla, sala, donde);
+    };
+    switch (cual) {
+      case 1:
+        pantalla.abrir_avisos = true;
+        break;
+      case 2:
+        pantalla.dialogo = ui::Dialogo::crear_texto;
+        pantalla.abrir_dialogo = true;
+        break;
+      case 3:
+        tocar(ImVec2(150, 20));
+        break;
+      case 4:
+        sin_pantalla.usar_boton(1);
+        tocar(ImVec2(100, 192));
+        sin_pantalla.usar_boton(0);
+        break;
+      default:
+        break;
+    }
+  };
+  for (int cual = 0; cual <= 4; ++cual) {
+    auto pantalla = pantalla_servidor();
+    sin_pantalla.cuadro(pantalla, sala, quieto);
+    preparar(cual, pantalla);
+    for (int i = 0; i < 3; ++i) {
+      sin_pantalla.cuadro(pantalla, sala, quieto);
+    }
+    CHECK(hay_ventana_emergente() == (cual != 0));
+    ui::Zonas zonas;
+    zonas.cambiadas(*ImGui::GetDrawData());
+    std::size_t cambios = 0;
+    for (int i = 0; i < 90; ++i) {
+      sin_pantalla.cuadro(pantalla, sala, quieto);
+      cambios += zonas.cambiadas(*ImGui::GetDrawData()).size();
+    }
+    CHECK_MESSAGE(cambios == 0, "lo abierto número " << cual << " cambió solo con el tiempo");
+    ImGui::GetCurrentContext()->OpenPopupStack.resize(0);
+    pantalla.dialogo = ui::Dialogo::ninguno;
+  }
+}
+
+TEST_CASE("Los menús aparecen enteros de una vez: el dibujo en que nacen ocultos pide otro, y después no se mueven") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(false, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  std::vector<std::pair<int, ImRect>> vistos;
+  const auto cuadro = [&](ImVec2 donde, bool clic = false) {
+    sin_pantalla.cuadro(pantalla, sala, donde, clic);
+    const auto& pila = ImGui::GetCurrentContext()->OpenPopupStack;
+    const ImGuiWindow* menu = pila.empty() ? nullptr : pila.back().Window;
+    if (menu != nullptr && menu->Active) {
+      CHECK((!menu->Hidden || ui::por_aparecer()));
+      vistos.emplace_back(pila.Size, menu->Hidden ? ImRect() : menu->Rect());
+    }
+  };
+  const auto revisar = [&] {
+    for (std::size_t i = 1; i < vistos.size(); ++i) {
+      const auto& [nivel, caja] = vistos[i];
+      const auto& [nivel_antes, caja_antes] = vistos[i - 1];
+      if (nivel == nivel_antes && caja_antes.GetWidth() > 0) {
+        CHECK(caja.Min.x == caja_antes.Min.x);
+        CHECK(caja.Min.y == caja_antes.Min.y);
+        CHECK(caja.Max.x == caja_antes.Max.x);
+        CHECK(caja.Max.y == caja_antes.Max.y);
+      }
+    }
+    vistos.clear();
+  };
+  cuadro(ImVec2(5, 5));
+  for (const ImVec2 nombre : {ImVec2(150, 20), ImVec2(150, 20)}) {
+    cuadro(nombre);
+    cuadro(nombre, true);
+    for (int i = 0; i < 4; ++i) {
+      cuadro(nombre);
+    }
+    for (int i = 0; i < 4; ++i) {
+      cuadro(en_menu(2));
+    }
+    revisar();
+    sin_pantalla.apretar(ImGuiKey_Escape);
+    cuadro(ImVec2(5, 5));
+    sin_pantalla.apretar(ImGuiKey_Escape);
+    cuadro(ImVec2(5, 5));
+    cuadro(ImVec2(5, 5));
+    vistos.clear();
+  }
+  sin_pantalla.usar_boton(1);
+  cuadro(ImVec2(100, 192));
+  cuadro(ImVec2(100, 192), true);
+  sin_pantalla.usar_boton(0);
+  for (int i = 0; i < 4; ++i) {
+    cuadro(ImVec2(130, 254));
+  }
+  revisar();
+}
+
+TEST_CASE("En el diálogo de avisos, Escape cierra primero el menú de \"Agregar canal\" y después el diálogo") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  pantalla.abrir_avisos = true;
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  const ImVec2 agregar = en_dialogo(560, 314);
+  sin_pantalla.cuadro(pantalla, sala, agregar);
+  sin_pantalla.cuadro(pantalla, sala, agregar, true);
+  sin_pantalla.cuadro(pantalla, sala, agregar);
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  REQUIRE(ImGui::GetCurrentContext()->OpenPopupStack.Size == 2);
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  CHECK(ImGui::GetCurrentContext()->OpenPopupStack.Size == 1);
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  CHECK_FALSE(hay_ventana_emergente());
+}

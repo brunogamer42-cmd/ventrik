@@ -644,7 +644,7 @@ class Dibujo {
     }
     const auto usuario = sala_.usuarios().find(pantalla_.persona);
     if (usuario == sala_.usuarios().end()) {
-      ImGui::CloseCurrentPopup();
+      cerrar_ventana_emergente();
       ImGui::EndPopup();
       return;
     }
@@ -1013,8 +1013,9 @@ class Dibujo {
     ImGui::SetCursorScreenPos(desde);
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, px(medida::barra_lista));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, color::borde_contorneado);
-    ImGui::BeginChild("##mensajes", ImVec2(hasta.x - desde.x, hasta.y - desde.y));
-    const float ancho_texto = ImGui::GetContentRegionAvail().x - px(kMargenChat + kSangria + 24);
+    ImGui::BeginChild("##mensajes", ImVec2(hasta.x - desde.x, hasta.y - desde.y), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoNavInputs);
+    const float ancho_texto = ImGui::GetWindowWidth() - px(medida::barra_lista + kMargenChat + kSangria + 24);
     const bool abajo = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - px(2);
     const bool seguir = pantalla_.alturas.canal != chat.canal || (abajo && pantalla_.alturas.al_final);
     const float corrido = actualizar(pantalla_.alturas, chat, ancho_texto);
@@ -1027,6 +1028,10 @@ class Dibujo {
     const Alturas& alturas = pantalla_.alturas;
     const float vista = ImGui::GetWindowHeight();
     const float total = px(kArribaMensajes) + alturas.desde.back() + px(chat.hay_nuevos ? kArribaMensajes : 8);
+    if (seguir) {
+      scroll = std::max(0.0f, total - vista);
+      ImGui::SetScrollY(scroll);
+    }
     const float corrimiento = std::max(0.0f, vista - total);
     const float base = ImGui::GetWindowPos().y - scroll + corrimiento + px(kArribaMensajes);
     const float x = ImGui::GetWindowPos().x + px(kMargenChat);
@@ -1045,9 +1050,6 @@ class Dibujo {
     }
     ImGui::SetCursorPos(ImVec2(0, corrimiento + total - 1));
     ImGui::Dummy(ImVec2(1, 1));
-    if (seguir) {
-      ImGui::SetScrollHereY(1.0f);
-    }
     if ((corrimiento > 0 || !abajo) && scroll <= 0 && chat.hay_mas) {
       pedir(sala_.pedir_mas_viejos());
     }
@@ -1223,7 +1225,7 @@ class Dibujo {
       return;
     }
     if (de_canal && canal == nullptr) {
-      ImGui::CloseCurrentPopup();
+      cerrar_ventana_emergente();
       ImGui::EndPopup();
       pantalla_.dialogo = Dialogo::ninguno;
       return;
@@ -1282,7 +1284,7 @@ class Dibujo {
     ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no - px(10) - ancho_si, y + px(6)));
     confirmar = boton("##si", si, Estilo::principal, ImVec2(ancho_si, px(medida::alto_principal))) || confirmar;
     if (cancelar || (confirmar && confirmar_dialogo(canal, con_marca))) {
-      ImGui::CloseCurrentPopup();
+      cerrar_ventana_emergente();
       pantalla_.dialogo = Dialogo::ninguno;
     }
     ImGui::EndPopup();

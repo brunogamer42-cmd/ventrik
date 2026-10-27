@@ -82,6 +82,8 @@ float alto_envuelto(std::string_view texto, float ancho, float tamano = medida::
 void escribir_envuelto(ImVec2 donde, std::string_view texto, ImU32 color, float ancho,
                        float tamano = medida::letra);
 void cartel(std::string_view texto);
+void cerrar_ventana_emergente();
+bool por_aparecer();
 
 void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, ImU32 color);
 void dibujar_icono_tachado(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, ImU32 color);

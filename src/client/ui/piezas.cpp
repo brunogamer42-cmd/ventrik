@@ -34,6 +34,9 @@ bool preparar_interfaz(float escala, ImTextureFormat letras) {
   io.IniFilename = nullptr;
   io.LogFilename = nullptr;
   io.ConfigInputTextCursorBlink = false;
+  io.ConfigScrollbarScrollByPage = false;
+  ImGui::GetCurrentContext()->ConfigNavWindowingKeyNext = 0;
+  ImGui::GetCurrentContext()->ConfigNavWindowingKeyPrev = 0;
   io.ConfigErrorRecoveryEnableTooltip = false;
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
   for (const wchar_t* nombre : {L"BARLOW_NORMAL", L"BARLOW_FUERTE", L"BARLOW_NEGRITA", L"BARLOW_TITULO"}) {
@@ -99,6 +102,19 @@ void pantalla_completa(const std::function<void()>& dibujar) {
   ImGui::GetCurrentContext()->DimBgRatio = 1.0f;
   dibujar();
   ImGui::End();
+}
+
+bool por_aparecer() {
+  const ImVector<ImGuiWindow*>& ventanas = ImGui::GetCurrentContext()->Windows;
+  return std::any_of(ventanas.begin(), ventanas.end(), [](const ImGuiWindow* ventana) {
+    return ventana->Active && ventana->Hidden &&
+           (ventana->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip)) != 0;
+  });
+}
+
+void cerrar_ventana_emergente() {
+  ImGui::CloseCurrentPopup();
+  ImGui::GetCurrentWindow()->Hidden = true;
 }
 
 float px(float medida) { return medida * ImGui::GetStyle().FontScaleDpi; }

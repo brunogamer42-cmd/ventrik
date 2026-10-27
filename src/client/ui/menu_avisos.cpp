@@ -238,6 +238,13 @@ EleccionDeAvisos dialogo_avisos(Idioma idioma, std::string_view servidor, const 
                                   ImGuiWindowFlags_NoScrollbar)) {
     return {};
   }
+  ImGuiStorage& memoria = *ImGui::GetStateStorage();
+  const ImGuiID encima = ImGui::GetID("##encima");
+  if (ImGui::IsKeyPressed(ImGuiKey_Escape) && memoria.GetBool(encima, true)) {
+    cerrar_ventana_emergente();
+    ImGui::EndPopup();
+    return {std::nullopt, true};
+  }
   std::optional<AvisosDelServidor> nuevo;
   const auto cambiar = [&nuevo, &avisos](auto&& tocar) {
     if (!nuevo) {
@@ -402,11 +409,11 @@ EleccionDeAvisos dialogo_avisos(Idioma idioma, std::string_view servidor, const 
   const std::string_view listo = texto(idioma, Clave::avisos_listo);
   const float ancho_listo = ancho_boton(listo, Estilo::principal);
   ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_listo, y));
-  const bool cerrado = boton("##listo", listo, Estilo::principal, ImVec2(ancho_listo, px(medida::alto_principal))) ||
-                       ImGui::IsKeyPressed(ImGuiKey_Escape);
+  const bool cerrado = boton("##listo", listo, Estilo::principal, ImVec2(ancho_listo, px(medida::alto_principal)));
   if (cerrado) {
-    ImGui::CloseCurrentPopup();
+    cerrar_ventana_emergente();
   }
+  memoria.SetBool(encima, ImGui::GetCurrentContext()->OpenPopupStack.back().Window == ImGui::GetCurrentWindow());
   ImGui::EndPopup();
   return {std::move(nuevo), cerrado};
 }

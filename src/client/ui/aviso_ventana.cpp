@@ -6,6 +6,7 @@
 #include <windowsx.h>
 
 #include "client/ui/theme.h"
+#include "common/sistema.h"
 #include "common/utf.h"
 
 namespace ventrik::ui {
@@ -21,6 +22,17 @@ constexpr float kCruz = 8;
 constexpr float kEntreLineas = 4;
 constexpr float kEntreAvisos = 8;
 constexpr int kLineasDeCuerpo = 2;
+
+void sin_transiciones(HWND ventana) {
+  using Atributo = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+  const HMODULE dwm = cargar_de_sistema(L"dwmapi.dll");
+  const auto poner =
+      dwm != nullptr ? reinterpret_cast<Atributo>(GetProcAddress(dwm, "DwmSetWindowAttribute")) : nullptr;
+  const BOOL apagadas = TRUE;
+  if (poner != nullptr) {
+    poner(ventana, 3, &apagadas, sizeof(apagadas));
+  }
+}
 
 COLORREF gdi(ImU32 color) {
   return RGB(color >> IM_COL32_R_SHIFT & 0xFF, color >> IM_COL32_G_SHIFT & 0xFF, color >> IM_COL32_B_SHIFT & 0xFF);
@@ -223,11 +235,13 @@ void AvisosEnPantalla::abrir(const cliente::Notificacion& aviso) {
     return;
   }
   SetWindowLongPtrW(ventana, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+  sin_transiciones(ventana);
   abiertas_.push_back({ventana, aviso, tamano});
   ++mostrados_;
   SetTimer(ventana, kTemporizador, kSegundosDeAviso * 1000, nullptr);
   acomodar();
   ShowWindow(ventana, SW_SHOWNOACTIVATE);
+  UpdateWindow(ventana);
 }
 
 void AvisosEnPantalla::cerrar(HWND ventana) {
