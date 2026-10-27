@@ -269,17 +269,23 @@ std::optional<AvisosDelServidor> dialogo_avisos(Idioma idioma, std::string_view 
   y += px(22);
   const float hueco = px(10);
   const float ancho_cuadro = (interior - 2 * hueco) / 3;
+  const auto esquina_de = [&](std::size_t i) { return ImVec2(x + static_cast<float>(i) * (ancho_cuadro + hueco), y); };
   for (std::size_t i = 0; i < kCuadros.size(); ++i) {
-    const Cuadro& cuadro = kCuadros[i];
-    const bool elegido = avisos.servidor.avisar == cuadro.modo;
-    const ImVec2 esquina(x + static_cast<float>(i) * (ancho_cuadro + hueco), y);
-    const ImVec2 otra(esquina.x + ancho_cuadro, y + px(66));
-    ImGui::SetCursorScreenPos(esquina);
+    const Avisar modo = kCuadros[i].modo;
+    ImGui::SetCursorScreenPos(esquina_de(i));
     ImGui::PushID(static_cast<int>(i));
-    if (ImGui::InvisibleButton("##modo", ImVec2(ancho_cuadro, px(66))) && !elegido) {
-      cambiar([&cuadro](AvisosDelServidor& a) { a.servidor.avisar = cuadro.modo; });
+    if (ImGui::InvisibleButton("##modo", ImVec2(ancho_cuadro, px(66))) &&
+        nuevo.value_or(avisos).servidor.avisar != modo) {
+      cambiar([modo](AvisosDelServidor& a) { a.servidor.avisar = modo; });
     }
     ImGui::PopID();
+  }
+  const Avisar elegido_ahora = nuevo.value_or(avisos).servidor.avisar;
+  for (std::size_t i = 0; i < kCuadros.size(); ++i) {
+    const Cuadro& cuadro = kCuadros[i];
+    const bool elegido = elegido_ahora == cuadro.modo;
+    const ImVec2 esquina = esquina_de(i);
+    const ImVec2 otra(esquina.x + ancho_cuadro, y + px(66));
     dibujo.AddRectFilled(esquina, otra, tono(elegido ? color::elevado : color::pozo));
     dibujo.AddRect(esquina, otra, tono(elegido ? color::claro : color::linea), 0, 0, elegido ? px(1.5f) : px(1));
     const ImVec2 centro(esquina.x + px(18), esquina.y + px(22));
@@ -326,7 +332,9 @@ std::optional<AvisosDelServidor> dialogo_avisos(Idioma idioma, std::string_view 
     }
   }
   ImGui::SetCursorScreenPos(ImVec2(x, y + px(40)));
-  ImGui::BeginChild("##filas", ImVec2(interior, alto_filas));
+  if (filas > 0) {
+    ImGui::BeginChild("##filas", ImVec2(interior, alto_filas));
+  }
   ImDrawList& renglones = *ImGui::GetWindowDrawList();
   const float ancho_filas = ImGui::GetContentRegionAvail().x;
   float fila = ImGui::GetCursorScreenPos().y;
@@ -363,7 +371,9 @@ std::optional<AvisosDelServidor> dialogo_avisos(Idioma idioma, std::string_view 
                 con_datos(texto(idioma, Clave::avisos_sin_conexion), {std::to_string(avisos.canales.size())}),
                 color::apagado, Letra::normal, medida::letra_chica, ancho_filas - px(24));
   }
-  ImGui::EndChild();
+  if (filas > 0) {
+    ImGui::EndChild();
+  }
   y += alto_caja + px(10);
   escribir_envuelto(ImVec2(x, y), nota, color::apagado, interior, medida::letra_chica);
   y += alto_nota + px(14);

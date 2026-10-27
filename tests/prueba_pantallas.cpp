@@ -1172,3 +1172,28 @@ TEST_CASE("El diálogo de avisos entra en la pantalla y se desplaza aunque tenga
     CHECK(pantalla.avisos.canales.size() == 60);
   }
 }
+
+TEST_CASE("Listo cierra el diálogo de avisos, con canales propios o sin ninguno, y el fondo se oscurece de una vez") {
+  for (const std::size_t propios : {0u, 1u}) {
+    for (const ImVec2 tamano : {ImVec2(1376, 768), ImVec2(1024, 540)}) {
+      SinPantalla sin_pantalla(1.0f, tamano);
+      auto sala = sala_llena(true, 4, 3, 5);
+      auto pantalla = pantalla_servidor();
+      if (propios > 0) {
+        pantalla.avisos.canales = {{4, {0, true, ventrik::cliente::Avisar::nada}}};
+      }
+      pantalla.abrir_avisos = true;
+      sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+      REQUIRE(hay_ventana_emergente());
+      CHECK(ImGui::GetCurrentContext()->DimBgRatio == 1.0f);
+      sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+      const ImGuiWindow& dialogo = *ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+      CHECK(dialogo.Pos.y + dialogo.Size.y <= tamano.y);
+      const ImVec2 listo = en_dialogo(dialogo.Size.x - 40, dialogo.Size.y - 39);
+      sin_pantalla.cuadro(pantalla, sala, listo);
+      sin_pantalla.cuadro(pantalla, sala, listo, true);
+      sin_pantalla.cuadro(pantalla, sala, listo);
+      CHECK_FALSE(hay_ventana_emergente());
+    }
+  }
+}

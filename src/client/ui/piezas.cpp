@@ -80,7 +80,8 @@ bool preparar_interfaz(float escala, ImTextureFormat letras) {
            {ImGuiCol_HeaderActive, color::linea2},
            {ImGuiCol_NavCursor, color::celeste},
            {ImGuiCol_TextSelectedBg, rgb(0x5CC2D6, 90)},
-           {ImGuiCol_InputTextCursor, color::texto}}) {
+           {ImGuiCol_InputTextCursor, color::texto},
+           {ImGuiCol_ModalWindowDimBg, rgb(0x000000, 100)}}) {
     estilo.Colors[cual] = ImGui::ColorConvertU32ToFloat4(valor);
   }
   estilo.ScaleAllSizes(escala);
@@ -95,6 +96,7 @@ void pantalla_completa(const std::function<void()>& dibujar) {
                ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                    ImGuiWindowFlags_NoBringToFrontOnFocus);
   ImGui::PopStyleVar();
+  ImGui::GetCurrentContext()->DimBgRatio = 1.0f;
   dibujar();
   ImGui::End();
 }

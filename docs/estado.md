@@ -347,6 +347,11 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - el clic derecho en una tarjeta de Inicio: "Hasta que lo vuelva a activar", "Marcar todo" apagado y el diálogo sin conexión;
     - el diálogo con 60 canales entra en la pantalla mínima y al 150 %, y se desplaza;
     - `normalizar` dice si cambió algo.
+  - **Arreglos después de la primera prueba del dueño (2026-10-27):**
+    - **"Listo" no cerraba el diálogo** (en las dos versiones) si ningún canal tenía ajuste propio: la lista quedaba con alto 0, y en ImGui una sublista de alto 0 ocupa todo lo que sobra hacia abajo, así que tapaba la nota y el botón. Sin filas ya no se arma la sublista. Las pruebas cerraban con Escape y no lo vieron; ahora una toca "Listo" con y sin canales, en 1376×768 y 1024×540;
+    - **la "transición":** ImGui oscurece el fondo de los cuadros modales de a poco (`DimBgRatio`). Como Ventrik dibuja solo cuando pasa algo, el oscurecido avanzaba a saltos con cada movimiento del mouse y obligaba a redibujar la pantalla entera: se veía como animación y como demora. Ahora sale entero desde el primer cuadro (`pantalla_completa` lo deja en 1), en todos los cuadros modales. En Rendimiento no hay animaciones (docs/diseno.md);
+    - **el color del oscurecido** nunca se había puesto: ImGui usaba su gris claro translúcido. Ahora es negro al 40 %, como en la captura;
+    - **el cuadro elegido en "Avisarme de"** se dibujaba un cuadro tarde (con lo de antes del clic): ahora se atienden los tres clics primero y se dibuja con lo nuevo en el mismo cuadro.
 - **Lo que sigue:** la prueba a mano de las notificaciones, del paso 3.2 y del 3.3 juntas, en la PC y en la XP.
 
 ## Ramas y repositorio
