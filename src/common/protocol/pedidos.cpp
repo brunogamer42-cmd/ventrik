@@ -122,7 +122,7 @@ void leer_usuario(Lector& lector, UsuarioInfo& usuario) {
 }
 
 bool medio_valido(TipoFlujo tipo, std::uint8_t flujo, std::uint8_t nivel, std::size_t largo) {
-  return tipo == TipoFlujo::voz && flujo == 0 && nivel <= kNivelMaximo && largo > 0 && largo <= kMaximoOpus;
+  return tipo == TipoFlujo::voz && flujo <= kLugaresDeSusurro && nivel <= kNivelMaximo && largo > 0 && largo <= kMaximoOpus;
 }
 
 void escribir_medio(Escritor& escritor, const Medio& medio) {
@@ -183,13 +183,15 @@ bool sigue(Sentido sentido, std::uint64_t anterior, std::uint64_t id) {
 
 bool es_pedido(std::uint16_t tipo) {
   return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
-         tipo <= static_cast<std::uint16_t>(TipoMensaje::silenciar_personas);
+         tipo <= static_cast<std::uint16_t>(TipoMensaje::destinos_de_susurro);
 }
 
-bool son_silenciados_validos(const std::vector<std::uint32_t>& usuarios) {
+bool son_ids_validos(const std::vector<std::uint32_t>& usuarios) {
   return (usuarios.empty() || usuarios.front() != 0) &&
          std::adjacent_find(usuarios.begin(), usuarios.end(), std::greater_equal<>()) == usuarios.end();
 }
+
+bool es_lugar_de_susurro(std::uint8_t lugar) { return lugar >= 1 && lugar <= kLugaresDeSusurro; }
 
 }
 
@@ -440,7 +442,7 @@ void leer(Lector& lector, Silenciar& mensaje) {
 }
 
 void escribir(Escritor& escritor, const SilenciarPersonas& mensaje) {
-  if (!son_silenciados_validos(mensaje.usuarios)) {
+  if (!son_ids_validos(mensaje.usuarios)) {
     escritor.marcar_error();
     return;
   }
@@ -451,7 +453,28 @@ void escribir(Escritor& escritor, const SilenciarPersonas& mensaje) {
 void leer(Lector& lector, SilenciarPersonas& mensaje) {
   leer_lista(lector, mensaje.usuarios, kMaximoSilenciados,
              [&lector](std::uint32_t& usuario) { usuario = lector.leer_u32(); });
-  if (!son_silenciados_validos(mensaje.usuarios)) {
+  if (!son_ids_validos(mensaje.usuarios)) {
+    lector.marcar_error();
+  }
+}
+
+void escribir(Escritor& escritor, const DestinosDeSusurro& mensaje) {
+  if (!es_lugar_de_susurro(mensaje.lugar) || !son_ids_validos(mensaje.personas)) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u8(mensaje.lugar);
+  escritor.escribir_u32(mensaje.canal);
+  escribir_lista(escritor, mensaje.personas, kMaximoPersonasEnSusurro,
+                 [&escritor](std::uint32_t persona) { escritor.escribir_u32(persona); });
+}
+
+void leer(Lector& lector, DestinosDeSusurro& mensaje) {
+  mensaje.lugar = lector.leer_u8();
+  mensaje.canal = lector.leer_u32();
+  leer_lista(lector, mensaje.personas, kMaximoPersonasEnSusurro,
+             [&lector](std::uint32_t& persona) { persona = lector.leer_u32(); });
+  if (!es_lugar_de_susurro(mensaje.lugar) || !son_ids_validos(mensaje.personas)) {
     lector.marcar_error();
   }
 }

@@ -49,9 +49,14 @@ class MotorVoz {
   unsigned frecuencia() const { return calidad_.frecuencia; }
   void transmitir(bool si) { transmitiendo_ = si && !sin_microfono_; }
   bool transmitiendo() const { return transmitiendo_; }
+  void susurrar(std::uint8_t lugar) {
+    susurro_ = sin_microfono_ || lugar > protocolo::kLugaresDeSusurro ? std::uint8_t{0} : lugar;
+  }
+  std::uint8_t susurrando() const { return susurro_; }
   void silenciar(bool microfono, bool audio) {
     if (sin_microfono_.exchange(microfono) != microfono) {
       transmitiendo_ = false;
+      susurro_ = 0;
     }
     sin_audio_ = audio;
   }
@@ -95,6 +100,7 @@ class MotorVoz {
     std::size_t cuantas = 0;
     std::size_t leidas = 0;
     std::uint32_t hablante = 0;
+    std::uint8_t flujo = 0;
     int nivel = 0;
     unsigned quietos = 0;
     int disimulos = 0;
@@ -109,8 +115,8 @@ class MotorVoz {
 
   void limpiar_lo_capturado();
   void escuchar_salida(gsl::span<const std::int16_t> parte);
-  void pedazo_completo(bool por_voz);
-  void codificar(const Pedazo& pedazo, std::uint16_t tiempo);
+  void pedazo_completo(bool por_voz, std::uint8_t flujo);
+  void codificar(const Pedazo& pedazo, std::uint16_t tiempo, std::uint8_t flujo);
   void recibir();
   Voz* lugar_para(const PaqueteVoz& paquete);
   void medir(Voz& voz, std::uint16_t tiempo);
@@ -145,8 +151,10 @@ class MotorVoz {
   std::uint64_t reproducidas_total_ = 0;
   std::uint64_t acelerado_ = 0;
   std::uint64_t estirado_ = 0;
-  std::uint16_t numero_ = 0;
+  std::array<std::uint16_t, protocolo::kLugaresDeSusurro + 1> numeros_{};
   std::atomic<bool> transmitiendo_{false};
+  std::atomic<std::uint8_t> susurro_{0};
+  std::uint8_t flujo_capturado_ = 0;
   std::atomic<bool> solo_{false};
   std::atomic<bool> por_voz_{false};
   std::atomic<bool> sin_microfono_{false};

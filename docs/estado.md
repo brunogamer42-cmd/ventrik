@@ -466,7 +466,46 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - los nombres de dispositivo que no son UTF-8 (DirectSound da ANSI) o pasan de 256 bytes no se ofrecen, porque no se podrían guardar;
     - la casilla del inicio con Windows compara la ruta sin mayúsculas;
     - tools/check.ps1 comprueba que cerrar esconde la ventana y que abrir Ventrik otra vez muestra el que ya estaba.
-- **Lo que sigue:** pasos 3.6 (susurro) y 3.7 (sonidos de los avisos); al final, una sola prueba a mano en la PC y en la XP.
+- **Etapa 3, paso 3.6: susurro (hecho, 2026-10-27). Protocolo 4, programa 0.4.0.**
+  - **Protocolo:**
+    - pedido nuevo `DestinosDeSusurro` (21): `u8 lugar` (1 a 4), `u32 canal` (0 = ninguno), lista de hasta 8 personas, en orden creciente y sin el 0. Reemplaza los destinos de ese lugar;
+    - el byte `flujo` del paquete de voz, que antes era siempre 0, ahora dice 0 = voz del canal y 1 a 4 = susurro de ese lugar. Lo demás se rechaza como antes;
+    - como cambia lo que vale en un mensaje, sube el protocolo a 4 (mínimo y máximo) y el programa a 0.4.0: un programa o un servidor de antes no se queda mudo, rechaza la conexión con "versión vieja".
+  - **Servidor:**
+    - guarda los 4 destinos en la conexión (como los silenciados) y se los pasa a la voz al entrar;
+    - el canal tiene que existir y ser de voz (`puede_entrar`); si no, `Negado`. Las personas no se validan una por una: alguien puede haber salido entre que el programa eligió y el servidor recibió, y un id que no está simplemente no recibe nada;
+    - al borrar un canal, los susurros que iban a ese canal quedan sin canal, porque SQLite puede volver a usar el id;
+    - `Voz::reenviar`: con flujo 0, a los del mismo canal; con 1 a 4, a las personas del destino (en cualquier canal) y a todos los del canal del destino. Siempre se saltean quien habla, quien lo silenció para sí y quien tiene el audio apagado, y gasta la misma ficha de paquetes. Todos pueden susurrar (decisión del dueño); los permisos por rol llegan en la etapa 9.
+  - **Programa:**
+    - **motor:** `susurrar(lugar)` gana sobre la tecla y sobre "por voz", y sale aunque estés solo en tu canal. Cada flujo lleva su propia numeración (`numeros_`), y el que escucha arma una voz aparte por persona y flujo: así pasar de hablar a susurrar no parece una pérdida ni un paquete viejo. `PuenteVoz::susurro` marca qué voces son susurros;
+    - **teclas (`Vigia`):** mira la de hablar y hasta 4 de susurro, también en "por voz" si hay alguna de susurro (entonces escucha el teclado). Si se aprietan dos, gana el susurro de lugar más bajo. "Seguir transmitiendo al soltar" vale también para el susurro. La decisión está en una función pura (`decidir_teclas`), probada con relojes de mentira;
+    - **despertares:** es el mismo hilo, que ya existía. En "por voz" sin teclas de susurro sigue sin despertarse nunca. Con alguna tecla de susurro se comporta como el modo tecla: un despertar por tecla apretada (en cualquier programa, porque escucha el teclado aunque no esté al frente), 4 por segundo de respaldo por si Windows no avisa una tecla, y 50 por segundo solo si una de las teclas es un botón del mouse, que no llega como evento de teclado. Es lo mínimo para que la tecla responda;
+    - **programa.dat:** claves 20 a 23 del bloque de ajustes, una por lugar: `u8 tecla` (0 = sin tecla), `canal` y hasta 8 `personas` por nombre (textos con largo, validados como nombres). Se guardan por nombre y valen para todos los servidores; al conectar, cuando alguien entra o sale y cuando cambia un canal, se traducen a ids (`destinos_de`) y se manda solo lo que cambió;
+    - **pantallas:**
+      - Ajustes → Teclas, como en la captura Ajustes-teclas.png: una fila por susurro ("Susurro 1: a Sofi y Meli (en cualquier canal)") con su tecla y "Cambiar" (cambiar tecla, elegir a quién, quitar), y la fila "Hasta 4 susurros…" con "Agregar susurro";
+      - "Elegir a quién" lista la gente y los canales de voz del servidor conectado, más los nombres ya elegidos aunque no estén;
+      - quien susurra ve "Susurrando a Sofi y Meli" en la etiqueta de transmitir; quien recibe ve "Te susurra: Sofi", quieto, en lugar del nombre del canal en el panel de audio. El sonido llega en el paso 3.7.
+  - **Pruebas:**
+    - bytes del pedido y del paquete con flujo;
+    - en el servidor, el susurro a personas y a canal llega solo a ellos y respeta los silencios;
+    - de punta a punta (`prueba_sesion`), con un canal que no existe y al borrar el canal;
+    - el motor con su numeración y la marca del que escucha;
+    - programa.dat;
+    - Agregar susurro en Ajustes;
+    - la prueba de combinaciones susurra entre clásica y moderna;
+    - fuzzing de protocolo y de voz del servidor con destinos al azar, y semillas nuevas.
+  - **Arreglos de la revisión:**
+    - **un rechazo no deja el destino viejo:** si el servidor niega un destino (canal que no sirve), vacía ese lugar en vez de dejar el anterior; y el programa, ante cualquier rechazo de un susurro (también "demasiado rápido"), vuelve a mandar todos sus destinos en el chequeo de cada segundo. Antes, sacar a alguien con muchos clics seguidos podía dejarlo escuchando;
+    - al pasar de un flujo a otro (de susurro a hablar), el pedazo a medio llenar se descarta y el codificador se reinicia, así nada del susurro sale al canal;
+    - una persona ocupa una sola de las 4 voces: si cambia de flujo, se reusa su voz;
+    - una tecla no se repite: elegirla para un susurro o para hablar se la saca a los susurros que la tenían, y un susurro no puede usar la de hablar;
+    - "Te susurra" se actualiza enseguida (el motor avisa cuando cambia la marca);
+    - "Elegir a quién" usa las casillas propias, que muestran el nombre entero aunque tenga "#";
+    - los rechazos de pedidos de fondo (silenciados y susurros) ya no aparecen como cartel rojo bajo el chat;
+    - programa.dat rechaza nombres repetidos en un susurro, y las claves 21 a 23 quedan nombradas en el código para que nada las reuse;
+    - pruebas nuevas: la decisión de las teclas; susurro en "por voz"; destinos mandados antes de entrar a la voz, al salir y volver, con un canal de texto y tras un rechazo; las ventanitas de susurro quietas; y en el fuzzing de programa.dat, volver a poner cada susurro deja el archivo igual;
+    - **queda así, por diseño:** los destinos van por nombre y valen en cualquier servidor; si en otro servidor alguien se llama Sofi, le llegan los susurros a Sofi. Los nombres se comparan exactos (son los que da el servidor), y si se renombra un canal hay que elegirlo de nuevo.
+- **Lo que sigue:** paso 3.7 (sonidos de los avisos); al final, una sola prueba a mano en la PC y en la XP.
 
 ## Ramas y repositorio
 

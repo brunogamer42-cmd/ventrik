@@ -79,6 +79,7 @@ struct Servidor::Conexion {
   std::uint32_t mirando = 0;
   std::uint8_t silencio = 0;
   std::vector<std::uint32_t> silenciados;
+  Susurros susurros{};
   std::vector<std::uint32_t> novedades;
   Reloj::time_point ultimo_aviso{};
   Cubeta chat;
@@ -600,6 +601,9 @@ void Servidor::atender_pedido(Conexion& conexion, const protocolo::Marco& marco)
     case TipoMensaje::silenciar_personas:
       silenciar_personas(conexion, marco);
       return;
+    case TipoMensaje::destinos_de_susurro:
+      destinos_de_susurro(conexion, marco);
+      return;
     case TipoMensaje::pedir_historial:
       pedir_historial(conexion, marco);
       return;
@@ -651,6 +655,7 @@ void Servidor::entrar_a_canal(Conexion& conexion, const protocolo::Marco& marco)
                                            derivar_de(*conexion.tls))) {
     voz_->silencio(conexion.id, conexion.silencio);
     voz_->silenciados(conexion.id, conexion.silenciados);
+    voz_->susurros(conexion.id, conexion.susurros);
     encolar(conexion, *clave);
   } else {
     negar(conexion, TipoMensaje::entrar_a_canal, MotivoNegado::lleno);
@@ -682,6 +687,20 @@ void Servidor::silenciar_personas(Conexion& conexion, const protocolo::Marco& ma
   }
   conexion.silenciados = std::move(pedido->usuarios);
   voz_->silenciados(conexion.id, conexion.silenciados);
+}
+
+void Servidor::destinos_de_susurro(Conexion& conexion, const protocolo::Marco& marco) {
+  auto pedido = protocolo::leer_mensaje<protocolo::DestinosDeSusurro>(marco.cuerpo);
+  if (!pedido) {
+    error_de_protocolo(conexion);
+    return;
+  }
+  const auto motivo = pedido->canal == 0 ? std::nullopt : puede_entrar(canales_, pedido->canal);
+  conexion.susurros[pedido->lugar - 1U] = motivo ? protocolo::DestinosDeSusurro{} : std::move(*pedido);
+  voz_->susurros(conexion.id, conexion.susurros);
+  if (motivo) {
+    negar(conexion, TipoMensaje::destinos_de_susurro, *motivo);
+  }
 }
 
 void Servidor::enviar_chat(Conexion& conexion, const protocolo::Marco& marco) {
@@ -906,6 +925,14 @@ void Servidor::borrar_canal(Conexion& conexion, const protocolo::Marco& marco) {
             if (otra->canal == canal) {
               otra->canal = kCanalGeneral;
               voz_->mover(otra->id, kCanalGeneral);
+            }
+            bool sin_destino = false;
+            for (auto& destino : otra->susurros) {
+              sin_destino = std::exchange(destino.canal, destino.canal == canal ? 0 : destino.canal) == canal ||
+                            sin_destino;
+            }
+            if (sin_destino) {
+              voz_->susurros(otra->id, otra->susurros);
             }
           }
           difundir(protocolo::CanalBorrado{canal, kCanalGeneral});

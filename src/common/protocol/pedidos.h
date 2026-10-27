@@ -25,6 +25,8 @@ constexpr std::size_t kMaximoCanales = 60;
 constexpr std::uint8_t kSilencioMicrofono = 1;
 constexpr std::uint8_t kSilencioAudio = 2;
 constexpr std::size_t kMaximoSilenciados = 32;
+constexpr std::size_t kLugaresDeSusurro = 4;
+constexpr std::size_t kMaximoPersonasEnSusurro = 8;
 
 constexpr bool es_silencio_valido(std::uint8_t silencio) {
   return silencio == 0 || silencio == kSilencioMicrofono || silencio == (kSilencioMicrofono | kSilencioAudio);
@@ -120,6 +122,13 @@ struct Silenciar {
 struct SilenciarPersonas {
   static constexpr TipoMensaje kTipo = TipoMensaje::silenciar_personas;
   std::vector<std::uint32_t> usuarios;
+};
+
+struct DestinosDeSusurro {
+  static constexpr TipoMensaje kTipo = TipoMensaje::destinos_de_susurro;
+  std::uint8_t lugar = 1;
+  std::uint32_t canal = 0;
+  std::vector<std::uint32_t> personas;
 };
 
 struct UsuarioSilencio {
@@ -277,6 +286,7 @@ VENTRIK_MENSAJE(CanalBorrado)
 VENTRIK_MENSAJE(EntrarACanal)
 VENTRIK_MENSAJE(Silenciar)
 VENTRIK_MENSAJE(SilenciarPersonas)
+VENTRIK_MENSAJE(DestinosDeSusurro)
 VENTRIK_MENSAJE(UsuarioSilencio)
 VENTRIK_MENSAJE(EnviarChat)
 VENTRIK_MENSAJE(MensajeChat)

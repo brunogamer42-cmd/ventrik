@@ -57,7 +57,7 @@ class CanalVoz {
   Reloj::time_point ultimo_ping_;
   Reloj::time_point ultimo_dato_;
   std::chrono::milliseconds espera_{2000};
-  std::map<std::uint32_t, std::uint16_t> siguiente_;
+  std::map<std::uint64_t, std::uint16_t> siguiente_;
   protocolo::MedioSubida subida_;
   std::vector<std::uint8_t> datagrama_;
 };

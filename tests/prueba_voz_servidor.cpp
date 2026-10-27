@@ -238,6 +238,53 @@ TEST_CASE("El servidor no le manda a nadie la voz de quien silenció para sí") 
   CHECK(b.recibidas[1].origen == 1);
 }
 
+TEST_CASE("Un susurro llega solo a sus destinos: personas de cualquier canal o todo un canal, respetando silencios") {
+  Banco banco;
+  REQUIRE(banco.voz.ok());
+  Programa a(banco, {0x0A000001, 5000}, alta(banco, 1, 0x0A000001, 1));
+  Programa b(banco, {0x0A000002, 5000}, alta(banco, 2, 0x0A000002, 1));
+  Programa c(banco, {0x0A000003, 5000}, alta(banco, 3, 0x0A000003, 2));
+  Programa d(banco, {0x0A000004, 5000}, alta(banco, 4, 0x0A000004, 3));
+  bombear(banco, {&a, &b, &c, &d});
+  ventrik::servidor::Susurros susurros{};
+  susurros[0] = {1, 0, {3}};
+  susurros[1] = {2, 3, {}};
+  banco.voz.susurros(1, susurros);
+  const auto susurrar = [&](std::uint8_t flujo, std::uint16_t numero) {
+    a.mandar(MedioSubida{{TipoFlujo::voz, flujo, numero, kOpus}});
+    bombear(banco, {&a, &b, &c, &d});
+  };
+  susurrar(1, 1);
+  CHECK(b.recibidas.empty());
+  REQUIRE(c.recibidas.size() == 1);
+  CHECK(c.recibidas[0].origen == 1);
+  CHECK(c.recibidas[0].medio.flujo == 1);
+  CHECK(d.recibidas.empty());
+  susurrar(2, 1);
+  REQUIRE(d.recibidas.size() == 1);
+  CHECK(d.recibidas[0].medio.flujo == 2);
+  CHECK(c.recibidas.size() == 1);
+  CHECK(b.recibidas.empty());
+  susurrar(3, 1);
+  CHECK(b.recibidas.empty());
+  CHECK(c.recibidas.size() == 1);
+  CHECK(d.recibidas.size() == 1);
+  banco.voz.silenciados(3, {1});
+  banco.voz.silencio(4, kSilencioMicrofono | kSilencioAudio);
+  susurrar(1, 2);
+  susurrar(2, 2);
+  CHECK(c.recibidas.size() == 1);
+  CHECK(d.recibidas.size() == 1);
+  a.mandar(voz(5));
+  bombear(banco, {&a, &b, &c, &d});
+  REQUIRE(b.recibidas.size() == 1);
+  CHECK(b.recibidas[0].medio.flujo == 0);
+  banco.voz.silencio(1, kSilencioMicrofono);
+  banco.voz.silenciados(3, {});
+  susurrar(1, 3);
+  CHECK(c.recibidas.size() == 1);
+}
+
 TEST_CASE("Una IP sin conexión no recibe respuesta y otra IP no puede usar una clave ajena") {
   Banco banco;
   const auto clave_a = alta(banco, 1, 0x0A000001, 1);

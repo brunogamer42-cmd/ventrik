@@ -187,8 +187,14 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     std::fill(salida.begin(), salida.end(), std::int16_t{0});
     return;
   }
-  const bool por_voz = por_voz_;
-  const bool escuchar = !sin_microfono_ && (por_voz || transmitiendo_);
+  const std::uint8_t susurro = susurro_;
+  if (std::exchange(flujo_capturado_, susurro) != susurro) {
+    capturadas_ = limpias_ = 0;
+    pico_limpio_ = 0;
+    opus_encoder_ctl(codificador_.get(), OPUS_RESET_STATE);
+  }
+  const bool por_voz = por_voz_ && susurro == 0;
+  const bool escuchar = !sin_microfono_ && (por_voz || transmitiendo_ || susurro != 0);
   const int ganancia = ganancia_microfono_;
   int pico = 0;
   for (const std::int16_t muestra : escuchar ? entrada : gsl::span<const std::int16_t>()) {
@@ -199,7 +205,7 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     abierto_ = hay_anterior_ = false;
     restante_ = 0;
   }
-  const bool captura = escuchar && !(solo_ && !por_voz);
+  const bool captura = escuchar && (susurro != 0 || por_voz || !solo_);
   if (captura && !capturaba_) {
     en_referencia_ = 0;
   }
@@ -219,7 +225,7 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     entrada = entrada.subspan(parte.size());
     limpiar_lo_capturado();
     if (capturadas_ == por_paquete_) {
-      pedazo_completo(por_voz);
+      pedazo_completo(por_voz, susurro);
       capturadas_ = limpias_ = 0;
       pico_limpio_ = 0;
     }
@@ -297,10 +303,10 @@ int umbral_de(int por_ciento) {
   return static_cast<int>(std::lround(32768 * std::pow(10.0, decibeles / 20)));
 }
 
-void MotorVoz::pedazo_completo(bool por_voz) {
+void MotorVoz::pedazo_completo(bool por_voz, std::uint8_t flujo) {
   const auto tiempo = static_cast<std::uint16_t>(capturadas_total_ * 1000 / calidad_.frecuencia);
   if (!por_voz) {
-    codificar(capturado_, tiempo);
+    codificar(capturado_, tiempo, flujo);
     return;
   }
   const bool pasa = pico_limpio_ >= umbral_;
@@ -308,9 +314,9 @@ void MotorVoz::pedazo_completo(bool por_voz) {
   restante_ = pasa ? kPedazosTrasCallarse : std::max(restante_ - 1, 0);
   if (abrir && !solo_) {
     if (!abierto_ && hay_anterior_) {
-      codificar(anterior_, static_cast<std::uint16_t>(tiempo - por_paquete_ * 1000 / calidad_.frecuencia));
+      codificar(anterior_, static_cast<std::uint16_t>(tiempo - por_paquete_ * 1000 / calidad_.frecuencia), 0);
     }
-    codificar(capturado_, tiempo);
+    codificar(capturado_, tiempo, 0);
   }
   if (!abrir) {
     anterior_ = capturado_;
@@ -322,7 +328,7 @@ void MotorVoz::pedazo_completo(bool por_voz) {
   }
 }
 
-void MotorVoz::codificar(const Pedazo& pedazo, std::uint16_t tiempo) {
+void MotorVoz::codificar(const Pedazo& pedazo, std::uint16_t tiempo, std::uint8_t flujo) {
   PaqueteVoz paquete;
   const opus_int32 largo =
       opus_encode(codificador_.get(), pedazo.data(), static_cast<int>(por_paquete_),
@@ -332,7 +338,8 @@ void MotorVoz::codificar(const Pedazo& pedazo, std::uint16_t tiempo) {
   if (largo <= kSoloCabecera || en_silencio != 0) {
     return;
   }
-  paquete.numero = numero_++;
+  paquete.flujo = flujo;
+  paquete.numero = numeros_[flujo]++;
   paquete.tiempo = tiempo;
   paquete.nivel = nivel_de(gsl::make_span(pedazo).first(por_paquete_));
   paquete.largo = static_cast<std::uint16_t>(largo);
@@ -363,10 +370,13 @@ MotorVoz::Voz* MotorVoz::lugar_para(const PaqueteVoz& paquete) {
   if (paquete.hablante == 0 || por_ciento_de(paquete.hablante) == 0) {
     return nullptr;
   }
-  if (Voz* suya = buscar([&paquete](const Voz& voz) { return voz.hablante == paquete.hablante; })) {
+  if (Voz* suya = buscar([&paquete](const Voz& voz) {
+        return voz.hablante == paquete.hablante && voz.flujo == paquete.flujo;
+      })) {
     return suya;
   }
-  Voz* libre = buscar([](const Voz& voz) {
+  Voz* misma = buscar([&paquete](const Voz& voz) { return voz.hablante == paquete.hablante; });
+  Voz* libre = misma != nullptr ? misma : buscar([](const Voz& voz) {
     return voz.hablante == 0 || (voz.quietos >= kQuietosParaPrestar && voz.buffer.cantidad() == 0);
   });
   Voz& debil = *std::min_element(voces_.begin(), voces_.end(),
@@ -374,6 +384,7 @@ MotorVoz::Voz* MotorVoz::lugar_para(const PaqueteVoz& paquete) {
   Voz* elegida = libre != nullptr ? libre : paquete.nivel >= debil.nivel + kVentajaParaEntrar ? &debil : nullptr;
   if (elegida != nullptr) {
     elegida->hablante = paquete.hablante;
+    elegida->flujo = paquete.flujo;
     elegida->buffer.reiniciar();
     opus_decoder_ctl(elegida->decodificador, OPUS_RESET_STATE);
     elegida->cuantas = elegida->leidas = 0;
@@ -469,6 +480,7 @@ void MotorVoz::decodificar(std::size_t cual, std::uint64_t muestra) {
   }
   voz.nivel = std::max(voz.nivel - 1, 0);
   voz.quietos = salida == BufferVoz::Salida::nada ? std::min(voz.quietos + 1, kQuietosParaPrestar) : 0;
+  puente_.cambiar(puente_.susurro[cual], voz.flujo != 0);
   puente_.cambiar(puente_.hablando[cual], salida == BufferVoz::Salida::nada ? std::uint32_t{0} : voz.hablante);
 }
 

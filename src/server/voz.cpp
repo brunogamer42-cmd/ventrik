@@ -90,6 +90,12 @@ void Voz::silenciados(std::uint32_t id, std::vector<std::uint32_t> usuarios) {
   }
 }
 
+void Voz::susurros(std::uint32_t id, const Susurros& susurros) {
+  if (Persona* persona = buscar(id)) {
+    persona->susurros = susurros;
+  }
+}
+
 void Voz::baja(std::uint32_t id) {
   personas_.erase(std::remove_if(personas_.begin(), personas_.end(),
                                  [id](const Persona& persona) { return persona.id == id; }),
@@ -206,12 +212,20 @@ void Voz::atender(Persona& persona, gsl::span<const std::uint8_t> datagrama, Ins
 }
 
 void Voz::reenviar(const Persona& hablante, protocolo::Medio medio) {
-  if ((hablante.silencio & protocolo::kSilencioMicrofono) != 0 ||
+  const auto le_llega = [&hablante, flujo = medio.flujo](const Persona& oyente) {
+    if (flujo == 0) {
+      return oyente.canal == hablante.canal;
+    }
+    const auto& destino = hablante.susurros[flujo - 1U];
+    return (destino.canal != 0 && oyente.canal == destino.canal) ||
+           std::binary_search(destino.personas.begin(), destino.personas.end(), oyente.id);
+  };
+  if ((hablante.silencio & protocolo::kSilencioMicrofono) != 0 || medio.flujo > hablante.susurros.size() ||
       !protocolo::armar_datagrama(protocolo::MedioBajada{hablante.id, std::move(medio)}, datagrama_)) {
     return;
   }
   for (auto& oyente : personas_) {
-    if (oyente.id != hablante.id && oyente.canal == hablante.canal && oyente.sesion &&
+    if (oyente.id != hablante.id && le_llega(oyente) && oyente.sesion &&
         (oyente.silencio & protocolo::kSilencioAudio) == 0 &&
         !std::binary_search(oyente.silenciados.begin(), oyente.silenciados.end(), hablante.id)) {
       escribir(*oyente.sesion, datagrama_);

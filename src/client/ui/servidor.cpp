@@ -24,6 +24,7 @@ constexpr float kAltoCabecera = 50;
 constexpr float kAltoAbajo = 82;
 constexpr float kAltoPanelVoz = 102;
 constexpr float kAltoPanelSinVoz = 147;
+constexpr float kAnchoMaximoSusurro = 360;
 constexpr float kAnchoFlotante = 255;
 constexpr float kAltoFlotanteTecla = 212;
 constexpr float kAltoFlotanteVoz = 268;
@@ -290,7 +291,10 @@ class Dibujo {
                            : pantalla_.silencio != 0   ? Clave::servidor_microfono_silenciado
                            : pantalla_.transmitiendo   ? Clave::servidor_transmitiendo
                                                        : Clave::servidor_sin_transmitir;
-      float ancho_etiqueta = 0;
+      const std::string_view susurro = pantalla_.susurrando > 0 && pantalla_.susurrando <= pantalla_.susurros.size()
+                                           ? std::string_view(pantalla_.susurros[pantalla_.susurrando - 1U])
+                                           : std::string_view();
+      float ancho_etiqueta = susurro.empty() ? 0 : std::min(ancho_transmitiendo(susurro), px(kAnchoMaximoSusurro));
       for (const Clave cual : {Clave::servidor_transmitiendo, Clave::servidor_sin_transmitir,
                                Clave::servidor_microfono_silenciado, Clave::servidor_sin_audio_ni_microfono}) {
         ancho_etiqueta = std::max(ancho_etiqueta, ancho_transmitiendo(t(cual)));
@@ -299,6 +303,10 @@ class Dibujo {
       const ImVec2 lugar_etiqueta(x, (alto - px(medida::alto_transmitiendo)) / 2);
       if (pantalla_.silencio != 0) {
         aviso_silencio(lugar_etiqueta, ancho_etiqueta, t(estado), sin_audio ? Icono::auriculares : Icono::microfono);
+      } else if (!susurro.empty()) {
+        ImGui::PushClipRect(lugar_etiqueta, ImVec2(lugar_etiqueta.x + ancho_etiqueta, alto), true);
+        etiqueta_transmitiendo(lugar_etiqueta, ancho_etiqueta, susurro, true);
+        ImGui::PopClipRect();
       } else {
         etiqueta_transmitiendo(lugar_etiqueta, ancho_etiqueta, t(estado), pantalla_.transmitiendo);
       }
@@ -424,7 +432,7 @@ class Dibujo {
     fila_canal(ImVec2(x, panel.y), hasta, en_voz);
     if (en_voz) {
       dibujo.AddRectFilled(ImVec2(x - px(1), panel.y + px(46)), ImVec2(hasta, panel.y + px(52)),
-                           tono(pantalla_.transmitiendo ? color::naranja : color::linea));
+                           tono(pantalla_.transmitiendo || pantalla_.susurrando != 0 ? color::naranja : color::linea));
     } else {
       escribir_envuelto(ImVec2(x - px(1), panel.y + px(47)), t(Clave::servidor_sin_voz_linea), color::apagado,
                         hasta - x, medida::letra_chica);
@@ -454,10 +462,12 @@ class Dibujo {
     }
     ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(desde.x, medio - px(4)), ImVec2(desde.x + px(8), medio + px(4)),
                                               tono(en_voz ? color::verde : color::apagado));
-    const std::string_view titulo = en_voz && canal != nullptr ? std::string_view(canal->nombre)
-                                                               : t(Clave::servidor_sin_canal_de_voz);
-    const float fin = escribir_en(desde.x + px(15), medio, titulo, color::texto, Letra::fuerte, medida::letra,
-                                  boton_x - desde.x - px(20));
+    const bool susurro = en_voz && !pantalla_.te_susurra.empty();
+    const std::string_view titulo = susurro                     ? std::string_view(pantalla_.te_susurra)
+                                    : en_voz && canal != nullptr ? std::string_view(canal->nombre)
+                                                                 : t(Clave::servidor_sin_canal_de_voz);
+    const float fin = escribir_en(desde.x + px(15), medio, titulo, susurro ? color::naranja : color::texto, Letra::fuerte,
+                                  medida::letra, boton_x - desde.x - px(20));
     if (const auto ping = sala_.ping(); en_voz && ping) {
       const std::string& demora = guardar(pantalla_.textos.ping_corto, *ping, [&] {
         return con_datos(t(Clave::servidor_ping_corto), {std::to_string(*ping)});
@@ -867,7 +877,7 @@ class Dibujo {
         ImGui::OpenPopup("##persona");
       }
     }
-    const bool habla = yo ? pantalla_.transmitiendo
+    const bool habla = yo ? pantalla_.transmitiendo || pantalla_.susurrando != 0
                           : std::find(pantalla_.hablando.begin(), pantalla_.hablando.end(), usuario.id) !=
                                 pantalla_.hablando.end();
     const ImU32 color_voz = yo ? color::naranja : color::celeste;
@@ -1325,6 +1335,21 @@ class Dibujo {
   PedidoServidor pedido_;
 };
 
+}
+
+std::string lista_de_nombres(Idioma idioma, const std::vector<std::string>& nombres) {
+  std::string lista = nombres.empty() ? std::string() : nombres.front();
+  for (std::size_t i = 1; i < nombres.size(); ++i) {
+    lista = con_datos(texto(idioma, i + 1 == nombres.size() ? Clave::lista_dos : Clave::lista_mas), {lista, nombres[i]});
+  }
+  return lista;
+}
+
+std::string a_quien(Idioma idioma, const cliente::Susurro& susurro) {
+  return !susurro.canal.empty()      ? con_datos(texto(idioma, Clave::ajustes_susurro_canal), {susurro.canal})
+         : !susurro.personas.empty() ? con_datos(texto(idioma, Clave::ajustes_susurro_personas),
+                                                 {lista_de_nombres(idioma, susurro.personas)})
+                                     : std::string(texto(idioma, Clave::ajustes_susurro_nadie));
 }
 
 std::string nombre_tecla(Idioma idioma, std::uint8_t tecla) {

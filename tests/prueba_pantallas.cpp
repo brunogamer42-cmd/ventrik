@@ -119,6 +119,8 @@ Guardados muchos() {
     servidor.ultima_vez_ms = 1761234567890 + i;
     guardados.servidores.push_back(servidor);
   }
+  ventrik::cliente::poner_susurro(guardados, 0, ventrik::cliente::Susurro{0x05, "", {"Sofi", "Meli"}});
+  ventrik::cliente::poner_susurro(guardados, 1, ventrik::cliente::Susurro{0, "Partida 2", {}});
   return guardados;
 }
 
@@ -269,6 +271,12 @@ TEST_CASE("La pantalla del servidor se dibuja sin errores a cualquier tamaño, e
       auto sala = sala_llena(dueno, 60, 512, 300);
       auto pantalla = pantalla_servidor();
       recorrer(sin_pantalla, pantalla, sala);
+      pantalla.susurrando = 1;
+      pantalla.susurros[0] = "Susurrando a Un nombre bastante largo, de 32, Otro nombre bastante largo y Tano";
+      pantalla.te_susurra = "Te susurra: Un nombre bastante largo, de 32";
+      recorrer(sin_pantalla, pantalla, sala);
+      pantalla.susurrando = 0;
+      pantalla.te_susurra.clear();
       sala.elegir_texto(4);
       recorrer(sin_pantalla, pantalla, sala);
       pantalla.silencio = 1;
@@ -1425,6 +1433,8 @@ ui::PantallaAjustes pantalla_ajustes() {
   pantalla.dispositivos = {{"Micrófono USB", "Micrófono de la cámara con un nombre muy largo que no entra"},
                            {"Auriculares", "Parlantes"}};
   pantalla.hay_bajar_otros = true;
+  pantalla.personas = {"Sofi", "Meli", "Un nombre bastante largo, de 32"};
+  pantalla.canales = {"General", "Partida 2"};
   return pantalla;
 }
 
@@ -1510,6 +1520,58 @@ TEST_CASE("En Ajustes, el Escape que cancela la tecla o cierra una lista no saca
   CHECK_FALSE(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
   sin_pantalla.apretar(ImGuiKey_Escape);
   CHECK(sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5)).volver);
+}
+
+TEST_CASE("En Ajustes, Agregar susurro suma uno y abre a quién; con cuatro ya no se puede") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1280, 900));
+  Guardados guardados = muchos();
+  auto pantalla = pantalla_ajustes();
+  pantalla.seccion = ui::Seccion::teclas;
+  const auto tocar = [&](ImVec2 donde) {
+    std::optional<Guardados> cambiados;
+    for (const bool clic : {false, true, false}) {
+      auto pedido = sin_pantalla.cuadro(pantalla, guardados, donde, clic);
+      if (pedido.guardados) {
+        cambiados = std::move(pedido.guardados);
+      }
+    }
+    return cambiados;
+  };
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  const auto agregado = tocar(ImVec2(1170, 328));
+  REQUIRE(agregado);
+  CHECK(ventrik::cliente::susurro_de(*agregado, 2));
+  CHECK(pantalla.destinos_de == 2);
+  guardados = *agregado;
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  CHECK(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
+  const auto quieta = [&] {
+    ui::Zonas zonas;
+    zonas.cambiadas(*ImGui::GetDrawData());
+    std::size_t cambios = 0;
+    for (int i = 0; i < 60; ++i) {
+      sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+      cambios += zonas.cambiadas(*ImGui::GetDrawData()).size();
+    }
+    return cambios == 0;
+  };
+  CHECK(quieta());
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  CHECK_FALSE(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
+  for (const bool clic : {false, true, false}) {
+    sin_pantalla.cuadro(pantalla, guardados, ImVec2(1190, 222), clic);
+  }
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  CHECK(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
+  CHECK(quieta());
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  ventrik::cliente::poner_susurro(guardados, 3, ventrik::cliente::Susurro{});
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  CHECK_FALSE(tocar(ImVec2(1170, 434)));
 }
 
 TEST_CASE("En Ajustes, las secciones que llegan más adelante no tienen controles") {

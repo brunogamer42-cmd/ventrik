@@ -77,9 +77,10 @@ class Cliente {
   std::vector<ventrik::cliente::Novedad> recibidas_;
 };
 
-inline std::uint16_t hablar(ventrik::cliente::PuenteVoz& puente) {
+inline std::uint16_t hablar(ventrik::cliente::PuenteVoz& puente, std::uint8_t flujo = 0) {
   static std::uint16_t numero = 7;
   ventrik::cliente::PaqueteVoz paquete;
+  paquete.flujo = flujo;
   paquete.numero = numero++;
   paquete.tiempo = static_cast<std::uint16_t>(paquete.numero * 20);
   paquete.nivel = 90;

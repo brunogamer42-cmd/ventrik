@@ -64,6 +64,33 @@ bool es_valido(const MaximoDeAjuste& regla, const std::vector<std::uint8_t>& val
   return !texto.empty() && texto.size() <= regla.texto && es_utf8_valido(texto);
 }
 
+std::uint16_t clave_de_susurro(std::size_t lugar) {
+  return static_cast<std::uint16_t>(static_cast<std::size_t>(Ajuste::susurro_1) + lugar);
+}
+
+bool es_de_susurro(std::uint16_t clave) {
+  return clave >= clave_de_susurro(0) && clave < clave_de_susurro(protocolo::kLugaresDeSusurro);
+}
+
+std::optional<Susurro> leer_susurro(gsl::span<const std::uint8_t> valor) {
+  protocolo::Lector lector(valor);
+  Susurro susurro;
+  susurro.tecla = lector.leer_u8();
+  susurro.canal = lector.leer_texto(kMaximoBytesNombre);
+  const std::size_t cuantas = lector.leer_u8();
+  for (std::size_t i = 0; i < cuantas && i < protocolo::kMaximoPersonasEnSusurro && lector.ok(); ++i) {
+    susurro.personas.push_back(lector.leer_texto(kMaximoBytesNombre));
+  }
+  const bool bien = lector.terminado() && cuantas <= protocolo::kMaximoPersonasEnSusurro &&
+                    es_tecla_valida(susurro.tecla) && (susurro.canal.empty() || es_nombre_valido(susurro.canal)) &&
+                    std::all_of(susurro.personas.begin(), susurro.personas.end(),
+                                [&susurro](const std::string& nombre) {
+                                  return es_nombre_valido(nombre) &&
+                                         std::count(susurro.personas.begin(), susurro.personas.end(), nombre) == 1;
+                                });
+  return bien ? std::optional<Susurro>(std::move(susurro)) : std::nullopt;
+}
+
 bool son_validos(const std::map<std::uint16_t, std::vector<std::uint8_t>>& ajustes) {
   std::size_t total = 0;
   for (const auto& [clave, valor] : ajustes) {
@@ -72,7 +99,8 @@ bool son_validos(const std::map<std::uint16_t, std::vector<std::uint8_t>>& ajust
     const auto conocido = std::find_if(kMaximos.begin(), kMaximos.end(), [esta](const MaximoDeAjuste& m) {
       return static_cast<std::uint16_t>(m.ajuste) == esta;
     });
-    if (valor.size() > kMaximoLargoDeAjuste || (conocido != kMaximos.end() && !es_valido(*conocido, valor))) {
+    if (valor.size() > kMaximoLargoDeAjuste || (conocido != kMaximos.end() && !es_valido(*conocido, valor)) ||
+        (es_de_susurro(clave) && !leer_susurro(valor))) {
       return false;
     }
   }
@@ -315,6 +343,49 @@ void poner_texto(Guardados& guardados, Ajuste ajuste, std::string_view texto) {
   } else {
     guardados.ajustes[static_cast<std::uint16_t>(ajuste)] = std::vector<std::uint8_t>(texto.begin(), texto.end());
   }
+}
+
+std::optional<Susurro> susurro_de(const Guardados& guardados, std::size_t lugar) {
+  const auto valor = guardados.ajustes.find(clave_de_susurro(lugar));
+  return lugar < protocolo::kLugaresDeSusurro && valor != guardados.ajustes.end() ? leer_susurro(valor->second)
+                                                                                  : std::nullopt;
+}
+
+void poner_susurro(Guardados& guardados, std::size_t lugar, const std::optional<Susurro>& susurro) {
+  if (lugar >= protocolo::kLugaresDeSusurro) {
+    return;
+  }
+  if (!susurro) {
+    guardados.ajustes.erase(clave_de_susurro(lugar));
+    return;
+  }
+  protocolo::Escritor escritor;
+  escritor.escribir_u8(susurro->tecla);
+  escritor.escribir_texto(susurro->canal, kMaximoBytesNombre);
+  escritor.escribir_u8(static_cast<std::uint8_t>(std::min<std::size_t>(susurro->personas.size(), 0xFF)));
+  for (const std::string& nombre : susurro->personas) {
+    escritor.escribir_texto(nombre, kMaximoBytesNombre);
+  }
+  if (escritor.ok() && leer_susurro(escritor.datos())) {
+    guardados.ajustes[clave_de_susurro(lugar)] = std::move(escritor).soltar();
+  }
+}
+
+protocolo::DestinosDeSusurro destinos_de(const Susurro& susurro, std::size_t lugar, std::uint32_t yo,
+                                         const std::vector<protocolo::CanalInfo>& canales,
+                                         const std::map<std::uint32_t, protocolo::UsuarioInfo>& usuarios) {
+  protocolo::DestinosDeSusurro destinos{static_cast<std::uint8_t>(lugar + 1), 0, {}};
+  const auto canal = std::find_if(canales.begin(), canales.end(), [&susurro](const protocolo::CanalInfo& cual) {
+    return cual.tipo == protocolo::TipoCanal::voz && !susurro.canal.empty() && cual.nombre == susurro.canal;
+  });
+  destinos.canal = canal == canales.end() ? 0 : canal->id;
+  for (const auto& [id, usuario] : usuarios) {
+    if (id != 0 && id != yo && destinos.personas.size() < protocolo::kMaximoPersonasEnSusurro &&
+        std::find(susurro.personas.begin(), susurro.personas.end(), usuario.nombre) != susurro.personas.end()) {
+      destinos.personas.push_back(id);
+    }
+  }
+  return destinos;
 }
 
 AjustesDeLimpieza limpieza_de(const Guardados& guardados, bool un_nucleo) {

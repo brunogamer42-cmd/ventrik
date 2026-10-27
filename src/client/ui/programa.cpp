@@ -1,6 +1,7 @@
 #include "client/ui/programa.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <fstream>
@@ -46,6 +47,7 @@ constexpr auto kSilencioParaDevolver = 1s;
 constexpr UINT_PTR kTicDePrueba = 3;
 constexpr UINT kCadaNivelDePrueba = 250;
 constexpr auto kDuracionDelTono = 1200ms;
+constexpr std::uint32_t kSinSaber = UINT32_MAX;
 constexpr int kSegmentosDePrueba = 20;
 
 bool desde_windows_7() {
@@ -142,6 +144,7 @@ class Programa {
     }
     sesion_.reset();
     sala_.reset();
+    listas_de_susurro();
     avisos_.desconectado();
     cerrar_voz();
   }
@@ -200,11 +203,84 @@ class Programa {
   }
 
   void aplicar_teclas() {
+    std::array<std::uint8_t, protocolo::kLugaresDeSusurro> teclas{};
+    for (std::size_t lugar = 0; lugar < teclas.size(); ++lugar) {
+      const auto susurro = cliente::susurro_de(guardados_, lugar);
+      teclas[lugar] = susurro ? susurro->tecla : 0;
+      const Idioma idioma = servidor_.idioma;
+      servidor_.susurros[lugar] =
+          !susurro                    ? std::string()
+          : !susurro->canal.empty()    ? con_datos(texto(idioma, Clave::servidor_susurrando_canal), {susurro->canal})
+          : !susurro->personas.empty() ? con_datos(texto(idioma, Clave::servidor_susurrando_a),
+                                                   {lista_de_nombres(idioma, susurro->personas)})
+                                       : std::string(texto(idioma, Clave::servidor_susurrando_nadie));
+    }
     if (vigia_) {
       vigia_->solo_con_foco(cliente::ajuste_o(guardados_, cliente::Ajuste::teclas_sin_foco, 1) == 0);
       vigia_->seguir_al_soltar(std::chrono::milliseconds(
           cliente::kSeguirAlSoltarMs[cliente::ajuste_o(guardados_, cliente::Ajuste::seguir_al_soltar, 1)]));
+      vigia_->susurros(teclas);
     }
+    aplicar_susurros();
+  }
+
+  void quitar_tecla(std::uint8_t tecla) {
+    for (std::size_t lugar = 0; lugar < protocolo::kLugaresDeSusurro; ++lugar) {
+      auto susurro = cliente::susurro_de(guardados_, lugar);
+      if (susurro && susurro->tecla == tecla) {
+        susurro->tecla = 0;
+        cliente::poner_susurro(guardados_, lugar, susurro);
+      }
+    }
+  }
+
+  void aplicar_susurros() {
+    if (!sala_) {
+      return;
+    }
+    for (std::size_t lugar = 0; lugar < susurros_enviados_.size(); ++lugar) {
+      const auto susurro = cliente::susurro_de(guardados_, lugar);
+      protocolo::DestinosDeSusurro destinos =
+          susurro ? cliente::destinos_de(*susurro, lugar, sala_->tu_id(), sala_->canales(), sala_->usuarios())
+                  : protocolo::DestinosDeSusurro{static_cast<std::uint8_t>(lugar + 1), 0, {}};
+      protocolo::DestinosDeSusurro& enviados = susurros_enviados_[lugar];
+      if (std::tie(destinos.canal, destinos.personas) != std::tie(enviados.canal, enviados.personas)) {
+        enviados = destinos;
+        ordenar({std::move(destinos)});
+      }
+    }
+  }
+
+  void listas_de_susurro() {
+    ajustes_.personas.clear();
+    ajustes_.canales.clear();
+    if (!sala_) {
+      return;
+    }
+    for (const auto& [id, usuario] : sala_->usuarios()) {
+      if (id != sala_->tu_id()) {
+        ajustes_.personas.push_back(usuario.nombre);
+      }
+    }
+    for (const auto& canal : sala_->canales()) {
+      if (canal.tipo == protocolo::TipoCanal::voz) {
+        ajustes_.canales.push_back(canal.nombre);
+      }
+    }
+  }
+
+  std::string te_susurra(const cliente::Hablando& ids) const {
+    std::vector<std::string> nombres;
+    for (const std::uint32_t id : ids) {
+      const auto usuario = sala_->usuarios().find(id);
+      if (id != 0 && usuario != sala_->usuarios().end() &&
+          std::find(nombres.begin(), nombres.end(), usuario->second.nombre) == nombres.end()) {
+        nombres.push_back(usuario->second.nombre);
+      }
+    }
+    return nombres.empty() ? std::string()
+                           : con_datos(texto(servidor_.idioma, Clave::servidor_te_susurra),
+                                       {lista_de_nombres(servidor_.idioma, nombres)});
   }
 
   void abrir_ajustes() {
@@ -217,6 +293,7 @@ class Programa {
     ajustes_.arranca_con_windows = integrar_ && cliente::arranca_con_windows();
     ajustes_.hay_bajar_otros = desde_windows_7();
     ajustes_.un_nucleo = calidad_.frecuencia != cliente::Calidad{}.frecuencia;
+    listas_de_susurro();
   }
 
   void cerrar_ajustes() {
@@ -258,7 +335,16 @@ class Programa {
         eligiendo_desde_.reset();
         ajustes_.eligiendo_tecla = false;
         cambio = true;
-        if (tecla > 0) {
+        auto susurro = ajustes_.tecla_de == 0 ? std::nullopt : cliente::susurro_de(guardados_, ajustes_.tecla_de - 1);
+        if (tecla > 0 && susurro && tecla != cliente::tecla_para_hablar(guardados_.tecla_hablar)) {
+          quitar_tecla(static_cast<std::uint8_t>(tecla));
+          susurro->tecla = static_cast<std::uint8_t>(tecla);
+          cliente::poner_susurro(guardados_, ajustes_.tecla_de - 1, susurro);
+          aplicar_teclas();
+          guardar();
+        } else if (tecla > 0 && ajustes_.tecla_de == 0) {
+          quitar_tecla(static_cast<std::uint8_t>(tecla));
+          aplicar_teclas();
           guardados_.tecla_hablar = static_cast<std::uint8_t>(tecla);
           servidor_.tecla = guardados_.tecla_hablar;
           if (vigia_) {
@@ -327,6 +413,7 @@ class Programa {
     }
     if (pedido.elegir_tecla) {
       ajustes_.eligiendo_tecla = !ajustes_.eligiendo_tecla;
+      ajustes_.tecla_de = pedido.tecla_de;
       eligiendo_desde_ = ajustes_.eligiendo_tecla ? std::optional<cliente::Teclas>(cliente::teclas_apretadas())
                                                   : std::nullopt;
     }
@@ -422,10 +509,15 @@ class Programa {
           ordenar(sala_->aplicar(novedad));
           avisar_de(novedad);
           entraron_o_salieron = entraron_o_salieron || std::holds_alternative<protocolo::UsuarioEntro>(novedad) ||
-                                std::holds_alternative<protocolo::UsuarioSalio>(novedad);
+                                std::holds_alternative<protocolo::UsuarioSalio>(novedad) ||
+                                std::holds_alternative<protocolo::CanalCreado>(novedad) ||
+                                std::holds_alternative<protocolo::CanalCambiado>(novedad) ||
+                                std::holds_alternative<protocolo::CanalBorrado>(novedad);
           if (const auto* rechazo = std::get_if<protocolo::Negado>(&novedad);
               rechazo != nullptr && rechazo->pedido == protocolo::TipoMensaje::silenciar_personas) {
             silenciados_enviados_ = {0};
+          } else if (rechazo != nullptr && rechazo->pedido == protocolo::TipoMensaje::destinos_de_susurro) {
+            susurros_enviados_.fill(protocolo::DestinosDeSusurro{1, kSinSaber, {}});
           }
         }
       }
@@ -577,6 +669,10 @@ class Programa {
     if (ajustes.silenciados != silenciados_enviados_) {
       silenciados_enviados_ = ajustes.silenciados;
       ordenar({protocolo::SilenciarPersonas{ajustes.silenciados}});
+    }
+    aplicar_susurros();
+    if (en_ajustes_) {
+      listas_de_susurro();
     }
   }
 
@@ -755,6 +851,7 @@ class Programa {
       ordenar({protocolo::Silenciar{guardados_.silencio}});
     }
     silenciados_enviados_.clear();
+    susurros_enviados_ = {};
     aplicar_personas();
   }
 
@@ -772,9 +869,12 @@ class Programa {
       motor_->solo_en_el_canal(std::none_of(en_mi_canal.begin(), en_mi_canal.end(),
                                             [this](const auto* usuario) { return usuario->id != sala_->tu_id(); }));
     }
-    const auto antes = std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
+    const auto antes = std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel,
+                                       servidor_.susurrando, servidor_.te_susurra);
     servidor_.transmitiendo = motor_ && motor_->transmitiendo();
+    servidor_.susurrando = motor_ ? motor_->susurrando() : std::uint8_t{0};
     servidor_.hablando = puente_ ? puente_->quienes() : cliente::Hablando{};
+    servidor_.te_susurra = te_susurra(puente_ ? puente_->susurrantes() : cliente::Hablando{});
     const bool hablan = std::any_of(servidor_.hablando.begin(), servidor_.hablando.end(),
                                     [](std::uint32_t id) { return id != 0; }) &&
                         (guardados_.silencio & protocolo::kSilencioAudio) == 0;
@@ -793,11 +893,14 @@ class Programa {
       midiendo_ = medir;
       vigia_->medir(medir);
     }
-    bool cambio = cambio_de_voz || antes != std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
+    bool cambio = cambio_de_voz || antes != std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel,
+                                                            servidor_.susurrando, servidor_.te_susurra);
     if (const auto elegida = vigia_ ? vigia_->tomar_elegida() : std::nullopt) {
       cambio = true;
       servidor_.eligiendo_tecla = false;
       if (*elegida != 0) {
+        quitar_tecla(*elegida);
+        aplicar_teclas();
         guardados_.tecla_hablar = *elegida;
         servidor_.tecla = *elegida;
         vigia_->usar_tecla(*elegida);
@@ -815,6 +918,9 @@ class Programa {
     }
     if (silenciados_enviados_ == std::vector<std::uint32_t>{0}) {
       aplicar_personas();
+    }
+    if (susurros_enviados_[0].canal == kSinSaber) {
+      aplicar_susurros();
     }
     if (cliente::normalizar(servidor_.avisos, cliente::ahora_ms())) {
       cambiar_avisos(pendiente_.direccion, servidor_.avisos);
@@ -916,6 +1022,7 @@ class Programa {
   std::unique_ptr<Notificador> notificador_;
   std::uint32_t canal_del_aviso_ = 0;
   std::vector<std::uint32_t> silenciados_enviados_;
+  std::array<protocolo::DestinosDeSusurro, protocolo::kLugaresDeSusurro> susurros_enviados_{};
   std::uint64_t version_avisos_ = 0;
   bool juego_avisos_ = false;
   const cliente::Calidad calidad_ = cliente::calidad_automatica();

@@ -76,6 +76,29 @@ bool es_la_tecla(std::uint8_t elegida, const RAWKEYBOARD& tecla) {
   return elegida == tecla.VKey || elegida == exacta;
 }
 
+std::optional<PedidoDeVoz> decidir_teclas(EstadoDeTeclas& estado, const std::array<bool, kTeclasDeVoz>& apretadas,
+                                          bool por_voz, bool sale, bool soltar_primero, Reloj::time_point ahora,
+                                          std::chrono::milliseconds seguir) {
+  const auto susurro = std::find(apretadas.begin() + 1, apretadas.end(), true);
+  const bool pide = (apretadas[0] && !por_voz) || susurro != apretadas.end();
+  estado.esperar_soltar = (estado.esperar_soltar || soltar_primero) && pide;
+  if (pide) {
+    estado.soltar_en.reset();
+    estado.flujo = static_cast<std::uint8_t>(susurro == apretadas.end() ? 0 : susurro - apretadas.begin());
+  } else if (sale && !estado.soltar_en) {
+    estado.soltar_en = ahora + seguir;
+  }
+  const bool sigue = pide || (estado.soltar_en && ahora < *estado.soltar_en);
+  if (!sigue) {
+    estado.soltar_en.reset();
+  }
+  if (estado.esperar_soltar) {
+    return std::nullopt;
+  }
+  const std::uint8_t lugar = sigue ? estado.flujo : std::uint8_t{0};
+  return PedidoDeVoz{!por_voz && sigue && lugar == 0, lugar};
+}
+
 Vigia::Vigia(MotorVoz& motor, const PuenteVoz& puente, std::uint8_t tecla, HWND ventana,
              std::function<void()> avisar)
     : motor_(motor), puente_(puente), ventana_(ventana), avisar_(std::move(avisar)), tecla_(tecla),
@@ -86,6 +109,18 @@ Vigia::~Vigia() {
   SetEvent(despertar_.get());
   hilo_.join();
   motor_.transmitir(false);
+  motor_.susurrar(0);
+}
+
+void Vigia::susurros(const std::array<std::uint8_t, protocolo::kLugaresDeSusurro>& teclas) {
+  bool cambio = false;
+  for (std::size_t cual = 0; cual < teclas.size(); ++cual) {
+    cambio = susurros_[cual].exchange(teclas[cual]) != teclas[cual] || cambio;
+  }
+  if (cambio) {
+    soltar_primero_ = true;
+    SetEvent(despertar_.get());
+  }
 }
 
 void Vigia::por_voz(bool si) {
@@ -117,36 +152,40 @@ void Vigia::correr() {
   const HWND oyente = crear_oyente();
   auto proximo_nivel = Reloj::now();
   Hablando hablando = puente_.quienes();
+  Hablando susurrando = puente_.susurrantes();
   EstadoVoz estado = puente_.estado;
   Teclas antes;
   bool empezando = true;
-  bool esperar_soltar = false;
-  bool transmitia = false;
+  int transmitia = 0;
   bool escucha_teclado = false;
-  std::optional<Reloj::time_point> soltar_en;
+  EstadoDeTeclas teclado;
   const HANDLE avisos[] = {despertar_.get(), puente_.cambio.evento()};
   while (!terminar_) {
-    const bool con_tecla = !por_voz_;
+    const bool por_voz = por_voz_;
+    const std::array<std::uint8_t, kTeclasDeVoz> teclas = {por_voz ? std::uint8_t{0} : tecla_.load(), susurros_[0].load(),
+                                                           susurros_[1].load(), susurros_[2].load(), susurros_[3].load()};
+    const bool con_tecla = std::any_of(teclas.begin(), teclas.end(), [](std::uint8_t tecla) { return tecla != 0; });
     if (!con_tecla || eligiendo_) {
-      soltar_en.reset();
+      teclado.soltar_en.reset();
     }
     if (con_tecla != escucha_teclado) {
       escucha_teclado = con_tecla;
       escuchar_teclado(oyente, con_tecla);
     }
     const DWORD hasta_soltar =
-        soltar_en ? static_cast<DWORD>(std::max<long long>(
-                        std::chrono::duration_cast<std::chrono::milliseconds>(*soltar_en - Reloj::now()).count(), 0))
-                  : INFINITE;
-    const DWORD espera = std::min(eligiendo_ || (con_tecla && es_boton_del_mouse(tecla_)) ? kConsultaRapida
+        teclado.soltar_en ? static_cast<DWORD>(std::max<long long>(
+                                std::chrono::duration_cast<std::chrono::milliseconds>(*teclado.soltar_en - Reloj::now())
+                                    .count(),
+                                0))
+                          : INFINITE;
+    const DWORD espera = std::min(eligiendo_ || std::any_of(teclas.begin(), teclas.end(), es_boton_del_mouse) ? kConsultaRapida
                                   : con_tecla || medir_                                   ? kRespaldo
                                                                                           : INFINITE,
                                   hasta_soltar);
     if (MsgWaitForMultipleObjects(2, avisos, FALSE, espera, QS_ALLINPUT) == WAIT_FAILED) {
       Sleep(espera == INFINITE ? kRespaldo : espera);
     }
-    const bool por_voz = por_voz_;
-    std::optional<bool> por_evento;
+    std::array<std::optional<bool>, kTeclasDeVoz> por_evento{};
     MSG mensaje = {};
     while (PeekMessageW(&mensaje, nullptr, 0, 0, PM_REMOVE)) {
       RAWINPUT datos = {};
@@ -154,15 +193,20 @@ void Vigia::correr() {
       if (mensaje.message == WM_INPUT &&
           GetRawInputData(reinterpret_cast<HRAWINPUT>(mensaje.lParam), RID_INPUT, &datos, &largo,
                           sizeof(RAWINPUTHEADER)) != static_cast<UINT>(-1) &&
-          datos.header.dwType == RIM_TYPEKEYBOARD && es_la_tecla(tecla_, datos.data.keyboard)) {
-        por_evento = (datos.data.keyboard.Flags & RI_KEY_BREAK) == 0;
+          datos.header.dwType == RIM_TYPEKEYBOARD) {
+        for (std::size_t cual = 0; cual < teclas.size(); ++cual) {
+          if (teclas[cual] != 0 && es_la_tecla(teclas[cual], datos.data.keyboard)) {
+            por_evento[cual] = (datos.data.keyboard.Flags & RI_KEY_BREAK) == 0;
+          }
+        }
       }
       DispatchMessageW(&mensaje);
     }
     bool cambio = false;
     if (eligiendo_) {
-      if (motor_.transmitiendo()) {
+      if (motor_.transmitiendo() || motor_.susurrando() != 0) {
         motor_.transmitir(false);
+        motor_.susurrar(0);
         cambio = true;
       }
       const Teclas ahora = teclas_apretadas();
@@ -172,33 +216,33 @@ void Vigia::correr() {
       if (elegida >= 0) {
         elegida_ = elegida;
         eligiendo_ = false;
-        esperar_soltar = elegida != 0;
+        teclado.esperar_soltar = elegida != 0;
         cambio = true;
-      }
-    } else if (!por_voz) {
-      empezando = true;
-      const bool hablar =
-          por_evento.value_or(apretada(tecla_)) && (!solo_con_foco_ || GetForegroundWindow() == ventana_);
-      esperar_soltar = (esperar_soltar || soltar_primero_.exchange(false)) && hablar;
-      if (hablar) {
-        soltar_en.reset();
-      } else if (motor_.transmitiendo() && !soltar_en) {
-        soltar_en = Reloj::now() + std::chrono::milliseconds(seguir_al_soltar_.load());
-      }
-      const bool sigue = hablar || (soltar_en && Reloj::now() < *soltar_en);
-      if (!sigue) {
-        soltar_en.reset();
-      }
-      if (!esperar_soltar && sigue != motor_.transmitiendo()) {
-        motor_.transmitir(sigue);
       }
     } else {
       empezando = true;
+      const bool foco = !solo_con_foco_ || GetForegroundWindow() == ventana_;
+      std::array<bool, kTeclasDeVoz> apretadas{};
+      for (std::size_t cual = 0; cual < teclas.size(); ++cual) {
+        apretadas[cual] = teclas[cual] != 0 && foco && por_evento[cual].value_or(apretada(teclas[cual]));
+      }
+      const auto pedido =
+          decidir_teclas(teclado, apretadas, por_voz, (!por_voz && motor_.transmitiendo()) || motor_.susurrando() != 0,
+                         soltar_primero_.exchange(false), Reloj::now(),
+                         std::chrono::milliseconds(seguir_al_soltar_.load()));
+      if (pedido && pedido->susurro != motor_.susurrando()) {
+        motor_.susurrar(pedido->susurro);
+      }
+      if (pedido && !por_voz && pedido->transmitir != motor_.transmitiendo()) {
+        motor_.transmitir(pedido->transmitir);
+      }
     }
-    const bool transmite = motor_.transmitiendo();
-    if (transmite != transmitia || puente_.quienes() != hablando || puente_.estado != estado) {
+    const int transmite = (motor_.transmitiendo() ? 1 : 0) + motor_.susurrando() * 2;
+    if (transmite != transmitia || puente_.quienes() != hablando || puente_.susurrantes() != susurrando ||
+        puente_.estado != estado) {
       transmitia = transmite;
       hablando = puente_.quienes();
+      susurrando = puente_.susurrantes();
       estado = puente_.estado;
       cambio = true;
     }

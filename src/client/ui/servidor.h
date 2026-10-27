@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -100,6 +101,9 @@ struct PantallaServidor {
   int volumen_microfono = 100;
   int volumen_salida = 100;
   bool transmitiendo = false;
+  std::uint8_t susurrando = 0;
+  std::array<std::string, protocolo::kLugaresDeSusurro> susurros;
+  std::string te_susurra;
   cliente::Hablando hablando{};
   std::vector<cliente::PersonaGuardada> personas;
   std::uint32_t persona = 0;
@@ -145,6 +149,8 @@ struct PedidoServidor {
 };
 
 std::string nombre_tecla(Idioma idioma, std::uint8_t tecla);
+std::string lista_de_nombres(Idioma idioma, const std::vector<std::string>& nombres);
+std::string a_quien(Idioma idioma, const cliente::Susurro& susurro);
 PedidoServidor dibujar_servidor(PantallaServidor& pantalla, cliente::Sala& sala);
 void soltar_lejanos(PantallaServidor& pantalla);
 

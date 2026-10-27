@@ -519,6 +519,126 @@ TEST_CASE("La voz va por UDP solo a los del mismo canal, y sigue andando al rota
   CHECK(llego);
 }
 
+TEST_CASE("El susurro llega por UDP solo a sus destinos, el servidor valida el canal y lo olvida al borrarlo") {
+  using ventrik::cliente::EstadoVoz;
+  using ventrik::cliente::PuenteVoz;
+  ConDueno dueno;
+  ServidorDePrueba servidor(dueno.opciones());
+  Cliente ana(servidor, "Ana", dueno.codigo);
+  Cliente beto(servidor, "Beto");
+  Cliente carla(servidor, "Carla");
+  ana.entrar_con_voz();
+  beto.entrar_con_voz();
+  const auto carla_id = carla.entrar().tu_id;
+  ana.ordenar(CrearCanal{"Juegos"});
+  const auto creado = carla.esperar<CanalCreado>();
+  REQUIRE(creado);
+  carla.ordenar(EntrarACanal{creado->canal.id});
+  REQUIRE(carla.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == carla_id; }));
+  const auto pa = std::make_shared<PuenteVoz>();
+  const auto pb = std::make_shared<PuenteVoz>();
+  const auto pc = std::make_shared<PuenteVoz>();
+  ana.voz(pa);
+  beto.voz(pb);
+  carla.voz(pc);
+  for (const auto* puente : {pa.get(), pb.get(), pc.get()}) {
+    REQUIRE(esperar_que([puente] { return puente->estado == EstadoVoz::lista; }));
+  }
+  const auto le_llega = [](PuenteVoz& habla, PuenteVoz& escucha, std::uint8_t flujo) {
+    for (int intento = 0; intento < 50; ++intento) {
+      hablar(habla, flujo);
+      if (const auto paquete = escuchar(escucha, 100ms); paquete && paquete->flujo == flujo) {
+        return true;
+      }
+    }
+    return false;
+  };
+  ana.ordenar(DestinosDeSusurro{1, 0, {carla_id}});
+  CHECK(le_llega(*pa, *pc, 1));
+  CHECK_FALSE(escuchar(*pb, 300ms));
+
+  ana.ordenar(DestinosDeSusurro{2, 999, {}});
+  CHECK(ana.esperar<Negado>([](const Negado& n) {
+    return n.pedido == TipoMensaje::destinos_de_susurro && n.motivo == MotivoNegado::no_existe;
+  }));
+  ana.ordenar(DestinosDeSusurro{2, creado->canal.id, {}});
+  CHECK(le_llega(*pa, *pc, 2));
+  CHECK_FALSE(escuchar(*pb, 300ms));
+
+  ana.ordenar(BorrarCanal{creado->canal.id});
+  REQUIRE(carla.esperar<CanalBorrado>());
+  std::this_thread::sleep_for(200ms);
+  ventrik::cliente::PaqueteVoz viejo;
+  while (pc->bajada.sacar(viejo)) {
+  }
+  for (int vez = 0; vez < 5; ++vez) {
+    hablar(*pa, 2);
+  }
+  CHECK_FALSE(escuchar(*pc, 500ms));
+  CHECK(le_llega(*pa, *pc, 1));
+}
+
+TEST_CASE("Los destinos del susurro valen desde antes de entrar a la voz y al volver; un canal de texto o un rechazo los vacían") {
+  using ventrik::cliente::EstadoVoz;
+  using ventrik::cliente::PuenteVoz;
+  ConDueno dueno;
+  ServidorDePrueba servidor(dueno.opciones());
+  Cliente ana(servidor, "Ana", dueno.codigo);
+  Cliente beto(servidor, "Beto");
+  const auto ana_id = ana.entrar().tu_id;
+  const auto beto_id = beto.entrar_con_voz().tu_id;
+  const auto llega = [](PuenteVoz& habla, PuenteVoz& escucha, std::uint8_t flujo) {
+    for (int intento = 0; intento < 50; ++intento) {
+      hablar(habla, flujo);
+      if (const auto paquete = escuchar(escucha, 100ms); paquete && paquete->flujo == flujo) {
+        return true;
+      }
+    }
+    return false;
+  };
+  ana.ordenar(CrearCanal{"Charla", TipoCanal::texto, false});
+  const auto charla = beto.esperar<CanalCreado>();
+  REQUIRE(charla);
+  ana.ordenar(DestinosDeSusurro{3, charla->canal.id, {}});
+  CHECK(ana.esperar<Negado>([](const Negado& n) {
+    return n.pedido == TipoMensaje::destinos_de_susurro && n.motivo == MotivoNegado::tipo_de_canal;
+  }));
+  ana.ordenar(DestinosDeSusurro{1, 0, {beto_id}});
+  ana.ordenar(CrearCanal{"Juegos"});
+  const auto juegos = beto.esperar<CanalCreado>([](const CanalCreado& c) { return c.canal.nombre == "Juegos"; });
+  REQUIRE(juegos);
+  ana.ordenar(EntrarACanal{juegos->canal.id});
+  REQUIRE(beto.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == ana_id && c.canal == juegos->canal.id; }));
+  const auto pa = std::make_shared<PuenteVoz>();
+  const auto pb = std::make_shared<PuenteVoz>();
+  ana.voz(pa);
+  beto.voz(pb);
+  REQUIRE(esperar_que([&] { return pa->estado == EstadoVoz::lista && pb->estado == EstadoVoz::lista; }));
+  CHECK(llega(*pa, *pb, 1));
+
+  ana.ordenar(EntrarACanal{0});
+  REQUIRE(beto.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == ana_id && c.canal == 0; }));
+  ana.voz(nullptr);
+  ana.ordenar(EntrarACanal{juegos->canal.id});
+  REQUIRE(beto.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == ana_id && c.canal == juegos->canal.id; }));
+  const auto otra = std::make_shared<PuenteVoz>();
+  ana.voz(otra);
+  REQUIRE(esperar_que([&] { return otra->estado == EstadoVoz::lista; }));
+  CHECK(llega(*otra, *pb, 1));
+
+  ana.ordenar(DestinosDeSusurro{1, 999, {beto_id}});
+  CHECK(ana.esperar<Negado>([](const Negado& n) {
+    return n.pedido == TipoMensaje::destinos_de_susurro && n.motivo == MotivoNegado::no_existe;
+  }));
+  ventrik::cliente::PaqueteVoz viejo;
+  while (pb->bajada.sacar(viejo)) {
+  }
+  for (int vez = 0; vez < 5; ++vez) {
+    hablar(*otra, 1);
+  }
+  CHECK_FALSE(escuchar(*pb, 500ms));
+}
+
 TEST_CASE("El silencio llega a todos y al que entra después; sin audio no te llega voz y silenciado tu voz no sale") {
   using ventrik::cliente::EstadoVoz;
   using ventrik::cliente::PaqueteVoz;

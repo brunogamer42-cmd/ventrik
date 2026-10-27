@@ -17,6 +17,7 @@ using Hablando = std::array<std::uint32_t, kVoces>;
 
 struct PaqueteVoz {
   std::uint32_t hablante = 0;
+  std::uint8_t flujo = 0;
   std::uint16_t numero = 0;
   std::uint16_t tiempo = 0;
   std::uint8_t nivel = 0;
@@ -89,12 +90,21 @@ struct PuenteVoz {
     return ids;
   }
 
+  Hablando susurrantes() const {
+    Hablando ids = quienes();
+    for (std::size_t cual = 0; cual < kVoces; ++cual) {
+      ids[cual] = susurro[cual] ? ids[cual] : 0;
+    }
+    return ids;
+  }
+
   ColaVoz<8> subida;
   ColaVoz<64> bajada;
   red::Despertador despertador;
   Aviso cambio;
   std::atomic<EstadoVoz> estado{EstadoVoz::sin_clave};
   std::array<std::atomic<std::uint32_t>, kVoces> hablando{};
+  std::array<std::atomic<bool>, kVoces> susurro{};
   std::atomic<std::uint32_t> recibidos{0};
   std::atomic<std::uint32_t> perdidos{0};
   std::atomic<std::uint32_t> ping_ms{0};

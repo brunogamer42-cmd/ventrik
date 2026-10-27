@@ -510,6 +510,55 @@ TEST_CASE("la limpieza de la voz viene prendida en las PCs comunes y apagada en 
   CHECK(ventrik::cliente::limpieza_de(guardados, true).ruido == Ruido::alta);
 }
 
+TEST_CASE("los susurros se guardan por nombre con su tecla, se validan y se traducen a los ids del servidor") {
+  using ventrik::cliente::Susurro;
+  using ventrik::cliente::poner_susurro;
+  using ventrik::cliente::susurro_de;
+  Guardados guardados = ejemplo();
+  CHECK_FALSE(susurro_de(guardados, 0));
+  poner_susurro(guardados, 1, Susurro{0x05, "", {"Sofi", "Meli"}});
+  poner_susurro(guardados, 3, Susurro{0, "Partida 2", {}});
+  const auto bytes = armar_guardados(guardados);
+  REQUIRE_FALSE(bytes.empty());
+  Guardados leidos;
+  REQUIRE(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
+  REQUIRE(susurro_de(leidos, 1));
+  CHECK(susurro_de(leidos, 1)->tecla == 0x05);
+  CHECK(susurro_de(leidos, 1)->personas == std::vector<std::string>{"Sofi", "Meli"});
+  CHECK(susurro_de(leidos, 3)->canal == "Partida 2");
+  CHECK_FALSE(susurro_de(leidos, 0));
+  CHECK_FALSE(susurro_de(leidos, 4));
+  poner_susurro(leidos, 1, std::nullopt);
+  CHECK_FALSE(susurro_de(leidos, 1));
+
+  poner_susurro(guardados, 0, Susurro{0x1B, "", {}});
+  CHECK_FALSE(susurro_de(guardados, 0));
+  poner_susurro(guardados, 0, Susurro{0, "", {"a", "b", "c", "d", "e", "f", "g", "h", "i"}});
+  CHECK_FALSE(susurro_de(guardados, 0));
+  poner_susurro(guardados, 0, Susurro{0, "", {""}});
+  CHECK_FALSE(susurro_de(guardados, 0));
+  Guardados mal = guardados;
+  mal.ajustes[20] = {0, 0, 0, 9};
+  CHECK(armar_guardados(mal).empty());
+  mal = guardados;
+  mal.ajustes[23] = {0, 0, 0, 0, 1};
+  CHECK(armar_guardados(mal).empty());
+
+  const std::vector<ventrik::protocolo::CanalInfo> canales = {
+      {4, "Partida 2", ventrik::protocolo::TipoCanal::voz}, {5, "Charla", ventrik::protocolo::TipoCanal::texto}};
+  const std::map<std::uint32_t, ventrik::protocolo::UsuarioInfo> usuarios = {
+      {3, {3, "Meli", 1}}, {7, {7, "Sofi", 4}}, {9, {9, "Yo", 1}}};
+  const auto a_personas = ventrik::cliente::destinos_de(Susurro{0, "", {"Sofi", "Meli", "Nadie"}}, 1, 9, canales, usuarios);
+  CHECK(a_personas.lugar == 2);
+  CHECK(a_personas.canal == 0);
+  CHECK(a_personas.personas == std::vector<std::uint32_t>{3, 7});
+  CHECK(ventrik::cliente::destinos_de(Susurro{0, "Charla", {}}, 0, 9, canales, usuarios).canal == 0);
+  const auto al_canal = ventrik::cliente::destinos_de(Susurro{0, "Partida 2", {"Yo"}}, 3, 9, canales, usuarios);
+  CHECK(al_canal.lugar == 4);
+  CHECK(al_canal.canal == 4);
+  CHECK(al_canal.personas.empty());
+}
+
 TEST_CASE("los ajustes de texto (idioma y dispositivos) se guardan como UTF-8 válido y con tope") {
   using ventrik::cliente::Ajuste;
   Guardados guardados = ejemplo();

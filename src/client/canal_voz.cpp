@@ -87,6 +87,7 @@ void CanalVoz::atender(Reloj::time_point ahora) {
   }
   leer(ahora);
   while (lista_ && puente_.subida.sacar(paquete)) {
+    subida_.medio.flujo = paquete.flujo;
     subida_.medio.numero = paquete.numero;
     subida_.medio.tiempo = paquete.tiempo;
     subida_.medio.nivel = paquete.nivel;
@@ -161,6 +162,7 @@ void CanalVoz::recibir(gsl::span<const std::uint8_t> registro, Reloj::time_point
         contar(*bajada);
         PaqueteVoz paquete;
         paquete.hablante = bajada->origen;
+        paquete.flujo = bajada->medio.flujo;
         paquete.numero = bajada->medio.numero;
         paquete.tiempo = bajada->medio.tiempo;
         paquete.nivel = bajada->medio.nivel;
@@ -180,7 +182,8 @@ void CanalVoz::recibir(gsl::span<const std::uint8_t> registro, Reloj::time_point
 }
 
 void CanalVoz::contar(const protocolo::MedioBajada& bajada) {
-  const auto anterior = siguiente_.find(bajada.origen);
+  const std::uint64_t flujo = std::uint64_t{bajada.origen} << 8 | bajada.medio.flujo;
+  const auto anterior = siguiente_.find(flujo);
   if (anterior != siguiente_.end()) {
     const auto salto = static_cast<std::int16_t>(bajada.medio.numero - anterior->second);
     if (salto < 0) {
@@ -194,7 +197,7 @@ void CanalVoz::contar(const protocolo::MedioBajada& bajada) {
   if (anterior == siguiente_.end() && siguiente_.size() >= protocolo::kMaximoUsuariosEnLista) {
     siguiente_.clear();
   }
-  siguiente_[bajada.origen] = static_cast<std::uint16_t>(bajada.medio.numero + 1);
+  siguiente_[flujo] = static_cast<std::uint16_t>(bajada.medio.numero + 1);
 }
 
 }

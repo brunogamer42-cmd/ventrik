@@ -379,7 +379,10 @@ std::vector<Orden> Sala::atender(const protocolo::Historial& historial) {
 }
 
 std::vector<Orden> Sala::atender(const protocolo::Negado& negado) {
-  negado_ = negado;
+  if (negado.pedido != protocolo::TipoMensaje::silenciar_personas &&
+      negado.pedido != protocolo::TipoMensaje::destinos_de_susurro) {
+    negado_ = negado;
+  }
   entrando_ = entrando_ && negado.pedido != protocolo::TipoMensaje::entrar_a_canal;
   if (negado.pedido == protocolo::TipoMensaje::mirar_canal) {
     texto_ = Chat{};

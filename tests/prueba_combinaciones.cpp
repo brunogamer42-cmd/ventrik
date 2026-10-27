@@ -32,6 +32,7 @@ struct Voz {
   MotorVoz motor{*puente, {}};
   std::vector<std::int16_t> escuchado;
   std::set<std::uint32_t> hablaron;
+  std::set<std::uint32_t> susurraron;
   std::ptrdiff_t a_la_vez = 0;
 };
 
@@ -48,6 +49,9 @@ void hablar_un_rato(const std::vector<Voz*>& voces, std::chrono::milliseconds cu
       const auto ids = voz->puente->quienes();
       voz->hablaron.insert(ids.begin(), ids.end());
       voz->hablaron.erase(0);
+      const auto susurran = voz->puente->susurrantes();
+      voz->susurraron.insert(susurran.begin(), susurran.end());
+      voz->susurraron.erase(0);
       voz->a_la_vez = std::max(voz->a_la_vez, std::count_if(ids.begin(), ids.end(), [](std::uint32_t id) {
                                  return id != 0;
                                }));
@@ -151,6 +155,21 @@ TEST_CASE("combinaciones: servidor y programa de verdad, de la misma versión o 
     ana.ordenar(SilenciarPersonas{});
     hablar_un_rato({&de_ana, &de_beto, &de_carla}, 1s);
     CHECK(de_ana.puente->recibidos > de_carla_a_ana);
+    de_ana.motor.transmitir(false);
+    de_beto.motor.transmitir(false);
+    de_carla.motor.transmitir(false);
+    ana.ordenar(DestinosDeSusurro{1, 0, {carla_id}});
+    de_ana.motor.susurrar(1);
+    hablar_un_rato({&de_ana, &de_beto, &de_carla}, 300ms);
+    const std::uint32_t susurro_a_beto = de_beto.puente->recibidos;
+    const std::uint32_t susurro_a_carla = de_carla.puente->recibidos;
+    hablar_un_rato({&de_ana, &de_beto, &de_carla}, 1s);
+    CHECK(de_beto.puente->recibidos == susurro_a_beto);
+    CHECK(de_carla.puente->recibidos > susurro_a_carla);
+    CHECK(de_carla.susurraron == std::set<std::uint32_t>{ana_id});
+    CHECK(de_beto.susurraron.empty());
+    de_ana.motor.susurrar(0);
+    de_ana.motor.transmitir(true);
     de_beto.motor.transmitir(true);
     de_carla.motor.transmitir(false);
     carla.ordenar(EntrarACanal{0});

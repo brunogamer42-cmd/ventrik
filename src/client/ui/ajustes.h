@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "client/audio.h"
 #include "client/guardados.h"
@@ -41,6 +42,10 @@ struct PantallaAjustes {
   bool hay_bajar_otros = false;
   bool un_nucleo = false;
   bool eligiendo_tecla = false;
+  std::size_t tecla_de = 0;
+  std::size_t destinos_de = 0;
+  std::vector<std::string> personas;
+  std::vector<std::string> canales;
   bool probando_microfono = false;
   bool escuchandome = false;
   int nivel = 0;
@@ -54,6 +59,7 @@ struct PedidoAjustes {
   std::optional<cliente::Guardados> guardados;
   std::optional<bool> arrancar_con_windows;
   bool elegir_tecla = false;
+  std::size_t tecla_de = 0;
   std::optional<bool> probar_microfono;
   std::optional<bool> escucharme;
   bool probar_salida = false;

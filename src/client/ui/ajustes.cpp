@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 #include <windows.h>
@@ -47,7 +49,7 @@ constexpr std::array<Item, kSecciones> kMenu = {{{Seccion::general, Clave::ajust
                                                  {Seccion::copias, Clave::ajustes_copias, kSinGrupo, 14},
                                                  {Seccion::acerca, Clave::ajustes_acerca, kSinGrupo, 11}}};
 
-constexpr std::array<std::pair<Seccion, Clave>, 28> kBuscables = {{
+constexpr std::array<std::pair<Seccion, Clave>, 29> kBuscables = {{
     {Seccion::general, Clave::ajustes_iniciar_con_windows},
     {Seccion::general, Clave::ajustes_entrar_al_ultimo},
     {Seccion::general, Clave::ajustes_al_cerrar},
@@ -55,6 +57,7 @@ constexpr std::array<std::pair<Seccion, Clave>, 28> kBuscables = {{
     {Seccion::general, Clave::ajustes_idioma},
     {Seccion::general, Clave::ajustes_al_entrar},
     {Seccion::teclas, Clave::ajustes_tecla_hablar},
+    {Seccion::teclas, Clave::ajustes_agregar_susurro},
     {Seccion::teclas, Clave::ajustes_tecla_microfono},
     {Seccion::teclas, Clave::ajustes_tecla_audio},
     {Seccion::teclas, Clave::ajustes_teclas_sin_foco},
@@ -344,15 +347,16 @@ class Dibujo {
     }
   }
 
-  float fila_de_tecla(ImVec2 desde, float ancho, Clave nombre, std::string_view tecla_actual, bool se_puede,
-                      const char* id) {
+  bool fila_de_tecla(ImVec2 desde, float ancho, std::string_view nombre, std::string_view tecla_actual, bool se_puede,
+                     const char* id) {
     const float alto = px(53);
     const float medio = desde.y + alto / 2;
     ImGui::GetWindowDrawList()->AddRect(desde, ImVec2(desde.x + ancho, desde.y + alto + 1), tono(color::linea));
-    escribir_en(desde.x + px(12), medio, t(nombre), color::texto);
     const std::string_view cambiar_texto = t(Clave::ajustes_cambiar);
     const float ancho_cambiar = ancho_boton(cambiar_texto, Estilo::esquineros);
     const float derecha = desde.x + ancho - px(12) - ancho_cambiar;
+    escribir_en(desde.x + px(12), medio, nombre, color::texto, Letra::normal, medida::letra,
+                derecha - ancho_tecla(tecla_actual) - desde.x - px(36));
     ImGui::SetCursorScreenPos(ImVec2(derecha, medio - px(medida::alto_esquineros) / 2));
     ImGui::BeginDisabled(!se_puede);
     const bool tocado = boton(id, cambiar_texto, Estilo::esquineros, ImVec2(ancho_cambiar, px(medida::alto_esquineros)));
@@ -362,32 +366,101 @@ class Dibujo {
     }
     tecla(ImVec2(derecha - px(12) - ancho_tecla(tecla_actual), medio - px(medida::alto_tecla) / 2), tecla_actual,
           color::pozo);
-    if (tocado) {
-      pedido_.elegir_tecla = true;
-    }
-    return desde.y + alto;
+    return tocado;
   }
 
-  std::string nombre_de_hablar() const {
-    return pantalla_.eligiendo_tecla ? s(Clave::ajustes_apreta_una_tecla)
-                                     : nombre_tecla(pantalla_.idioma, cliente::tecla_para_hablar(actuales().tecla_hablar));
+  std::string nombre_de_tecla(std::size_t cual) const {
+    if (pantalla_.eligiendo_tecla && pantalla_.tecla_de == cual) {
+      return s(Clave::ajustes_apreta_una_tecla);
+    }
+    if (cual == 0) {
+      return nombre_tecla(pantalla_.idioma, cliente::tecla_para_hablar(actuales().tecla_hablar));
+    }
+    const auto susurro = cliente::susurro_de(actuales(), cual - 1);
+    return susurro && susurro->tecla != 0 ? nombre_tecla(pantalla_.idioma, susurro->tecla) : s(Clave::ajustes_sin_tecla);
+  }
+
+  std::string nombre_de_hablar() const { return nombre_de_tecla(0); }
+
+  void fila_de_susurro(ImVec2 desde, float ancho, std::size_t lugar, bool& abrir_destinos) {
+    const auto susurro = cliente::susurro_de(actuales(), lugar);
+    const std::string nombre =
+        con_datos(t(Clave::ajustes_susurro), {std::to_string(lugar + 1), a_quien(pantalla_.idioma, *susurro)});
+    ImGui::PushID(static_cast<int>(lugar));
+    if (fila_de_tecla(desde, ancho, nombre, nombre_de_tecla(lugar + 1), true, "##tecla_susurro")) {
+      ImGui::OpenPopup("##susurro");
+    }
+    if (ImGui::BeginPopup("##susurro")) {
+      if (ImGui::MenuItem(s(Clave::ajustes_cambiar_tecla).c_str())) {
+        pedido_.elegir_tecla = true;
+        pedido_.tecla_de = lugar + 1;
+      }
+      if (ImGui::MenuItem(s(Clave::ajustes_elegir_a_quien).c_str())) {
+        pantalla_.destinos_de = lugar;
+        abrir_destinos = true;
+      }
+      if (ImGui::MenuItem(s(Clave::ajustes_quitar_susurro).c_str())) {
+        cliente::poner_susurro(cambiar(), lugar, std::nullopt);
+      }
+      ImGui::EndPopup();
+    }
+    ImGui::PopID();
   }
 
   float teclas(ImVec2 desde, float ancho) {
-    const float alto = px(64 + 5 * 53 + 110);
+    std::vector<std::size_t> lugares;
+    for (std::size_t lugar = 0; lugar < protocolo::kLugaresDeSusurro; ++lugar) {
+      if (cliente::susurro_de(actuales(), lugar)) {
+        lugares.push_back(lugar);
+      }
+    }
+    const float fila = px(53);
+    const float alto = px(64 + 110) + fila * static_cast<float>(6 + lugares.size());
     panel(desde, ImVec2(desde.x + ancho, desde.y + alto));
     float y = titulo(desde, Clave::ajustes_teclas);
     const float x = desde.x + px(kRelleno);
     const float interior = ancho - 2 * px(kRelleno);
-    y = fila_de_tecla(ImVec2(x, y), interior, Clave::ajustes_tecla_hablar, nombre_de_hablar(), true, "##tecla_hablar");
-    y = fila_de_tecla(ImVec2(x, y), interior, Clave::ajustes_tecla_microfono, t(Clave::ajustes_ctrl_m), false,
-                      "##tecla_microfono");
-    y = fila_de_tecla(ImVec2(x, y), interior, Clave::ajustes_tecla_audio, t(Clave::ajustes_ctrl_d), false,
-                      "##tecla_audio");
-    y = fila_de_tecla(ImVec2(x, y), interior, Clave::ajustes_tecla_modo, t(Clave::ajustes_ctrl_mayus_r), false,
-                      "##tecla_modo");
-    y = fila_de_tecla(ImVec2(x, y), interior, Clave::ajustes_tecla_canales, t(Clave::ajustes_ctrl_1_9), false,
-                      "##tecla_canales");
+    if (fila_de_tecla(ImVec2(x, y), interior, t(Clave::ajustes_tecla_hablar), nombre_de_tecla(0), true,
+                      "##tecla_hablar")) {
+      pedido_.elegir_tecla = true;
+      pedido_.tecla_de = 0;
+    }
+    y += fila;
+    bool abrir_destinos = false;
+    for (const std::size_t lugar : lugares) {
+      fila_de_susurro(ImVec2(x, y), interior, lugar, abrir_destinos);
+      y += fila;
+    }
+    ImGui::GetWindowDrawList()->AddRect(ImVec2(x, y), ImVec2(x + interior, y + fila + 1), tono(color::linea));
+    const std::string_view agregar = t(Clave::ajustes_agregar_susurro);
+    const float ancho_agregar = ancho_boton(agregar, Estilo::contorneado);
+    escribir_en(x + px(12), y + fila / 2, t(Clave::ajustes_susurros_nota), color::apagado, Letra::normal, medida::letra,
+                interior - ancho_agregar - px(36));
+    ImGui::SetCursorScreenPos(ImVec2(x + interior - px(12) - ancho_agregar, y + fila / 2 - px(16)));
+    ImGui::BeginDisabled(lugares.size() == protocolo::kLugaresDeSusurro);
+    if (boton("##agregar_susurro", agregar, Estilo::contorneado, ImVec2(ancho_agregar, px(32)))) {
+      std::size_t libre = 0;
+      while (std::find(lugares.begin(), lugares.end(), libre) != lugares.end()) {
+        ++libre;
+      }
+      cliente::poner_susurro(cambiar(), libre, cliente::Susurro{});
+      pantalla_.destinos_de = libre;
+      abrir_destinos = true;
+    }
+    ImGui::EndDisabled();
+    y += fila;
+    for (const auto& [nombre, atajo, id] :
+         {std::make_tuple(Clave::ajustes_tecla_microfono, Clave::ajustes_ctrl_m, "##tecla_microfono"),
+          std::make_tuple(Clave::ajustes_tecla_audio, Clave::ajustes_ctrl_d, "##tecla_audio"),
+          std::make_tuple(Clave::ajustes_tecla_modo, Clave::ajustes_ctrl_mayus_r, "##tecla_modo"),
+          std::make_tuple(Clave::ajustes_tecla_canales, Clave::ajustes_ctrl_1_9, "##tecla_canales")}) {
+      fila_de_tecla(ImVec2(x, y), interior, t(nombre), t(atajo), false, id);
+      y += fila;
+    }
+    if (abrir_destinos) {
+      ImGui::OpenPopup("##destinos");
+    }
+    destinos();
     y += px(20);
     const bool sin_foco = valor(Ajuste::teclas_sin_foco, 1) == 1;
     if (casilla(t(Clave::ajustes_teclas_sin_foco), ImVec2(x, y), sin_foco)) {
@@ -395,6 +468,74 @@ class Dibujo {
     }
     nota(ImVec2(x, y + px(40)), interior, Clave::ajustes_teclas_nota);
     return desde.y + alto;
+  }
+
+  void destinos() {
+    ImGui::SetNextWindowSizeConstraints(ImVec2(px(320), 0), ImVec2(px(520), px(440)));
+    if (!ImGui::BeginPopup("##destinos")) {
+      return;
+    }
+    const std::size_t lugar = pantalla_.destinos_de;
+    auto susurro = cliente::susurro_de(actuales(), lugar);
+    if (!susurro) {
+      cerrar_ventana_emergente();
+      ImGui::EndPopup();
+      return;
+    }
+    ImGui::TextUnformatted(con_datos(t(Clave::ajustes_susurro_a_quien), {std::to_string(lugar + 1)}).c_str());
+    std::vector<std::string> personas = pantalla_.personas;
+    std::vector<std::string> canales = pantalla_.canales;
+    for (const std::string& nombre : susurro->personas) {
+      if (std::find(personas.begin(), personas.end(), nombre) == personas.end()) {
+        personas.push_back(nombre);
+      }
+    }
+    if (!susurro->canal.empty() && std::find(canales.begin(), canales.end(), susurro->canal) == canales.end()) {
+      canales.push_back(susurro->canal);
+    }
+    if (pantalla_.personas.empty() && pantalla_.canales.empty()) {
+      ImGui::TextDisabled("%s", s(Clave::ajustes_susurro_sin_servidor).c_str());
+    }
+    bool cambio = false;
+    if (!personas.empty()) {
+      ImGui::Separator();
+      ImGui::TextDisabled("%s", s(Clave::ajustes_susurro_a_personas).c_str());
+    }
+    for (std::size_t i = 0; i < personas.size(); ++i) {
+      const auto elegida = std::find(susurro->personas.begin(), susurro->personas.end(), personas[i]);
+      const bool esta = elegida != susurro->personas.end();
+      ImGui::PushID(static_cast<int>(i));
+      ImGui::BeginDisabled(!esta && susurro->personas.size() >= protocolo::kMaximoPersonasEnSusurro);
+      const bool tocada = casilla(personas[i], ImGui::GetCursorScreenPos(), esta);
+      ImGui::EndDisabled();
+      if (tocada) {
+        if (esta) {
+          susurro->personas.erase(elegida);
+        } else {
+          susurro->personas.push_back(personas[i]);
+        }
+        susurro->canal.clear();
+        cambio = true;
+      }
+      ImGui::PopID();
+    }
+    if (!canales.empty()) {
+      ImGui::Separator();
+      ImGui::TextDisabled("%s", s(Clave::ajustes_susurro_a_canal).c_str());
+    }
+    for (std::size_t i = 0; i < canales.size(); ++i) {
+      ImGui::PushID(static_cast<int>(personas.size() + i));
+      if (casilla(canales[i], ImGui::GetCursorScreenPos(), susurro->canal == canales[i])) {
+        susurro->canal = susurro->canal == canales[i] ? std::string() : canales[i];
+        susurro->personas.clear();
+        cambio = true;
+      }
+      ImGui::PopID();
+    }
+    if (cambio) {
+      cliente::poner_susurro(cambiar(), lugar, susurro);
+    }
+    ImGui::EndPopup();
   }
 
   std::optional<int> dispositivo(const char* id, ImVec2 donde, float ancho, const std::vector<std::string>& nombres,

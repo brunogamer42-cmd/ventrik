@@ -98,6 +98,7 @@ class Servidor {
   void entrar_a_canal(Conexion& conexion, const protocolo::Marco& marco);
   void silenciar(Conexion& conexion, const protocolo::Marco& marco);
   void silenciar_personas(Conexion& conexion, const protocolo::Marco& marco);
+  void destinos_de_susurro(Conexion& conexion, const protocolo::Marco& marco);
   void enviar_chat(Conexion& conexion, const protocolo::Marco& marco);
   void pedir_historial(Conexion& conexion, const protocolo::Marco& marco);
   void crear_canal(Conexion& conexion, const protocolo::Marco& marco);

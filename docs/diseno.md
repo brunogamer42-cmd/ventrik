@@ -445,6 +445,12 @@ Con una tecla aparte, hablás a una persona, a un grupo o a otro canal sin mover
 - Quien recibe un susurro lo escucha marcado, con el nombre de quien habla y un sonido distinto.
 - El servidor decide quién puede susurrar a quién (permiso por rol y canal) y le aplica el tope de voces y la calidad dinámica igual que al resto.
 - Gasta lo mismo que hablar: el servidor reenvía la voz solo a los destinatarios.
+- **Lo que hay desde el paso 3.6:**
+  - cada susurro va a personas (hasta 8, estén en el canal que estén) o a todos los de un canal de voz;
+  - los destinos se guardan por nombre en esta PC y valen en cualquier servidor donde haya alguien con ese nombre o un canal con ese nombre;
+  - todos pueden susurrar hasta que lleguen los permisos por rol (etapa 9);
+  - el susurro sale aunque estés solo en tu canal, y gana sobre la tecla de hablar si se aprietan las dos;
+  - quien recibe ve "Te susurra: Sofi" en el panel de audio, sin animación. El sonido es el del paso 3.7.
 
 ## Compartir pantalla (en desarrollo, etapa 12)
 

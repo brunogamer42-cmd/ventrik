@@ -92,6 +92,15 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       voz.silenciados((entrada[1] & 1u) != 0 ? 1u : 2u,
                       (entrada[1] & 2u) != 0 ? std::vector<std::uint32_t>{1, 2} : std::vector<std::uint32_t>{});
     }
+    if ((entrada[0] & 0x08) != 0) {
+      ventrik::servidor::Susurros susurros{};
+      auto& destino = susurros[entrada[1] % susurros.size()];
+      destino.canal = (entrada[1] & 0x10) != 0 ? 1U + entrada[1] % 3U : 0U;
+      if ((entrada[1] & 0x20) != 0) {
+        destino.personas = {(entrada[1] & 0x40) != 0 ? 1U : 2U};
+      }
+      voz.susurros((entrada[1] & 1u) != 0 ? 1u : 2u, susurros);
+    }
     if ((entrada[0] & 0x40) != 0 && (entrada[1] & 0x80) != 0) {
       dos_en_la_voz = !dos_en_la_voz;
       if (dos_en_la_voz) {

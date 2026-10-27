@@ -52,11 +52,21 @@ enum class Ajuste : std::uint16_t {
   avisos_de_voz = 16,
   avisos_de_conexion = 17,
   avisos_privados = 18,
-  avisos_minimizada = 19
+  avisos_minimizada = 19,
+  susurro_1 = 20,
+  susurro_2 = 21,
+  susurro_3 = 22,
+  susurro_4 = 23
 };
 constexpr std::array<std::uint16_t, 4> kSeguirAlSoltarMs = {0, 200, 500, 1000};
 enum class Eco : std::uint8_t { apagado, automatico, prendido };
 enum class Bajar : std::uint8_t { nada, un_poco, bastante, mucho };
+
+struct Susurro {
+  std::uint8_t tecla = 0;
+  std::string canal;
+  std::vector<std::string> personas;
+};
 
 struct AjustesDeLimpieza {
   Ruido ruido = Ruido::apagado;
@@ -116,6 +126,11 @@ std::string ajuste_texto(const Guardados& guardados, Ajuste ajuste);
 void poner_ajuste(Guardados& guardados, Ajuste ajuste, std::uint8_t valor);
 void poner_texto(Guardados& guardados, Ajuste ajuste, std::string_view texto);
 AjustesDeLimpieza limpieza_de(const Guardados& guardados, bool un_nucleo);
+std::optional<Susurro> susurro_de(const Guardados& guardados, std::size_t lugar);
+void poner_susurro(Guardados& guardados, std::size_t lugar, const std::optional<Susurro>& susurro);
+protocolo::DestinosDeSusurro destinos_de(const Susurro& susurro, std::size_t lugar, std::uint32_t yo,
+                                         const std::vector<protocolo::CanalInfo>& canales,
+                                         const std::map<std::uint32_t, protocolo::UsuarioInfo>& usuarios);
 std::uint8_t tecla_para_hablar(std::uint8_t guardada);
 ServidorGuardado* buscar_guardado(Guardados& guardados, const red::Direccion& direccion);
 bool recordar(Guardados& guardados, ServidorGuardado servidor);

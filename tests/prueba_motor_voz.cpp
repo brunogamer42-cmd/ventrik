@@ -15,6 +15,7 @@
 #include "client/buffer_voz.h"
 #include "client/canal_voz.h"
 #include "client/motor_voz.h"
+#include "client/vigia.h"
 #include "sonido_de_prueba.h"
 #include <doctest/doctest.h>
 
@@ -639,6 +640,153 @@ TEST_CASE("Solo en el canal, la tecla no comprime ni manda voz, pero el medidor 
   }
   CHECK(puente.subida.sacar(sacado));
   CHECK(sacado.numero == 0);
+}
+
+TEST_CASE("Un susurro sale aunque estés solo en el canal, con su flujo y su propia cuenta, y llega marcado") {
+  PuenteVoz de_ida;
+  PuenteVoz de_vuelta;
+  MotorVoz emisor(de_ida, Calidad{});
+  MotorVoz receptor(de_vuelta, Calidad{});
+  REQUIRE(emisor.ok());
+  REQUIRE(receptor.ok());
+  std::vector<std::int16_t> sonido(480);
+  std::vector<std::int16_t> silencio(480);
+  std::vector<std::int16_t> salida(480);
+  std::size_t muestra = 0;
+  bool marcado = false;
+  const auto hablar = [&](std::uint8_t flujo, std::uint16_t& numero) {
+    for (int tanda = 0; tanda < 20; ++tanda) {
+      tono(sonido, muestra, 48000);
+      emisor.procesar(sonido, salida);
+      PaqueteVoz llegado;
+      while (de_ida.subida.sacar(llegado)) {
+        CHECK(llegado.flujo == flujo);
+        CHECK(llegado.numero == numero++);
+        llegado.hablante = 9;
+        REQUIRE(de_vuelta.bajada.poner(llegado));
+      }
+      receptor.procesar(silencio, salida);
+      const auto susurran = de_vuelta.susurrantes();
+      marcado = marcado || std::find(susurran.begin(), susurran.end(), 9U) != susurran.end();
+    }
+  };
+  std::uint16_t normales = 0;
+  std::uint16_t susurrados = 0;
+  emisor.transmitir(true);
+  hablar(0, normales);
+  CHECK(normales == 10);
+  CHECK_FALSE(marcado);
+  emisor.transmitir(false);
+  emisor.solo_en_el_canal(true);
+  emisor.susurrar(2);
+  CHECK(emisor.susurrando() == 2);
+  hablar(2, susurrados);
+  CHECK(susurrados == 10);
+  CHECK(marcado);
+  emisor.susurrar(0);
+  emisor.solo_en_el_canal(false);
+  emisor.transmitir(true);
+  hablar(0, normales);
+  CHECK(normales == 20);
+  emisor.silenciar(true, false);
+  emisor.susurrar(1);
+  CHECK(emisor.susurrando() == 0);
+  emisor.silenciar(false, false);
+  emisor.susurrar(9);
+  CHECK(emisor.susurrando() == 0);
+}
+
+TEST_CASE("En por voz, el susurro sale sin pasar la marca, y al soltarlo vuelve la marca") {
+  PuenteVoz puente;
+  MotorVoz motor(puente, Calidad{});
+  REQUIRE(motor.ok());
+  motor.sensibilidad(100);
+  motor.por_voz(true);
+  std::vector<std::int16_t> entrada(480);
+  std::vector<std::int16_t> salida(480);
+  std::size_t muestra = 0;
+  const auto contar = [&] {
+    int salieron = 0;
+    for (int i = 0; i < 10; ++i) {
+      tono(entrada, muestra, 48000);
+      motor.procesar(entrada, salida);
+      PaqueteVoz sacado;
+      while (puente.subida.sacar(sacado)) {
+        CHECK(sacado.flujo == motor.susurrando());
+        ++salieron;
+      }
+    }
+    return salieron;
+  };
+  CHECK(contar() == 0);
+  motor.susurrar(1);
+  CHECK(contar() >= 4);
+  motor.susurrar(0);
+  CHECK(contar() == 0);
+}
+
+TEST_CASE("Las teclas: el susurro gana a hablar, seguir al soltar vale para los dos y una tecla recién elegida espera a soltarse") {
+  using namespace std::chrono_literals;
+  using ventrik::cliente::decidir_teclas;
+  using ventrik::cliente::EstadoDeTeclas;
+  const auto t0 = std::chrono::steady_clock::time_point{} + 10s;
+  std::array<bool, ventrik::cliente::kTeclasDeVoz> nada{};
+  auto hablar = nada;
+  hablar[0] = true;
+  auto ambos = hablar;
+  ambos[2] = true;
+  auto dos_susurros = nada;
+  dos_susurros[2] = true;
+  dos_susurros[3] = true;
+  EstadoDeTeclas estado;
+  auto pedido = decidir_teclas(estado, hablar, false, false, false, t0, 200ms);
+  REQUIRE(pedido);
+  CHECK(pedido->transmitir);
+  CHECK(pedido->susurro == 0);
+  pedido = decidir_teclas(estado, ambos, false, true, false, t0, 200ms);
+  REQUIRE(pedido);
+  CHECK_FALSE(pedido->transmitir);
+  CHECK(pedido->susurro == 2);
+  pedido = decidir_teclas(estado, dos_susurros, false, true, false, t0, 200ms);
+  REQUIRE(pedido);
+  CHECK(pedido->susurro == 2);
+  pedido = decidir_teclas(estado, nada, false, true, false, t0 + 10ms, 200ms);
+  REQUIRE(pedido);
+  CHECK(pedido->susurro == 2);
+  CHECK(estado.soltar_en == t0 + 210ms);
+  pedido = decidir_teclas(estado, nada, false, true, false, t0 + 209ms, 200ms);
+  REQUIRE(pedido);
+  CHECK(pedido->susurro == 2);
+  pedido = decidir_teclas(estado, nada, false, true, false, t0 + 210ms, 200ms);
+  REQUIRE(pedido);
+  CHECK(pedido->susurro == 0);
+  CHECK_FALSE(pedido->transmitir);
+  CHECK_FALSE(estado.soltar_en);
+
+  CHECK_FALSE(decidir_teclas(estado, hablar, false, false, true, t0 + 1s, 200ms));
+  CHECK_FALSE(decidir_teclas(estado, hablar, false, false, false, t0 + 2s, 200ms));
+  pedido = decidir_teclas(estado, nada, false, false, false, t0 + 3s, 200ms);
+  REQUIRE(pedido);
+  CHECK_FALSE(pedido->transmitir);
+  pedido = decidir_teclas(estado, hablar, false, false, false, t0 + 4s, 200ms);
+  REQUIRE(pedido);
+  CHECK(pedido->transmitir);
+
+  EstadoDeTeclas por_voz;
+  pedido = decidir_teclas(por_voz, hablar, true, false, false, t0, 200ms);
+  REQUIRE(pedido);
+  CHECK_FALSE(pedido->transmitir);
+  CHECK(pedido->susurro == 0);
+  CHECK_FALSE(por_voz.soltar_en);
+  auto primero = nada;
+  primero[1] = true;
+  pedido = decidir_teclas(por_voz, primero, true, false, false, t0, 0ms);
+  REQUIRE(pedido);
+  CHECK(pedido->susurro == 1);
+  pedido = decidir_teclas(por_voz, nada, true, true, false, t0 + 1ms, 0ms);
+  REQUIRE(pedido);
+  CHECK(pedido->susurro == 0);
+  CHECK_FALSE(por_voz.soltar_en);
 }
 
 TEST_CASE("La marca del medidor va de -50 a 0 dB, como el medidor") {

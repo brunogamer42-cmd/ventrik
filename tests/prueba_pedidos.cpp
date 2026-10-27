@@ -157,7 +157,7 @@ TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{1, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 0}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 8}));
-  CHECK_FALSE(leer_mensaje<Negado>(Bytes{21, 0, 1}));
+  CHECK_FALSE(leer_mensaje<Negado>(Bytes{22, 0, 1}));
   CHECK_FALSE(leer_mensaje<Presentado>(Bytes{1, 0, 0, 0, 2, 0, 0, 0, 0}));
   CHECK_FALSE(leer_mensaje<Historial>(Bytes{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1}));
 }
@@ -270,18 +270,36 @@ TEST_CASE("Un medio de tipo o flujo desconocido, vacío, más largo que el tope 
   CHECK_FALSE(se_escribe(MedioSubida{{TipoFlujo::voz, 0, 1, {}}}));
   CHECK_FALSE(se_escribe(MedioBajada{1, {TipoFlujo::voz, 0, 1, std::vector<std::uint8_t>(kMaximoOpus + 1, 1)}}));
   CHECK_FALSE(se_escribe(MedioSubida{{static_cast<TipoFlujo>(2), 0, 1, {5}}}));
-  CHECK_FALSE(se_escribe(MedioSubida{{TipoFlujo::voz, 1, 1, {5}}}));
+  CHECK_FALSE(se_escribe(MedioSubida{{TipoFlujo::voz, 5, 1, {5}}}));
   CHECK_FALSE(se_escribe(MedioSubida{{TipoFlujo::voz, 0, 1, {5}, 0, kNivelMaximo + 1}}));
   CHECK(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 0, 0, 127, 1, 0, 5}));
   CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 0, 0, 128, 1, 0, 5}));
   CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{0, 0, 1, 0, 0, 0, 0, 1, 0, 5}));
   CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{2, 0, 1, 0, 0, 0, 0, 1, 0, 5}));
-  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 1, 1, 0, 0, 0, 0, 1, 0, 5}));
+  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 5, 1, 0, 0, 0, 0, 1, 0, 5}));
   CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 0, 0, 0, 0, 0}));
   CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6}));
   Bytes largo{1, 0, 1, 0, 0, 0, 0, 0x91, 0x01};
   largo.resize(9 + kMaximoOpus + 1, 0);
   CHECK_FALSE(leer_mensaje<MedioSubida>(largo));
+}
+
+TEST_CASE("Los destinos de un susurro llevan el lugar de 1 a 4, el canal y hasta 8 personas en orden y sin el 0") {
+  CHECK(en_bytes(DestinosDeSusurro{2, 0x01020304, {5}}) == Bytes{2, 4, 3, 2, 1, 1, 0, 5, 0, 0, 0});
+  ida_y_vuelta(DestinosDeSusurro{1, 0, {}});
+  ida_y_vuelta(DestinosDeSusurro{4, 7, {1, 2, 3, 4, 5, 6, 7, 8}});
+  CHECK_FALSE(se_escribe(DestinosDeSusurro{0, 1, {}}));
+  CHECK_FALSE(se_escribe(DestinosDeSusurro{5, 1, {}}));
+  CHECK_FALSE(se_escribe(DestinosDeSusurro{1, 0, {1, 2, 3, 4, 5, 6, 7, 8, 9}}));
+  CHECK_FALSE(se_escribe(DestinosDeSusurro{1, 0, {3, 2}}));
+  CHECK_FALSE(se_escribe(DestinosDeSusurro{1, 0, {0, 2}}));
+  CHECK_FALSE(leer_mensaje<DestinosDeSusurro>(Bytes{0, 0, 0, 0, 0, 0, 0}));
+  CHECK_FALSE(leer_mensaje<DestinosDeSusurro>(Bytes{5, 0, 0, 0, 0, 0, 0}));
+  CHECK_FALSE(leer_mensaje<DestinosDeSusurro>(Bytes{1, 0, 0, 0, 0, 9, 0}));
+  CHECK_FALSE(leer_mensaje<DestinosDeSusurro>(Bytes{1, 0, 0, 0, 0, 2, 0, 3, 0, 0, 0, 2, 0, 0, 0}));
+  CHECK(en_bytes(MedioSubida{{TipoFlujo::voz, 4, 1, {5}}}) == Bytes{1, 4, 1, 0, 0, 0, 0, 1, 0, 5});
+  ida_y_vuelta(MedioBajada{3, {TipoFlujo::voz, 4, 9, {1}, 20, 0}});
+  CHECK(en_bytes(Negado{TipoMensaje::destinos_de_susurro, MotivoNegado::no_existe}) == Bytes{21, 0, 2});
 }
 
 TEST_CASE("Un datagrama lleva el tipo adelante y nada más") {
