@@ -418,7 +418,55 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - con la limpieza, un ventilador no abre "por voz" (sin ella sí): era un pendiente de esta etapa;
     - programa.dat v7: ida y vuelta, claves desconocidas, rechazos, de fábrica según la PC;
     - `fuzz_voz` cambia la limpieza al azar, y hay semilla `version7_ajustes.bin`.
-- **Lo que sigue:** pasos 3.5 (Ajustes, bandeja e inicio con Windows), 3.6 (susurro) y 3.7 (sonidos de los avisos); al final, una sola prueba a mano en la PC y en la XP.
+- **Etapa 3, paso 3.5: pantalla de Ajustes, bandeja e inicio con Windows (hecho, 2026-10-27).**
+  - **`ui/ajustes`** (`PantallaAjustes`, `PedidoAjustes`), como Inicio y el servidor:
+    - **cómo se aplica:** la pantalla no toca nada. Devuelve una copia de `Guardados` con lo cambiado y Programa la aplica al momento (`aplicar_ajustes`: idioma, bandeja, teclas, avisos, motor, dispositivos, y la limpieza solo si cambió, porque mira si hay auriculares). Guarda programa.dat cuando nada está agarrado: arrastrando un deslizador se aplica en cada cuadro, pero se guarda una sola vez, al soltar. Mientras está abierta, la sesión y la voz siguen;
+    - **el buscador** busca, en minúsculas, en el nombre de cada sección y de sus ajustes. Recalcula solo cuando cambia lo escrito;
+    - **piezas que pasaron a piezas.cpp:** `casilla`, `deslizador` y `desplegable`. El combo del diálogo "Avisos de…" ahora usa `desplegable`.
+  - **programa.dat:** claves nuevas en el bloque de ajustes, sin cambiar el formato:
+    - al cerrar, al minimizar, entrar al último, al entrar, idioma (texto, hasta 8 bytes), teclas sin foco, seguir al soltar;
+    - micrófono y salida (texto UTF-8, hasta 256 bytes);
+    - volumen de los avisos;
+    - qué avisa, privados y minimizada.
+  - **Bandeja (en `Ventana`):**
+    - `Shell_NotifyIconW` con el tamaño de estructura de XP (`NOTIFYICONDATAW_V2_SIZE`);
+    - el ícono existe solo mientras la ventana está escondida (estado `Situacion::oculta`, que deja de dibujar y ahorra como minimizada); se repone con "TaskbarCreated";
+    - `WM_CLOSE` y `SC_MINIMIZE` esconden según el ajuste; "Salir" (`kOrdenSalir`) cierra;
+    - sin hilos ni despertares nuevos;
+    - **por eso:**
+      - tools/check.ps1 abre la ventana con una carpeta de datos propia (no toca la del dueño ni entra solo al último servidor) y la cierra con "Salir";
+      - la prueba de combinaciones comprueba que cerrar esconde y que "Salir" cierra.
+  - **Inicio con Windows (`client/arranque`):**
+    - escribe o borra `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Ventrik` solo cuando se tilda o destilda, y solo con la carpeta de datos real (no desde las pruebas);
+    - la prueba usa una clave propia y la borra.
+  - **Audio:**
+    - `Audio::abrir` recibe el micrófono y la salida por nombre: en la moderna, con un `ma_context` propio (fijado en la RAM con el dispositivo); en XP, por el índice de WinMM;
+    - **`client/prueba_de_audio`:**
+      - abre el audio solo mientras se prueba el micrófono o la salida;
+      - **qué despierta:** el hilo del dispositivo existe solo mientras tanto, y un temporizador de 250 ms (`kTicDePrueba`) redibuja el medidor a 4 por segundo solo mientras se prueba;
+      - dentro de la voz, el medidor sale del motor.
+  - **Teclas (`Vigia`):**
+    - `solo_con_foco` y `seguir_al_soltar`: al soltar, la espera dura justo hasta que vence ese tiempo;
+    - elegir la tecla desde Ajustes no necesita estar en la voz: Programa compara las teclas apretadas en cada vuelta (`teclas_apretadas`, `tecla_nueva`), con la ventana al frente.
+  - **Pruebas:**
+    - Ajustes se dibuja en todas las secciones, tamaños y escalas;
+    - el buscador salta a Audio con "eco";
+    - una casilla cambia su ajuste, y "Volver" y Escape salen;
+    - las secciones futuras no tienen controles;
+    - nada se anima con el mouse quieto;
+    - banco;
+    - ajustes de texto en programa.dat;
+    - el inicio con Windows en el registro.
+  - **Arreglos de la revisión:**
+    - **un solo Ventrik por carpeta de datos:** con la bandeja de fábrica, cerrar con la X deja el programa abierto, y abrirlo otra vez armaba un segundo Ventrik que entraba solo al mismo servidor (se oía doble y los dos escribían programa.dat). Ahora un mutex `Local\Ventrik-<marca>` (la marca es FNV-1a de la carpeta en minúsculas, igual en 32 y 64 bits) frena al segundo. Ese segundo busca la ventana con la misma marca (propiedad de ventana `VentrikCarpeta`), le manda "Abrir" y sale. Una carpeta propia (`--carpeta`, las pruebas) no choca con la del dueño. Todo existe en XP;
+    - **"Probar salida" abre solo los parlantes** (`Audio::abrir` con `con_microfono = false`: `ma_device_type_playback` en la moderna; en XP, `waveOut` solo, con `CALLBACK_EVENT`, y el hilo llena cada pedazo que se libera). Antes no sonaba sin micrófono, con el micrófono bloqueado por privacidad o, en XP, con el micrófono ya ocupado por la voz. El paso 3.7 usa esto mismo para los sonidos;
+    - **el hilo de las teclas** podía quedar girando sin esperar si se pasaba a "por voz" durante el "seguir al soltar"; ahora esa espera se borra fuera del modo tecla;
+    - **Escape** ya no saca de Ajustes cuando cierra una lista, sale del buscador o cancela la elección de tecla: la pantalla recuerda si en el cuadro anterior había algo abierto (`PantallaAjustes::ocupado`);
+    - una prueba de micrófono se cierra al abrir la voz; el temporizador de la prueba se apaga si el tono no abre; abrir Ajustes cancela la elección de tecla del panel del servidor; con la tecla nueva todavía apretada no se transmite;
+    - los nombres de dispositivo que no son UTF-8 (DirectSound da ANSI) o pasan de 256 bytes no se ofrecen, porque no se podrían guardar;
+    - la casilla del inicio con Windows compara la ruta sin mayúsculas;
+    - tools/check.ps1 comprueba que cerrar esconde la ventana y que abrir Ventrik otra vez muestra el que ya estaba.
+- **Lo que sigue:** pasos 3.6 (susurro) y 3.7 (sonidos de los avisos); al final, una sola prueba a mano en la PC y en la XP.
 
 ## Ramas y repositorio
 
@@ -719,7 +767,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - Memoria de la ventana: unos 70 MB en Windows 10 (casi todo de Direct3D 9) y 7 MB en la HP 2133 con XP (medido por el dueño, Administrador de tareas).
 - Por VNC, en la HP 2133 la ventana no se ve (en la pantalla de la propia PC sí). El VNC usa un controlador espejo (sin él gasta mucho), y ese controlador no ve lo que dibuja Direct3D. Decisión del dueño: dejarlo así, sin cambios solo para el VNC; la netbook se prueba usándola directamente.
 - Sin Direct3D (XP por Escritorio remoto o en una máquina virtual sin 3D) solo se ve el aviso. Mientras se arrastra el borde de la ventana no se redibuja (la imagen se estira hasta soltar). Con el escritorio de XP en 16 bits el emblema puede quedar invisible (el ícono pierde la transparencia).
-- Servidores guardados: con dos programas abiertos a la vez, gana el último que guarda (no se mezclan). Si hace falta, un mutex con nombre que cubra leer, mezclar y escribir. La tecla para hablar se valida en la lectura y en la escritura (0 es Alt izquierdo; nunca los clics izquierdo y derecho ni Esc).
+- Servidores guardados: desde el paso 3.5 no puede haber dos programas abiertos con la misma carpeta de datos (mutex por carpeta), así que nadie pisa lo que guardó otro. La tecla para hablar se valida en la lectura y en la escritura (0 es Alt izquierdo; nunca los clics izquierdo y derecho ni Esc).
 - `borrar_temporales_de` corre antes de leer: en un disco FAT32, un corte justo entre borrar el archivo viejo y renombrar el nuevo puede perder la lista. Muy poco probable; la función es la misma para todos los archivos.
 - `Presentado` va en un solo mensaje: con unas 880 personas no entra en 64 KiB. Partirlo antes de subir `conexiones_maximas` de 512.
 - Archivos que este paso no tocó todavía tienen comentarios (bytes.cpp, marcos.h, utf.*, registro.h, inicio.h, proceso.cpp, archivos.cpp): se sacan cuando se toquen.

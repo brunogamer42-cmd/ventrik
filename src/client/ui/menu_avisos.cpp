@@ -81,26 +81,6 @@ bool menu_con_valor(const std::string& etiqueta, std::string_view valor) {
   return abierto;
 }
 
-bool casilla(Idioma idioma, Clave clave, ImVec2 donde, bool valor) {
-  const std::string_view etiqueta = texto(idioma, clave);
-  const float lado = px(18);
-  ImGui::SetCursorScreenPos(donde);
-  ImGui::PushID(static_cast<int>(clave));
-  const bool tocada = ImGui::InvisibleButton(
-      "##casilla", ImVec2(lado + px(8) + medir(etiqueta, Letra::normal, medida::letra).x, lado));
-  ImGui::PopID();
-  const bool marcada = valor != tocada;
-  ImDrawList& dibujo = *ImGui::GetWindowDrawList();
-  const ImVec2 hasta(donde.x + lado, donde.y + lado);
-  dibujo.AddRectFilled(donde, hasta, tono(marcada ? color::claro : color::pozo), px(2));
-  dibujo.AddRect(donde, hasta, tono(marcada ? color::claro : color::linea2), px(2));
-  if (marcada) {
-    ImGui::RenderCheckMark(&dibujo, ImVec2(donde.x + px(4), donde.y + px(4)), tono(color::tinta), lado - px(8));
-  }
-  escribir_en(donde.x + lado + px(8), donde.y + lado / 2, etiqueta, color::texto);
-  return tocada;
-}
-
 }
 
 std::string estado_de_silencio(Idioma idioma, const AjusteDeAvisos& ajuste) {
@@ -263,33 +243,17 @@ EleccionDeAvisos dialogo_avisos(Idioma idioma, std::string_view servidor, const 
   escribir(ImVec2(x, y), texto(idioma, Clave::avisos_silenciar_el_servidor), color::texto2, Letra::normal,
            medida::letra_chica);
   y += px(20);
-  ImGui::SetCursorScreenPos(ImVec2(x, y - px(4)));
-  ImGui::SetNextItemWidth(px(300));
   const bool callado = cliente::silenciado(avisos.servidor, ahora);
-  const std::string vista = callado ? estado_de_silencio(idioma, avisos.servidor) : s(idioma, Clave::avisos_no);
-  for (const auto& [cual, valor] : {std::make_pair(ImGuiCol_FrameBg, color::pozo),
-                                    std::make_pair(ImGuiCol_FrameBgHovered, color::pozo),
-                                    std::make_pair(ImGuiCol_Border, color::linea2), std::make_pair(ImGuiCol_Button, 0u),
-                                    std::make_pair(ImGuiCol_ButtonHovered, 0u)}) {
-    ImGui::PushStyleColor(cual, valor);
+  std::vector<std::string> plazos = {s(idioma, Clave::avisos_no)};
+  for (const Plazo& plazo : kPlazos) {
+    plazos.push_back(s(idioma, plazo.clave));
   }
-  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, px(1));
-  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(px(10), px(6)));
-  const bool desplegado = ImGui::BeginCombo("##silenciar", vista.c_str());
-  ImGui::PopStyleVar(2);
-  ImGui::PopStyleColor(5);
-  if (desplegado) {
-    if (ImGui::Selectable(s(idioma, Clave::avisos_no).c_str(), !callado)) {
-      cambiar([](AvisosDelServidor& a) { a.servidor.silenciado_hasta = 0; });
-    }
-    for (const Plazo& plazo : kPlazos) {
-      if (ImGui::Selectable(s(idioma, plazo.clave).c_str())) {
-        cambiar([&](AvisosDelServidor& a) { a.servidor.silenciado_hasta = vence(plazo.minutos, ahora); });
-      }
-    }
-    ImGui::EndCombo();
+  if (const auto elegido = desplegable("##silenciar", ImVec2(x, y - px(4)), px(300), plazos, callado ? -1 : 0,
+                                       callado ? estado_de_silencio(idioma, avisos.servidor) : std::string())) {
+    const std::uint64_t hasta = *elegido == 0 ? 0 : vence(kPlazos[static_cast<std::size_t>(*elegido - 1)].minutos, ahora);
+    cambiar([hasta](AvisosDelServidor& a) { a.servidor.silenciado_hasta = hasta; });
   }
-  if (casilla(idioma, Clave::avisos_aun_con_mencion, ImVec2(x + px(316), y), avisos.servidor.aun_con_mencion)) {
+  if (casilla(texto(idioma, Clave::avisos_aun_con_mencion), ImVec2(x + px(316), y), avisos.servidor.aun_con_mencion)) {
     cambiar([](AvisosDelServidor& a) { a.servidor.aun_con_mencion = !a.servidor.aun_con_mencion; });
   }
   y += px(46);
@@ -328,11 +292,11 @@ EleccionDeAvisos dialogo_avisos(Idioma idioma, std::string_view servidor, const 
                 medida::letra_chica, ancho_cuadro - px(40));
   }
   y += px(80);
-  if (casilla(idioma, Clave::avisos_no_contar_todos, ImVec2(x, y), !avisos.contar_todos)) {
+  if (casilla(texto(idioma, Clave::avisos_no_contar_todos), ImVec2(x, y), !avisos.contar_todos)) {
     cambiar([](AvisosDelServidor& a) { a.contar_todos = !a.contar_todos; });
   }
   y += px(30);
-  if (casilla(idioma, Clave::avisos_sonidos_de_voz, ImVec2(x, y), avisos.sonidos_de_voz)) {
+  if (casilla(texto(idioma, Clave::avisos_sonidos_de_voz), ImVec2(x, y), avisos.sonidos_de_voz)) {
     cambiar([](AvisosDelServidor& a) { a.sonidos_de_voz = !a.sonidos_de_voz; });
   }
   y += px(40);

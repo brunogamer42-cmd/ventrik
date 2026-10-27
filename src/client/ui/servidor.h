@@ -140,6 +140,7 @@ struct PedidoServidor {
   std::optional<cliente::AvisosDelServidor> avisos;
   std::vector<std::uint32_t> leidos;
   bool guardar = false;
+  bool ajustes = false;
   std::vector<cliente::Orden> ordenes;
 };
 

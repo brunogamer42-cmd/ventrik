@@ -112,6 +112,73 @@ bool por_aparecer() {
   });
 }
 
+bool casilla(std::string_view etiqueta, ImVec2 donde, bool valor) {
+  const float lado = px(18);
+  ImGui::SetCursorScreenPos(donde);
+  ImGui::PushID(etiqueta.data(), etiqueta.data() + etiqueta.size());
+  const bool tocada =
+      ImGui::InvisibleButton("##casilla", ImVec2(lado + px(8) + medir(etiqueta, Letra::normal, medida::letra).x, lado));
+  ImGui::PopID();
+  const bool marcada = valor != tocada;
+  ImDrawList& dibujo = *ImGui::GetWindowDrawList();
+  const ImVec2 hasta(donde.x + lado, donde.y + lado);
+  dibujo.AddRectFilled(donde, hasta, tono(marcada ? color::claro : color::pozo), px(2));
+  dibujo.AddRect(donde, hasta, tono(marcada ? color::claro : color::linea2), px(2));
+  if (marcada) {
+    ImGui::RenderCheckMark(&dibujo, ImVec2(donde.x + px(4), donde.y + px(4)), tono(color::tinta), lado - px(8));
+  }
+  escribir_en(donde.x + lado + px(8), donde.y + lado / 2, etiqueta, color::texto);
+  return tocada;
+}
+
+std::optional<float> deslizador(const char* id, ImVec2 desde, float ancho, float valor) {
+  ImDrawList& dibujo = *ImGui::GetWindowDrawList();
+  ImGui::SetCursorScreenPos(ImVec2(desde.x, desde.y - px(8)));
+  std::optional<float> nuevo;
+  ImGui::InvisibleButton(id, ImVec2(ancho, px(16)));
+  if (ImGui::IsItemActive()) {
+    nuevo = std::clamp((ImGui::GetIO().MousePos.x - desde.x) / ancho, 0.0f, 1.0f);
+  }
+  const float corte = desde.x + ancho * nuevo.value_or(valor);
+  dibujo.AddRectFilled(ImVec2(desde.x, desde.y - px(3)), ImVec2(corte, desde.y + px(3)), tono(color::claro), px(3));
+  dibujo.AddRectFilled(ImVec2(corte, desde.y - px(3)), ImVec2(desde.x + ancho, desde.y + px(3)), tono(color::linea),
+                       px(3));
+  dibujo.AddCircleFilled(ImVec2(corte, desde.y), px(7), tono(color::claro));
+  return nuevo;
+}
+
+std::optional<int> desplegable(const char* id, ImVec2 donde, float ancho, const std::vector<std::string>& opciones,
+                               int elegida, std::string_view vista) {
+  ImGui::SetCursorScreenPos(donde);
+  ImGui::SetNextItemWidth(ancho);
+  const bool valida = elegida >= 0 && static_cast<std::size_t>(elegida) < opciones.size();
+  const std::string mostrar(vista.empty() && valida ? std::string_view(opciones[static_cast<std::size_t>(elegida)])
+                                                    : vista);
+  for (const auto& [cual, valor] : {std::make_pair(ImGuiCol_FrameBg, color::pozo),
+                                    std::make_pair(ImGuiCol_FrameBgHovered, color::pozo),
+                                    std::make_pair(ImGuiCol_Border, color::linea2), std::make_pair(ImGuiCol_Button, 0u),
+                                    std::make_pair(ImGuiCol_ButtonHovered, 0u)}) {
+    ImGui::PushStyleColor(cual, valor);
+  }
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, px(1));
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(px(10), px(6)));
+  const bool abierto = ImGui::BeginCombo(id, mostrar.c_str());
+  ImGui::PopStyleVar(2);
+  ImGui::PopStyleColor(5);
+  std::optional<int> nueva;
+  if (abierto) {
+    for (std::size_t i = 0; i < opciones.size(); ++i) {
+      ImGui::PushID(static_cast<int>(i));
+      if (ImGui::Selectable(opciones[i].c_str(), static_cast<int>(i) == elegida)) {
+        nueva = static_cast<int>(i);
+      }
+      ImGui::PopID();
+    }
+    ImGui::EndCombo();
+  }
+  return nueva;
+}
+
 void cerrar_ventana_emergente() {
   ImGui::CloseCurrentPopup();
   ImGui::GetCurrentWindow()->Hidden = true;

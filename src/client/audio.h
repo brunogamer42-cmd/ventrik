@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <windows.h>
@@ -14,9 +15,22 @@
 #include "client/voz_primero.h"
 
 struct ma_device;
+struct ma_context;
 
 namespace ventrik::cliente {
 bool tirar_pedazo(std::uint32_t espera_ms, gsl::span<const std::int16_t> pedazo);
+
+struct ElegidosDeAudio {
+  std::string microfono;
+  std::string salida;
+};
+
+struct ListaDeAudio {
+  std::vector<std::string> microfonos;
+  std::vector<std::string> salidas;
+};
+
+ListaDeAudio dispositivos_de_audio();
 
 class Audio {
  public:
@@ -28,7 +42,8 @@ class Audio {
   Audio(const Audio&) = delete;
   Audio& operator=(const Audio&) = delete;
 
-  bool abrir(unsigned frecuencia, Procesar procesar, void* datos);
+  bool abrir(unsigned frecuencia, Procesar procesar, void* datos, const ElegidosDeAudio& elegidos = {},
+             bool con_microfono = true);
   void cerrar();
   std::uint32_t espera_de_salida_ms() const { return espera_de_salida_ms_.load(std::memory_order_relaxed); }
   std::uint32_t tomar_espera_maxima_ms() { return espera_maxima_ms_.exchange(0, std::memory_order_relaxed); }
@@ -44,7 +59,8 @@ class Audio {
     gsl::span<std::int16_t> muestras;
   };
 
-  bool abrir_puente(unsigned frecuencia);
+  bool abrir_puente(unsigned frecuencia, const ElegidosDeAudio& elegidos, bool con_microfono);
+  void solo_salida();
   static unsigned __stdcall hilo(void* yo);
   void atender();
   Pedazo* libre_para_salida();
@@ -56,7 +72,9 @@ class Audio {
   Procesar procesar_ = nullptr;
   void* datos_ = nullptr;
   std::unique_ptr<ma_device> dispositivo_;
+  std::unique_ptr<ma_context> contexto_;
   bool hay_miniaudio_ = false;
+  bool hay_contexto_ = false;
   bool hilo_listo_ = false;
   HWAVEIN entrada_ = nullptr;
   HWAVEOUT salida_ = nullptr;

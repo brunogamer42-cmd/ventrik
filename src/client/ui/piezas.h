@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <gsl/gsl>
 #include <imgui.h>
@@ -42,7 +44,8 @@ enum class Icono {
   parlante,
   pulso,
   flecha_arriba,
-  campana
+  campana,
+  flecha_izquierda
 };
 
 using Campo = std::array<char, 128>;
@@ -83,6 +86,10 @@ void escribir_envuelto(ImVec2 donde, std::string_view texto, ImU32 color, float 
                        float tamano = medida::letra);
 void cartel(std::string_view texto);
 void cerrar_ventana_emergente();
+bool casilla(std::string_view etiqueta, ImVec2 donde, bool valor);
+std::optional<float> deslizador(const char* id, ImVec2 desde, float ancho, float valor);
+std::optional<int> desplegable(const char* id, ImVec2 donde, float ancho, const std::vector<std::string>& opciones,
+                               int elegida, std::string_view vista = {});
 bool por_aparecer();
 
 void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, ImU32 color);

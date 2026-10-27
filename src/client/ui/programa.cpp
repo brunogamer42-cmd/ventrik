@@ -7,7 +7,9 @@
 #include <iomanip>
 #include <memory>
 #include <optional>
+#include <string>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -17,10 +19,13 @@
 #include "client/guardados.h"
 #include "client/horas.h"
 #include "client/motor_voz.h"
+#include "client/arranque.h"
+#include "client/prueba_de_audio.h"
 #include "client/sala.h"
 #include "client/salida_de_windows.h"
 #include "client/sesion.h"
 #include "client/vigia.h"
+#include "client/ui/ajustes.h"
 #include "client/ui/aviso_ventana.h"
 #include "client/ui/inicio.h"
 #include "client/ui/servidor.h"
@@ -38,6 +43,20 @@ using namespace std::chrono_literals;
 using Reloj = std::chrono::steady_clock;
 constexpr auto kEntreAperturasDeVoz = 1s;
 constexpr auto kSilencioParaDevolver = 1s;
+constexpr UINT_PTR kTicDePrueba = 3;
+constexpr UINT kCadaNivelDePrueba = 250;
+constexpr auto kDuracionDelTono = 1200ms;
+constexpr int kSegmentosDePrueba = 20;
+
+bool desde_windows_7() {
+  OSVERSIONINFOEXW pedido = {};
+  pedido.dwOSVersionInfoSize = sizeof(pedido);
+  pedido.dwMajorVersion = 6;
+  pedido.dwMinorVersion = 1;
+  return VerifyVersionInfoW(&pedido, VER_MAJORVERSION | VER_MINORVERSION,
+                            VerSetConditionMask(VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL),
+                                                VER_MINORVERSION, VER_GREATER_EQUAL)) != FALSE;
+}
 
 template <typename... Valores>
 void anotar(std::ostream& salida, const Valores&... valores) {
@@ -68,12 +87,17 @@ class Programa {
       pantalla_.aviso = texto(idioma, aviso);
     }
     poner(pantalla_.nombre, guardados_.nombre);
+    aplicar_idioma();
+    aplicar_avisos();
     if (entrada.size() == 3 || entrada.size() == 4) {
       poner(pantalla_.direccion, entrada[0]);
       poner(pantalla_.huella, entrada[1]);
       poner(pantalla_.nombre, entrada[2]);
       poner(pantalla_.codigo, entrada.size() == 4 ? entrada[3] : std::string());
       entrar_con_formulario();
+    } else if (cliente::ajuste_o(guardados_, cliente::Ajuste::entrar_al_ultimo, 1) == 1 &&
+               !guardados_.servidores.empty()) {
+      entrar_a(guardados_.servidores[0]);
     }
   }
 
@@ -130,12 +154,14 @@ class Programa {
     aplicar_personas();
     aplicar_audio();
     aplicar_limpieza();
+    prueba_.reset();
     audio_ = std::make_unique<cliente::Audio>();
-    servidor_.hay_audio =
-        motor_->ok() && audio_->abrir(motor_->frecuencia(), cliente::MotorVoz::procesar_audio, motor_.get());
+    servidor_.hay_audio = motor_->ok() && audio_->abrir(motor_->frecuencia(), cliente::MotorVoz::procesar_audio,
+                                                       motor_.get(), elegidos());
     vigia_ = std::make_unique<cliente::Vigia>(*motor_, *puente_, cliente::tecla_para_hablar(guardados_.tecla_hablar),
                                               ventana_.hwnd(), [this] { avisar(); });
     vigia_->por_voz(guardados_.por_voz);
+    aplicar_teclas();
     despertares_audio_ = audio_->despertares();
     abrir_desde_ = Reloj::now() + kEntreAperturasDeVoz;
     sesion_->voz(puente_);
@@ -145,6 +171,185 @@ class Programa {
     if (motor_) {
       motor_->silenciar(guardados_.silencio != 0, (guardados_.silencio & protocolo::kSilencioAudio) != 0);
       motor_->volumenes(guardados_.volumen_microfono, guardados_.volumen_salida);
+    }
+  }
+
+  cliente::ElegidosDeAudio elegidos() const {
+    return {cliente::ajuste_texto(guardados_, cliente::Ajuste::microfono),
+            cliente::ajuste_texto(guardados_, cliente::Ajuste::salida)};
+  }
+
+  void aplicar_idioma() {
+    const std::string codigo = cliente::ajuste_texto(guardados_, cliente::Ajuste::idioma);
+    const Idioma idioma = codigo.empty() ? idioma_de_windows() : elegir_idioma(codigo);
+    pantalla_.idioma = servidor_.idioma = ajustes_.idioma = idioma;
+    avisos_.idioma(idioma);
+    ventana_.bandeja(cliente::ajuste_o(guardados_, cliente::Ajuste::al_cerrar, 0) == 0,
+                     cliente::ajuste_o(guardados_, cliente::Ajuste::al_minimizar, 0) == 1,
+                     a_utf16(texto(idioma, Clave::bandeja_abrir)), a_utf16(texto(idioma, Clave::bandeja_salir)));
+  }
+
+  void aplicar_avisos() {
+    const auto prendido = [this](cliente::Ajuste ajuste, std::uint8_t de_fabrica) {
+      return cliente::ajuste_o(guardados_, ajuste, de_fabrica) == 1;
+    };
+    avisos_.opciones({true, prendido(cliente::Ajuste::avisos_de_texto, 1), prendido(cliente::Ajuste::avisos_de_voz, 1),
+                      prendido(cliente::Ajuste::avisos_de_conexion, 1), prendido(cliente::Ajuste::avisos_privados, 0),
+                      false});
+    mostrar_minimizada_ = prendido(cliente::Ajuste::avisos_minimizada, 1);
+  }
+
+  void aplicar_teclas() {
+    if (vigia_) {
+      vigia_->solo_con_foco(cliente::ajuste_o(guardados_, cliente::Ajuste::teclas_sin_foco, 1) == 0);
+      vigia_->seguir_al_soltar(std::chrono::milliseconds(
+          cliente::kSeguirAlSoltarMs[cliente::ajuste_o(guardados_, cliente::Ajuste::seguir_al_soltar, 1)]));
+    }
+  }
+
+  void abrir_ajustes() {
+    en_ajustes_ = true;
+    if (vigia_ && servidor_.eligiendo_tecla) {
+      vigia_->no_elegir();
+      servidor_.eligiendo_tecla = false;
+    }
+    ajustes_.dispositivos = cliente::dispositivos_de_audio();
+    ajustes_.arranca_con_windows = integrar_ && cliente::arranca_con_windows();
+    ajustes_.hay_bajar_otros = desde_windows_7();
+    ajustes_.un_nucleo = calidad_.frecuencia != cliente::Calidad{}.frecuencia;
+  }
+
+  void cerrar_ajustes() {
+    en_ajustes_ = false;
+    probar(false, false);
+    eligiendo_desde_.reset();
+    ajustes_.eligiendo_tecla = false;
+  }
+
+  void probar(bool microfono, bool tono) {
+    KillTimer(ventana_.hwnd(), kTicDePrueba);
+    prueba_.reset();
+    ajustes_.probando_microfono = microfono;
+    ajustes_.nivel = 0;
+    if (!microfono && !tono) {
+      return;
+    }
+    SetTimer(ventana_.hwnd(), kTicDePrueba, kCadaNivelDePrueba, nullptr);
+    fin_de_prueba_ = Reloj::now() + kDuracionDelTono;
+    if (!motor_ || tono) {
+      prueba_ = std::make_unique<cliente::PruebaDeAudio>();
+      prueba_->escucharme(ajustes_.escuchandome);
+      if (!prueba_->abrir(elegidos(), tono)) {
+        prueba_.reset();
+        if (!microfono) {
+          KillTimer(ventana_.hwnd(), kTicDePrueba);
+        }
+      }
+    }
+  }
+
+  bool atender_ajustes() {
+    bool cambio = false;
+    if (eligiendo_desde_ && GetForegroundWindow() == ventana_.hwnd()) {
+      const cliente::Teclas ahora = cliente::teclas_apretadas();
+      const int tecla = cliente::tecla_nueva(*eligiendo_desde_, ahora);
+      eligiendo_desde_ = ahora;
+      if (tecla >= 0) {
+        eligiendo_desde_.reset();
+        ajustes_.eligiendo_tecla = false;
+        cambio = true;
+        if (tecla > 0) {
+          guardados_.tecla_hablar = static_cast<std::uint8_t>(tecla);
+          servidor_.tecla = guardados_.tecla_hablar;
+          if (vigia_) {
+            vigia_->usar_tecla(guardados_.tecla_hablar);
+          }
+          guardar();
+        }
+      }
+    }
+    if (ajustes_.probando_microfono || prueba_) {
+      const int nivel = prueba_   ? prueba_->nivel(kSegmentosDePrueba)
+                        : motor_ ? motor_->nivel(kSegmentosDePrueba)
+                                 : 0;
+      cambio = std::exchange(ajustes_.nivel, nivel) != nivel || cambio;
+      if (!ajustes_.probando_microfono && Reloj::now() >= fin_de_prueba_) {
+        probar(false, false);
+      }
+    }
+    return cambio;
+  }
+
+  void aplicar_ajustes(cliente::Guardados nuevos) {
+    const bool otra_voz = nuevos.por_voz != guardados_.por_voz;
+    const bool otros_dispositivos =
+        cliente::ajuste_texto(nuevos, cliente::Ajuste::microfono) !=
+            cliente::ajuste_texto(guardados_, cliente::Ajuste::microfono) ||
+        cliente::ajuste_texto(nuevos, cliente::Ajuste::salida) != cliente::ajuste_texto(guardados_, cliente::Ajuste::salida);
+    guardados_ = std::move(nuevos);
+    const auto antes = limpieza_;
+    const auto ahora = cliente::limpieza_de(guardados_, calidad_.frecuencia != cliente::Calidad{}.frecuencia);
+    const bool otra_limpieza = std::tie(antes.ruido, antes.eco, antes.volumen, antes.bajar) !=
+                               std::tie(ahora.ruido, ahora.eco, ahora.volumen, ahora.bajar);
+    aplicar_idioma();
+    aplicar_avisos();
+    aplicar_teclas();
+    servidor_.por_voz = guardados_.por_voz;
+    servidor_.sensibilidad = guardados_.sensibilidad;
+    servidor_.volumen_microfono = guardados_.volumen_microfono;
+    servidor_.volumen_salida = guardados_.volumen_salida;
+    if (motor_) {
+      motor_->sensibilidad(guardados_.sensibilidad);
+      motor_->por_voz(guardados_.por_voz);
+      if (otra_voz) {
+        vigia_->por_voz(guardados_.por_voz);
+      }
+      aplicar_audio();
+      if (otros_dispositivos && audio_) {
+        servidor_.hay_audio = audio_->abrir(motor_->frecuencia(), cliente::MotorVoz::procesar_audio, motor_.get(),
+                                            elegidos());
+      }
+    }
+    if (otra_limpieza) {
+      aplicar_limpieza();
+    }
+    sin_guardar_ = true;
+  }
+
+  void cuadro_de_ajustes() {
+    PedidoAjustes pedido = dibujar_ajustes(ajustes_, guardados_);
+    if (pedido.guardados) {
+      aplicar_ajustes(std::move(*pedido.guardados));
+    }
+    if (pedido.arrancar_con_windows && integrar_) {
+      cliente::arrancar_con_windows(*pedido.arrancar_con_windows);
+      ajustes_.arranca_con_windows = cliente::arranca_con_windows();
+    }
+    if (pedido.elegir_tecla) {
+      ajustes_.eligiendo_tecla = !ajustes_.eligiendo_tecla;
+      eligiendo_desde_ = ajustes_.eligiendo_tecla ? std::optional<cliente::Teclas>(cliente::teclas_apretadas())
+                                                  : std::nullopt;
+    }
+    if (pedido.probar_microfono) {
+      probar(*pedido.probar_microfono, false);
+    }
+    if (pedido.escucharme) {
+      ajustes_.escuchandome = *pedido.escucharme;
+      if (prueba_) {
+        prueba_->escucharme(ajustes_.escuchandome);
+      }
+    }
+    if (pedido.probar_salida) {
+      probar(false, true);
+    }
+    if (pedido.avisos) {
+      cambiar_avisos(guardados_.servidores[pedido.avisos->first].direccion, std::move(pedido.avisos->second));
+    }
+    if (pedido.guardar || (sin_guardar_ && !ImGui::IsAnyItemActive())) {
+      guardar();
+    }
+    if (pedido.volver) {
+      cerrar_ajustes();
     }
   }
 
@@ -179,7 +384,11 @@ class Programa {
     avisado_ = false;
     bool cambio = false;
     const Situacion& situacion = ventana_.situacion();
-    avisos_.fuera(!situacion.con_foco || situacion.minimizada);
+    const bool minimizada = situacion.minimizada || situacion.oculta;
+    avisos_.fuera(minimizada ? mostrar_minimizada_ : !situacion.con_foco);
+    if (en_ajustes_) {
+      cambio = atender_ajustes() || cambio;
+    }
     avisos_.reloj(cliente::ahora_ms());
     auto tocado = notificador_ ? notificador_->tocado() : std::nullopt;
     if (!tocado) {
@@ -233,7 +442,7 @@ class Programa {
       cambio = cambio || !ordenes.empty();
       ordenar(std::move(ordenes));
     }
-    const bool ahorrar = situacion.minimizada || situacion.juego || situacion.bloqueada;
+    const bool ahorrar = minimizada || situacion.juego || situacion.bloqueada;
     if (sesion_ && ahorrar != ahorrando_) {
       ahorrando_ = ahorrar;
       sesion_->ahorrar(ahorrar);
@@ -243,6 +452,10 @@ class Programa {
 
   void cuadro() {
     ++cuadros_;
+    if (en_ajustes_) {
+      cuadro_de_ajustes();
+      return;
+    }
     if (sala_) {
       PedidoServidor pedido = dibujar_servidor(servidor_, *sala_);
       ordenar(std::move(pedido.ordenes));
@@ -296,6 +509,9 @@ class Programa {
       if (pedido.desconectar) {
         desconectar();
       }
+      if (pedido.ajustes) {
+        abrir_ajustes();
+      }
       return;
     }
     Pedido pedido = dibujar_inicio(pantalla_, guardados_);
@@ -304,6 +520,9 @@ class Programa {
     }
     if (pedido.guardar) {
       guardar();
+    }
+    if (pedido.ajustes) {
+      abrir_ajustes();
     }
     switch (pedido.accion) {
       case Accion::entrar_con_formulario:
@@ -529,6 +748,9 @@ class Programa {
     despertares_red_ = sesion_->despertares();
     trafico_ = cifrado::trafico();
     ordenar(sala_->empezar());
+    if (cliente::ajuste_o(guardados_, cliente::Ajuste::al_entrar, 0) == 1 && servidor_.ultima_voz != 0) {
+      ordenar(sala_->elegir_voz(servidor_.ultima_voz));
+    }
     if (guardados_.silencio != 0) {
       ordenar({protocolo::Silenciar{guardados_.silencio}});
     }
@@ -702,6 +924,12 @@ class Programa {
   bool bajando_ = false;
   std::atomic<bool> avisado_{false};
   PantallaInicio pantalla_;
+  PantallaAjustes ajustes_;
+  bool en_ajustes_ = false;
+  bool mostrar_minimizada_ = true;
+  std::unique_ptr<cliente::PruebaDeAudio> prueba_;
+  std::optional<cliente::Teclas> eligiendo_desde_;
+  Reloj::time_point fin_de_prueba_{};
   PantallaServidor servidor_;
   cliente::Guardados guardados_;
   bool se_puede_guardar_ = false;
@@ -735,6 +963,13 @@ class Programa {
 
 int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar, const std::wstring& carpeta,
                    const std::vector<std::string>& entrar, const std::wstring& registro) {
+  const std::uint32_t marca = marca_de(carpeta);
+  const std::unique_ptr<std::remove_pointer_t<HANDLE>, decltype(&CloseHandle)> unica(
+      CreateMutexW(nullptr, FALSE, (L"Local\\Ventrik-" + std::to_wstring(marca)).c_str()), &CloseHandle);
+  if (unica && GetLastError() == ERROR_ALREADY_EXISTS) {
+    despertar_otra(marca);
+    return 0;
+  }
   const cifrado::Inicio cifrado;
   const red::Inicio red;
   Ventana ventana(titulo, como_mostrar);
@@ -743,6 +978,7 @@ int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar, 
                 MB_OK | MB_ICONERROR);
     return 3;
   }
+  ventana.marcar(marca);
   Programa programa(idioma, ventana, carpeta, entrar);
   if (!registro.empty()) {
     programa.registrar(registro);

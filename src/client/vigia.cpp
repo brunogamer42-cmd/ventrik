@@ -1,5 +1,6 @@
 #include "client/vigia.h"
 
+#include <algorithm>
 #include <chrono>
 
 #include <windows.h>
@@ -26,14 +27,6 @@ bool es_boton_del_mouse(std::uint8_t tecla) {
          tecla == VK_XBUTTON2;
 }
 
-Teclas teclas_apretadas() {
-  Teclas teclas;
-  for (int tecla = 1; tecla < 0xFF; ++tecla) {
-    teclas[static_cast<std::size_t>(tecla)] = apretada(tecla);
-  }
-  return teclas;
-}
-
 HWND crear_oyente() {
   WNDCLASSEXW clase = {};
   clase.cbSize = sizeof(clase);
@@ -51,6 +44,14 @@ void escuchar_teclado(HWND oyente, bool si) {
   }
 }
 
+}
+
+Teclas teclas_apretadas() {
+  Teclas teclas;
+  for (int tecla = 1; tecla < 0xFF; ++tecla) {
+    teclas[static_cast<std::size_t>(tecla)] = apretada(tecla);
+  }
+  return teclas;
 }
 
 int tecla_nueva(const Teclas& antes, const Teclas& ahora) {
@@ -122,16 +123,25 @@ void Vigia::correr() {
   bool esperar_soltar = false;
   bool transmitia = false;
   bool escucha_teclado = false;
+  std::optional<Reloj::time_point> soltar_en;
   const HANDLE avisos[] = {despertar_.get(), puente_.cambio.evento()};
   while (!terminar_) {
     const bool con_tecla = !por_voz_;
+    if (!con_tecla || eligiendo_) {
+      soltar_en.reset();
+    }
     if (con_tecla != escucha_teclado) {
       escucha_teclado = con_tecla;
       escuchar_teclado(oyente, con_tecla);
     }
-    const DWORD espera = eligiendo_ || (con_tecla && es_boton_del_mouse(tecla_)) ? kConsultaRapida
-                         : con_tecla || medir_                                   ? kRespaldo
-                                                                                 : INFINITE;
+    const DWORD hasta_soltar =
+        soltar_en ? static_cast<DWORD>(std::max<long long>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(*soltar_en - Reloj::now()).count(), 0))
+                  : INFINITE;
+    const DWORD espera = std::min(eligiendo_ || (con_tecla && es_boton_del_mouse(tecla_)) ? kConsultaRapida
+                                  : con_tecla || medir_                                   ? kRespaldo
+                                                                                          : INFINITE,
+                                  hasta_soltar);
     if (MsgWaitForMultipleObjects(2, avisos, FALSE, espera, QS_ALLINPUT) == WAIT_FAILED) {
       Sleep(espera == INFINITE ? kRespaldo : espera);
     }
@@ -167,10 +177,20 @@ void Vigia::correr() {
       }
     } else if (!por_voz) {
       empezando = true;
-      const bool hablar = por_evento.value_or(apretada(tecla_));
-      esperar_soltar = esperar_soltar && hablar;
-      if (!esperar_soltar && hablar != motor_.transmitiendo()) {
-        motor_.transmitir(hablar);
+      const bool hablar =
+          por_evento.value_or(apretada(tecla_)) && (!solo_con_foco_ || GetForegroundWindow() == ventana_);
+      esperar_soltar = (esperar_soltar || soltar_primero_.exchange(false)) && hablar;
+      if (hablar) {
+        soltar_en.reset();
+      } else if (motor_.transmitiendo() && !soltar_en) {
+        soltar_en = Reloj::now() + std::chrono::milliseconds(seguir_al_soltar_.load());
+      }
+      const bool sigue = hablar || (soltar_en && Reloj::now() < *soltar_en);
+      if (!sigue) {
+        soltar_en.reset();
+      }
+      if (!esperar_soltar && sigue != motor_.transmitiendo()) {
+        motor_.transmitir(sigue);
       }
     } else {
       empezando = true;

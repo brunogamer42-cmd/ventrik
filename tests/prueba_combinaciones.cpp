@@ -239,6 +239,8 @@ TEST_CASE("combinaciones: servidor y programa de verdad, de la misma versión o 
   PostMessageW(aviso, WM_LBUTTONUP, 0, MAKELPARAM(20, 20));
   CHECK(esperar_que([&] { return IsIconic(hwnd) == FALSE; }));
   PostMessageW(hwnd, WM_CLOSE, 0, 0);
+  CHECK(esperar_que([&] { return IsWindowVisible(hwnd) == FALSE; }));
+  PostMessageW(hwnd, WM_COMMAND, 1002, 0);
   CHECK(ventana.esperar_salida(15s) == DWORD{0});
   CHECK(ana.esperar<UsuarioSalio>([&](const UsuarioSalio& u) { return u.id == entro->usuario.id; }));
   CHECK(servidor.cerrar() == DWORD{0});

@@ -95,6 +95,9 @@ void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, I
     case Icono::flecha_derecha:
       trazo({ImVec2(-2, -4.5f), ImVec2(2.5f, 0), ImVec2(-2, 4.5f)}, false);
       break;
+    case Icono::flecha_izquierda:
+      trazo({ImVec2(2, -4.5f), ImVec2(-2.5f, 0), ImVec2(2, 4.5f)}, false);
+      break;
     case Icono::flecha_abajo:
       trazo({ImVec2(-4.5f, -2), ImVec2(0, 2.5f), ImVec2(4.5f, -2)}, false);
       break;

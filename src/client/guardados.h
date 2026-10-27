@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -30,8 +31,30 @@ constexpr std::uint8_t kVolumenPorDefecto = 100;
 constexpr std::size_t kMaximoAjustes = 128;
 constexpr std::size_t kMaximoLargoDeAjuste = 2048;
 constexpr std::size_t kMaximoBloqueDeAjustes = 16384;
+constexpr std::size_t kMaximoNombreDeDispositivo = 256;
 
-enum class Ajuste : std::uint16_t { ruido = 1, eco = 2, volumen_automatico = 3, bajar_otros = 4 };
+enum class Ajuste : std::uint16_t {
+  ruido = 1,
+  eco = 2,
+  volumen_automatico = 3,
+  bajar_otros = 4,
+  al_cerrar = 5,
+  al_minimizar = 6,
+  entrar_al_ultimo = 7,
+  al_entrar = 8,
+  idioma = 9,
+  teclas_sin_foco = 10,
+  seguir_al_soltar = 11,
+  microfono = 12,
+  salida = 13,
+  volumen_avisos = 14,
+  avisos_de_texto = 15,
+  avisos_de_voz = 16,
+  avisos_de_conexion = 17,
+  avisos_privados = 18,
+  avisos_minimizada = 19
+};
+constexpr std::array<std::uint16_t, 4> kSeguirAlSoltarMs = {0, 200, 500, 1000};
 enum class Eco : std::uint8_t { apagado, automatico, prendido };
 enum class Bajar : std::uint8_t { nada, un_poco, bastante, mucho };
 
@@ -88,7 +111,10 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
 std::vector<std::uint8_t> armar_guardados(const Guardados& guardados);
 bool es_tecla_valida(std::uint8_t tecla);
 std::optional<std::uint8_t> ajuste_u8(const Guardados& guardados, Ajuste ajuste);
+std::uint8_t ajuste_o(const Guardados& guardados, Ajuste ajuste, std::uint8_t de_fabrica);
+std::string ajuste_texto(const Guardados& guardados, Ajuste ajuste);
 void poner_ajuste(Guardados& guardados, Ajuste ajuste, std::uint8_t valor);
+void poner_texto(Guardados& guardados, Ajuste ajuste, std::string_view texto);
 AjustesDeLimpieza limpieza_de(const Guardados& guardados, bool un_nucleo);
 std::uint8_t tecla_para_hablar(std::uint8_t guardada);
 ServidorGuardado* buscar_guardado(Guardados& guardados, const red::Direccion& direccion);

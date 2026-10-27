@@ -15,6 +15,7 @@
 
 #include "client/horas.h"
 #include "client/sala.h"
+#include "client/ui/ajustes.h"
 #include "client/ui/aviso_ventana.h"
 #include "client/ui/dibujante.h"
 #include "client/ui/inicio.h"
@@ -78,6 +79,13 @@ class SinPantalla {
                             bool clic = false) {
     ui::PedidoServidor pedido;
     cuadro([&] { pedido = ui::dibujar_servidor(pantalla, sala); }, mouse, clic);
+    return pedido;
+  }
+
+  ui::PedidoAjustes cuadro(ui::PantallaAjustes& pantalla, const Guardados& guardados, ImVec2 mouse,
+                           bool clic = false) {
+    ui::PedidoAjustes pedido;
+    cuadro([&] { pedido = ui::dibujar_ajustes(pantalla, guardados); }, mouse, clic);
     return pedido;
   }
 
@@ -952,6 +960,12 @@ TEST_CASE("Una ventana sin bordes que cubre el monitor es pantalla completa") {
   CHECK_FALSE(ui::tapa_el_monitor({1920, 0, 3840, 1080}, monitor, WS_POPUP, 0));
 }
 
+TEST_CASE("La marca de la carpeta no depende de las mayúsculas, es la misma en 32 y 64 bits y cambia con la carpeta") {
+  CHECK(ui::marca_de(L"C:\\Datos\\Ventrik") == ui::marca_de(L"c:\\datos\\VENTRIK"));
+  CHECK(ui::marca_de(L"C:\\Datos\\Ventrik") != ui::marca_de(L"C:\\Datos\\Ventrik2"));
+  CHECK(ui::marca_de(L"ab") == 0x4D2505CAU);
+}
+
 TEST_CASE("Las teclas repetidas no piden cuadros salvo las de edición escribiendo, los caracteres solo escribiendo, y los cuadros lentos se espacian") {
   constexpr LPARAM kRepetida = 0x40000000;
   std::optional<LPARAM> mouse;
@@ -1403,4 +1417,159 @@ TEST_CASE("En el diálogo de avisos, Escape cierra primero el menú de \"Agregar
   sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
   sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
   CHECK_FALSE(hay_ventana_emergente());
+}
+
+namespace {
+ui::PantallaAjustes pantalla_ajustes() {
+  ui::PantallaAjustes pantalla;
+  pantalla.dispositivos = {{"Micrófono USB", "Micrófono de la cámara con un nombre muy largo que no entra"},
+                           {"Auriculares", "Parlantes"}};
+  pantalla.hay_bajar_otros = true;
+  return pantalla;
+}
+
+}
+
+TEST_CASE("Ajustes se dibuja sin errores en todas sus secciones, a cualquier tamaño y escala") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.0f, ImVec2(1376, 768)),
+                                       std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    SinPantalla sin_pantalla(escala, tamano);
+    const Guardados guardados = muchos();
+    for (std::size_t seccion = 0; seccion < ui::kSecciones; ++seccion) {
+      auto pantalla = pantalla_ajustes();
+      pantalla.seccion = static_cast<ui::Seccion>(seccion);
+      pantalla.probando_microfono = seccion % 2 == 0;
+      pantalla.nivel = 13;
+      for (float y = 5; y < tamano.y; y += 61) {
+        for (float x = 5; x < tamano.x; x += 97) {
+          const auto pedido = sin_pantalla.cuadro(pantalla, guardados, ImVec2(x, y));
+          CHECK_FALSE(pedido.guardados);
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("En Ajustes, el buscador salta a la sección del ajuste, una casilla lo cambia y Volver o Escape salen") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1280, 900));
+  Guardados guardados = muchos();
+  auto pantalla = pantalla_ajustes();
+  pantalla.idioma = ventrik::elegir_idioma("es");
+  ui::poner(pantalla.buscar, "eco");
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  CHECK(pantalla.seccion == ui::Seccion::audio);
+  CHECK(pantalla.coinciden[static_cast<std::size_t>(ui::Seccion::audio)]);
+  CHECK_FALSE(pantalla.coinciden[static_cast<std::size_t>(ui::Seccion::general)]);
+  ui::poner(pantalla.buscar, "");
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  CHECK(std::all_of(pantalla.coinciden.begin(), pantalla.coinciden.end(), [](bool si) { return si; }));
+
+  pantalla.seccion = ui::Seccion::general;
+  std::vector<ui::PedidoAjustes> pedidos;
+  const auto tocar = [&](ImVec2 donde) {
+    pedidos.clear();
+    for (const bool clic : {false, true, false}) {
+      pedidos.push_back(sin_pantalla.cuadro(pantalla, guardados, donde, clic));
+    }
+  };
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  tocar(ImVec2(305, 197));
+  const auto cambiados = std::find_if(pedidos.begin(), pedidos.end(), [](const auto& pedido) { return pedido.guardados; });
+  REQUIRE(cambiados != pedidos.end());
+  CHECK(ventrik::cliente::ajuste_u8(*cambiados->guardados, ventrik::cliente::Ajuste::entrar_al_ultimo) == 0);
+  tocar(ImVec2(305, 151));
+  CHECK(std::any_of(pedidos.begin(), pedidos.end(), [](const auto& pedido) { return pedido.arrancar_con_windows == true; }));
+
+  tocar(ImVec2(50, 27));
+  CHECK(std::any_of(pedidos.begin(), pedidos.end(), [](const auto& pedido) { return pedido.volver; }));
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  CHECK(sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5)).volver);
+}
+
+TEST_CASE("En Ajustes, el Escape que cancela la tecla o cierra una lista no saca de la pantalla") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1280, 900));
+  const Guardados guardados = muchos();
+  auto pantalla = pantalla_ajustes();
+  pantalla.seccion = ui::Seccion::teclas;
+  pantalla.eligiendo_tecla = true;
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  pantalla.eligiendo_tecla = false;
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  CHECK_FALSE(sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5)).volver);
+
+  pantalla.seccion = ui::Seccion::general;
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  for (const bool clic : {false, true, false}) {
+    sin_pantalla.cuadro(pantalla, guardados, ImVec2(350, 270), clic);
+  }
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(350, 270));
+  REQUIRE(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  CHECK_FALSE(sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5)).volver);
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  CHECK_FALSE(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  CHECK(sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5)).volver);
+}
+
+TEST_CASE("En Ajustes, las secciones que llegan más adelante no tienen controles") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1280, 900));
+  const Guardados guardados = muchos();
+  for (const auto seccion : {ui::Seccion::apariencia, ui::Seccion::red, ui::Seccion::descargas, ui::Seccion::prestar,
+                             ui::Seccion::seguridad, ui::Seccion::amigos, ui::Seccion::copias, ui::Seccion::acerca}) {
+    auto pantalla = pantalla_ajustes();
+    pantalla.seccion = seccion;
+    for (float y = 70; y < 400; y += 23) {
+      for (float x = 270; x < 1270; x += 47) {
+        for (const bool clic : {false, true, false}) {
+          const auto pedido = sin_pantalla.cuadro(pantalla, guardados, ImVec2(x, y), clic);
+          CHECK_FALSE(pedido.guardados);
+          CHECK_FALSE(pedido.probar_salida);
+          CHECK_FALSE(pedido.elegir_tecla);
+        }
+      }
+    }
+    CHECK(pantalla.seccion == seccion);
+  }
+}
+
+TEST_CASE("Ajustes no se anima con el mouse quieto") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  const Guardados guardados = muchos();
+  for (std::size_t seccion = 0; seccion < ui::kSecciones; ++seccion) {
+    auto pantalla = pantalla_ajustes();
+    pantalla.seccion = static_cast<ui::Seccion>(seccion);
+    for (int i = 0; i < 3; ++i) {
+      sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+    }
+    ui::Zonas zonas;
+    zonas.cambiadas(*ImGui::GetDrawData());
+    std::size_t cambios = 0;
+    for (int i = 0; i < 60; ++i) {
+      sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+      cambios += zonas.cambiadas(*ImGui::GetDrawData()).size();
+    }
+    CHECK_MESSAGE(cambios == 0, "la sección " << seccion << " cambió sola");
+  }
+}
+
+TEST_CASE("banco de ajustes" * doctest::skip()) {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  const Guardados guardados = muchos();
+  for (const auto seccion : {ui::Seccion::general, ui::Seccion::audio, ui::Seccion::avisos}) {
+    auto pantalla = pantalla_ajustes();
+    pantalla.seccion = seccion;
+    for (int i = 0; i < 30; ++i) {
+      sin_pantalla.cuadro(pantalla, guardados, ImVec2(900, 400));
+    }
+    const auto desde = std::chrono::steady_clock::now();
+    for (int i = 0; i < 1000; ++i) {
+      sin_pantalla.cuadro(pantalla, guardados, ImVec2(900, 400));
+    }
+    MESSAGE("ajustes, sección " << static_cast<int>(seccion) << ": "
+                                << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde)
+                                           .count() /
+                                       1000
+                                << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
+  }
 }

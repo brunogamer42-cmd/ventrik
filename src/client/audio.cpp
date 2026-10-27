@@ -8,8 +8,10 @@
 
 #include <miniaudio.h>
 
+#include "client/guardados.h"
 #include "common/pendiente.h"
 #include "common/sistema.h"
+#include "common/utf.h"
 
 VENTRIK_PENDIENTE("puente de audio WinMM para XP: falta una prueba larga (hubo cortes esporadicos en el paso 1.1)")
 VENTRIK_PENDIENTE("cerrar los parlantes tras un rato sin voz (12.2): falta medir en una PC real cuanto tardan en volver")
@@ -47,6 +49,44 @@ bool terminado(const WAVEHDR& cabecera) {
   return (*static_cast<const volatile DWORD*>(&cabecera.dwFlags) & WHDR_DONE) != 0;
 }
 
+void cargar_bibliotecas() {
+  for (const wchar_t* dll : {L"avrt.dll", L"mmdevapi.dll", L"dsound.dll"}) {
+    cargar_de_sistema(dll);
+  }
+}
+
+template <typename Capacidades, typename Contar, typename Leer>
+std::vector<std::string> nombres_de(Contar contar, Leer leer) {
+  std::vector<std::string> nombres;
+  for (UINT i = 0; i < contar(); ++i) {
+    Capacidades capacidades = {};
+    if (leer(i, &capacidades, sizeof(capacidades)) == MMSYSERR_NOERROR) {
+      nombres.push_back(a_utf8(capacidades.szPname));
+    }
+  }
+  return nombres;
+}
+
+UINT indice_de(const std::vector<std::string>& nombres, const std::string& nombre) {
+  const auto encontrado = std::find(nombres.begin(), nombres.end(), nombre);
+  return nombre.empty() || encontrado == nombres.end() ? WAVE_MAPPER
+                                                       : static_cast<UINT>(encontrado - nombres.begin());
+}
+
+ListaDeAudio de_winmm() {
+  return {nombres_de<WAVEINCAPSW>(waveInGetNumDevs, waveInGetDevCapsW),
+          nombres_de<WAVEOUTCAPSW>(waveOutGetNumDevs, waveOutGetDevCapsW)};
+}
+
+const ma_device_id* id_de(const ma_device_info* lista, ma_uint32 cuantos, const std::string& nombre) {
+  for (ma_uint32 i = 0; i < cuantos && !nombre.empty(); ++i) {
+    if (nombre == lista[i].name) {
+      return &lista[i].id;
+    }
+  }
+  return nullptr;
+}
+
 bool callado(gsl::span<const std::int16_t> pedazo) {
   return std::all_of(pedazo.begin(), pedazo.end(),
                      [](std::int16_t muestra) { return muestra > -kCasiSilencio && muestra < kCasiSilencio; });
@@ -58,20 +98,52 @@ bool tirar_pedazo(std::uint32_t espera_ms, gsl::span<const std::int16_t> pedazo)
   return espera_ms >= kTopeEnEsperaMs || (espera_ms >= kMaximoEnEsperaMs && callado(pedazo));
 }
 
-Audio::Audio() : dispositivo_(std::make_unique<ma_device>()) {}
+ListaDeAudio dispositivos_de_audio() {
+  if (es_windows_xp()) {
+    return de_winmm();
+  }
+  cargar_bibliotecas();
+  ma_context contexto;
+  if (ma_context_init(nullptr, 0, nullptr, &contexto) != MA_SUCCESS) {
+    return {};
+  }
+  ma_device_info* salidas = nullptr;
+  ma_device_info* entradas = nullptr;
+  ma_uint32 cuantas_salidas = 0;
+  ma_uint32 cuantas_entradas = 0;
+  ListaDeAudio lista;
+  const auto agregar = [](std::vector<std::string>& nombres, std::string_view nombre) {
+    if (!nombre.empty() && nombre.size() <= kMaximoNombreDeDispositivo && es_utf8_valido(nombre)) {
+      nombres.emplace_back(nombre);
+    }
+  };
+  if (ma_context_get_devices(&contexto, &salidas, &cuantas_salidas, &entradas, &cuantas_entradas) == MA_SUCCESS) {
+    for (ma_uint32 i = 0; i < cuantas_entradas; ++i) {
+      agregar(lista.microfonos, entradas[i].name);
+    }
+    for (ma_uint32 i = 0; i < cuantas_salidas; ++i) {
+      agregar(lista.salidas, salidas[i].name);
+    }
+  }
+  ma_context_uninit(&contexto);
+  return lista;
+}
+
+Audio::Audio() : dispositivo_(std::make_unique<ma_device>()), contexto_(std::make_unique<ma_context>()) {}
 
 Audio::~Audio() {
   cerrar();
 }
 
-bool Audio::abrir(unsigned frecuencia, Procesar procesar, void* datos) {
+bool Audio::abrir(unsigned frecuencia, Procesar procesar, void* datos, const ElegidosDeAudio& elegidos,
+                  bool con_microfono) {
   cerrar();
   procesar_ = procesar;
   datos_ = datos;
   if (es_windows_xp()) {
-    return abrir_puente(frecuencia);
+    return abrir_puente(frecuencia, elegidos, con_microfono);
   }
-  ma_device_config config = ma_device_config_init(ma_device_type_duplex);
+  ma_device_config config = ma_device_config_init(con_microfono ? ma_device_type_duplex : ma_device_type_playback);
   config.capture.format = ma_format_s16;
   config.capture.channels = 1;
   config.playback.format = ma_format_s16;
@@ -82,15 +154,28 @@ bool Audio::abrir(unsigned frecuencia, Procesar procesar, void* datos) {
   config.wasapi.usage = ma_wasapi_usage_pro_audio;
   config.dataCallback = &Audio::desde_miniaudio;
   config.pUserData = this;
-  for (const wchar_t* dll : {L"avrt.dll", L"mmdevapi.dll", L"dsound.dll"}) {
-    cargar_de_sistema(dll);
+  cargar_bibliotecas();
+  if (ma_context_init(nullptr, 0, nullptr, contexto_.get()) != MA_SUCCESS) {
+    return false;
   }
-  if (ma_device_init(nullptr, &config, dispositivo_.get()) != MA_SUCCESS) {
+  hay_contexto_ = true;
+  ma_device_info* salidas = nullptr;
+  ma_device_info* entradas = nullptr;
+  ma_uint32 cuantas_salidas = 0;
+  ma_uint32 cuantas_entradas = 0;
+  if ((!elegidos.microfono.empty() || !elegidos.salida.empty()) &&
+      ma_context_get_devices(contexto_.get(), &salidas, &cuantas_salidas, &entradas, &cuantas_entradas) ==
+          MA_SUCCESS) {
+    config.capture.pDeviceID = id_de(entradas, cuantas_entradas, elegidos.microfono);
+    config.playback.pDeviceID = id_de(salidas, cuantas_salidas, elegidos.salida);
+  }
+  if (ma_device_init(contexto_.get(), &config, dispositivo_.get()) != MA_SUCCESS) {
+    cerrar();
     return false;
   }
   hay_miniaudio_ = true;
   hilo_listo_ = false;
-  fija_.fijar({{this, sizeof(*this)}, {dispositivo_.get(), sizeof(ma_device)}});
+  fija_.fijar({{this, sizeof(*this)}, {dispositivo_.get(), sizeof(ma_device)}, {contexto_.get(), sizeof(ma_context)}});
   if (ma_device_start(dispositivo_.get()) != MA_SUCCESS) {
     cerrar();
     return false;
@@ -98,7 +183,8 @@ bool Audio::abrir(unsigned frecuencia, Procesar procesar, void* datos) {
   return true;
 }
 
-bool Audio::abrir_puente(unsigned frecuencia) {
+bool Audio::abrir_puente(unsigned frecuencia, const ElegidosDeAudio& elegidos, bool con_microfono) {
+  const ListaDeAudio dispositivos = de_winmm();
   WAVEFORMATEX formato = {};
   formato.wFormatTag = WAVE_FORMAT_PCM;
   formato.nChannels = 1;
@@ -108,9 +194,11 @@ bool Audio::abrir_puente(unsigned frecuencia) {
   formato.nAvgBytesPerSec = frecuencia * 2;
   aviso_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   if (aviso_ == nullptr ||
-      waveInOpen(&entrada_, WAVE_MAPPER, &formato, reinterpret_cast<DWORD_PTR>(aviso_), 0,
-                 CALLBACK_EVENT) != MMSYSERR_NOERROR ||
-      waveOutOpen(&salida_, WAVE_MAPPER, &formato, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR) {
+      (con_microfono && waveInOpen(&entrada_, indice_de(dispositivos.microfonos, elegidos.microfono), &formato,
+                                   reinterpret_cast<DWORD_PTR>(aviso_), 0, CALLBACK_EVENT) != MMSYSERR_NOERROR) ||
+      waveOutOpen(&salida_, indice_de(dispositivos.salidas, elegidos.salida), &formato,
+                  con_microfono ? 0 : reinterpret_cast<DWORD_PTR>(aviso_), 0,
+                  con_microfono ? CALLBACK_NULL : CALLBACK_EVENT) != MMSYSERR_NOERROR) {
     cerrar();
     return false;
   }
@@ -133,8 +221,10 @@ bool Audio::abrir_puente(unsigned frecuencia) {
                {pedazos_entrada_.data(), pedazos_entrada_.size() * sizeof(Pedazo)},
                {pedazos_salida_.data(), pedazos_salida_.size() * sizeof(Pedazo)}});
   for (Pedazo& pedazo : pedazos_entrada_) {
-    waveInPrepareHeader(entrada_, &pedazo.cabecera, sizeof(WAVEHDR));
-    waveInAddBuffer(entrada_, &pedazo.cabecera, sizeof(WAVEHDR));
+    if (entrada_ != nullptr) {
+      waveInPrepareHeader(entrada_, &pedazo.cabecera, sizeof(WAVEHDR));
+      waveInAddBuffer(entrada_, &pedazo.cabecera, sizeof(WAVEHDR));
+    }
   }
   for (Pedazo& pedazo : pedazos_salida_) {
     waveOutPrepareHeader(salida_, &pedazo.cabecera, sizeof(WAVEHDR));
@@ -149,7 +239,9 @@ bool Audio::abrir_puente(unsigned frecuencia) {
     return false;
   }
   SetThreadPriority(hilo_, THREAD_PRIORITY_TIME_CRITICAL);
-  waveInStart(entrada_);
+  if (entrada_ != nullptr) {
+    waveInStart(entrada_);
+  }
   return true;
 }
 
@@ -158,6 +250,10 @@ void Audio::cerrar() {
   if (hay_miniaudio_) {
     ma_device_uninit(dispositivo_.get());
     hay_miniaudio_ = false;
+  }
+  if (hay_contexto_) {
+    ma_context_uninit(contexto_.get());
+    hay_contexto_ = false;
   }
   seguir_ = false;
   if (hilo_ != nullptr) {
@@ -201,6 +297,10 @@ void Audio::atender() {
   while (seguir_) {
     WaitForSingleObject(aviso_, 100);
     despertares_.fetch_add(1, std::memory_order_relaxed);
+    if (entrada_ == nullptr) {
+      solo_salida();
+      continue;
+    }
     while (seguir_ && terminado(pedazos_entrada_[siguiente_entrada_].cabecera)) {
       Pedazo& llego = pedazos_entrada_[siguiente_entrada_];
       const std::size_t grabadas = std::min<std::size_t>(
@@ -233,6 +333,13 @@ void Audio::atender() {
   }
 }
 
+void Audio::solo_salida() {
+  for (Pedazo* sale = libre_para_salida(); seguir_ && sale != nullptr; sale = libre_para_salida()) {
+    procesar_(datos_, {}, sale->muestras);
+    escribir(*sale);
+  }
+}
+
 Audio::Pedazo* Audio::libre_para_salida() {
   const auto libre = std::find_if(pedazos_salida_.begin(), pedazos_salida_.end(),
                                   [](const Pedazo& pedazo) { return !en_cola(pedazo.cabecera); });
@@ -252,7 +359,7 @@ void Audio::escribir_silencio() {
 
 void Audio::desde_miniaudio(ma_device* dispositivo, void* salida, const void* entrada,
                             std::uint32_t cuadros) {
-  if (salida == nullptr || entrada == nullptr) {
+  if (salida == nullptr) {
     return;
   }
   auto* yo = static_cast<Audio*>(dispositivo->pUserData);
@@ -261,7 +368,8 @@ void Audio::desde_miniaudio(ma_device* dispositivo, void* salida, const void* en
   }
   yo->despertares_.fetch_add(1, std::memory_order_relaxed);
   yo->procesar_(yo->datos_,
-                gsl::span<const std::int16_t>(static_cast<const std::int16_t*>(entrada), cuadros),
+                entrada == nullptr ? gsl::span<const std::int16_t>()
+                                   : gsl::span<const std::int16_t>(static_cast<const std::int16_t*>(entrada), cuadros),
                 gsl::span<std::int16_t>(static_cast<std::int16_t*>(salida), cuadros));
 }
 

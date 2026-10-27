@@ -229,7 +229,31 @@ Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Ajustes-*.png, una p
   - Acerca de, separado.
 
   Tocar una sección la muestra sola, a todo el ancho. Los cambios se guardan solos, como antes ("Los cambios se guardan solos", junto al título).
-- **Secciones en desarrollo:** llevan "PRONTO" en el menú; adentro se ven desactivadas, con "EN DESARROLLO".
+- **Secciones en desarrollo:** llevan "PRONTO" en el menú. Adentro solo tienen el título, "EN DESARROLLO" y "Llega en la etapa N", sin controles de mentira (decisión del dueño, 2026-10-27). Son Apariencia (10), Red (6), Descargas (5), Prestar (13), Seguridad (4), Amigos (14), Copias (14) y Acerca de (11).
+- **Lo que hay desde el paso 3.5:**
+  - **General:**
+    - **la bandeja:** "Al cerrar la ventana" viene en "Seguir en la bandeja", como en la captura. El ícono junto al reloj aparece cuando la ventana se esconde y se va cuando vuelve. "Salir", del menú del ícono, cierra Ventrik de verdad;
+    - **"Entrar solo al último servidor"** viene tildada: al abrir sin `--entrar`, entra al primero de la lista;
+    - **"Al entrar a un servidor"**, con "Volver al último canal de voz", entra a ese canal si existe;
+    - **el idioma** es el de Windows o uno elegido, y cambia al momento;
+    - **un solo Ventrik:** abrirlo otra vez, con Ventrik ya abierto (aunque esté en la bandeja), muestra el que ya estaba.
+  - **Teclas:**
+    - Ctrl+M y Ctrl+D se ven, pero por ahora no se cambian;
+    - "Pasar entre Rendimiento y Visual" y "Ir a los canales 1 a 9" llegan más adelante;
+    - sin tildar "Las teclas funcionan aunque la ventana no esté activa", la tecla de hablar anda solo con Ventrik al frente.
+  - **Audio y micrófono:**
+    - el micrófono y la salida se eligen por nombre; si el elegido no está, se usa el de Windows;
+    - **"Probar micrófono":** fuera de la voz abre el micrófono solo mientras se prueba. Dentro de la voz usa el medidor de la voz, que con la tecla se mueve al apretarla;
+    - **"Escucharme mientras pruebo"** anda fuera de la voz;
+    - **"Probar salida"** toca un tono de 1,2 s, sin abrir el micrófono;
+    - **"Seguir transmitiendo al soltar":** No, 0,2 (de fábrica), 0,5 o 1 s;
+    - **"Calidad de la voz"** es solo el texto de la captura (la decide cada servidor).
+  - **Avisos y sonidos:**
+    - qué avisa (canales de texto, chat de tu canal de voz, conexión cortada);
+    - avisos privados;
+    - "Mostrar avisos de Windows con la ventana minimizada";
+    - **"Servidores y canales silenciados":** "Ver y cambiar" lista los servidores, y cada uno abre su diálogo "Avisos de…";
+    - **los sonidos** llegan en el paso 3.7.
 - **El buscador** filtra el menú y salta a la sección que tiene el ajuste buscado.
 - **Apariencia** (capturas Ajustes-apariencia.png, -apariencia-visual.png y -apariencia-personalizado.png): la tabla de interruptores de cada modo, con la vista previa a la derecha (ver "Qué prende y qué apaga cada modo").
 - **General** (captura Ajustes-general.png): "Abrir Ventrik al iniciar Windows", "Entrar solo al último servidor al abrir el programa", "Al cerrar la ventana" (seguir en la bandeja, junto al reloj, o salir), idioma y "Al entrar a un servidor".

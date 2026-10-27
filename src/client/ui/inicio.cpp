@@ -64,7 +64,7 @@ class Dibujo {
     cartel(llega_en(etapa));
   }
 
-  void barra() const {
+  void barra() {
     ImDrawList& dibujo = *ImGui::GetWindowDrawList();
     const float alto = px(kAltoBarra);
     dibujo.AddRectFilled(ImVec2(0, 0), ImVec2(ancho_, alto), tono(color::panel));
@@ -87,12 +87,16 @@ class Dibujo {
       x -= px(8);
     }
     for (const auto& [clave, icono, etapa, id] :
-         {std::make_tuple(Clave::inicio_ajustes, Icono::ajustes, "3", "##ajustes"),
+         {std::make_tuple(Clave::inicio_ajustes, Icono::ajustes, "", "##ajustes"),
           std::make_tuple(Clave::inicio_reportar, Icono::reportar, "7", "##reportar")}) {
       const float ancho = ancho_boton(t(clave), Estilo::biselado, icono);
       x -= ancho;
       ImGui::SetCursorScreenPos(ImVec2(x, y));
-      apagado(id, t(clave), Estilo::biselado, ImVec2(ancho, px(medida::alto_biselado)), icono, etapa);
+      if (std::string_view(etapa).empty()) {
+        pedido_.ajustes = boton(id, t(clave), Estilo::biselado, ImVec2(ancho, px(medida::alto_biselado)), icono);
+      } else {
+        apagado(id, t(clave), Estilo::biselado, ImVec2(ancho, px(medida::alto_biselado)), icono, etapa);
+      }
       x -= px(8);
     }
     const std::string_view rendimiento = t(Clave::inicio_modo_rendimiento);

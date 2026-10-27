@@ -509,3 +509,32 @@ TEST_CASE("la limpieza de la voz viene prendida en las PCs comunes y apagada en 
   ventrik::cliente::poner_ajuste(guardados, ventrik::cliente::Ajuste::ruido, static_cast<std::uint8_t>(Ruido::alta));
   CHECK(ventrik::cliente::limpieza_de(guardados, true).ruido == Ruido::alta);
 }
+
+TEST_CASE("los ajustes de texto (idioma y dispositivos) se guardan como UTF-8 válido y con tope") {
+  using ventrik::cliente::Ajuste;
+  Guardados guardados = ejemplo();
+  ventrik::cliente::poner_texto(guardados, Ajuste::idioma, "es");
+  ventrik::cliente::poner_texto(guardados, Ajuste::microfono, "Micr\xC3\xB3" "fono USB");
+  const auto bytes = armar_guardados(guardados);
+  REQUIRE_FALSE(bytes.empty());
+  Guardados leidos;
+  REQUIRE(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
+  CHECK(ventrik::cliente::ajuste_texto(leidos, Ajuste::idioma) == "es");
+  CHECK(ventrik::cliente::ajuste_texto(leidos, Ajuste::microfono) == "Micr\xC3\xB3" "fono USB");
+  CHECK(ventrik::cliente::ajuste_texto(leidos, Ajuste::salida).empty());
+  ventrik::cliente::poner_texto(leidos, Ajuste::microfono, "");
+  CHECK(leidos.ajustes.count(static_cast<std::uint16_t>(Ajuste::microfono)) == 0);
+
+  Guardados mal = guardados;
+  mal.ajustes[static_cast<std::uint16_t>(Ajuste::idioma)] = {'e', 's', 'p', 'a', 'n', 'o', 'l', '!', '!'};
+  CHECK(armar_guardados(mal).empty());
+  mal = guardados;
+  mal.ajustes[static_cast<std::uint16_t>(Ajuste::salida)] = {0xC3};
+  CHECK(armar_guardados(mal).empty());
+  mal = guardados;
+  mal.ajustes[static_cast<std::uint16_t>(Ajuste::salida)] = {};
+  CHECK(armar_guardados(mal).empty());
+  mal = guardados;
+  mal.ajustes[static_cast<std::uint16_t>(Ajuste::seguir_al_soltar)] = {4};
+  CHECK(armar_guardados(mal).empty());
+}

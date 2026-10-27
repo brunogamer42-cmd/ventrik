@@ -141,7 +141,12 @@ function Revisar-Exe([string]$exe, [string]$version) {
 # Abre el programa, espera su ventana y la cierra como lo haría la X.
 function Probar-Ventana([string]$exe) {
     if (-not (Test-Path $exe)) { return }
-    $proceso = Start-Process -FilePath $exe -PassThru
+    if (-not ('VentanaDePrueba' -as [type])) {
+        Add-Type -Name VentanaDePrueba -Namespace '' -MemberDefinition ('[DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);' +
+            '[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);')
+    }
+    $datos = Join-Path $env:TEMP ('ventrik-ventana-' + [guid]::NewGuid().ToString('N'))
+    $proceso = Start-Process -FilePath $exe -ArgumentList @('--carpeta', ('"' + $datos + '"')) -PassThru
     $null = $proceso.Handle   # para poder leer el código de salida después
     try {
         $titulo = ''
@@ -156,13 +161,28 @@ function Probar-Ventana([string]$exe) {
         }
         Informar 'Abre la ventana "Ventrik"' ($titulo -eq 'Ventrik') ('Título: "' + $titulo + '"')
         $cerro = $false
+        $oculta = $false
+        $unaSola = $false
         if (-not $proceso.HasExited) {
+            $ventana = $proceso.MainWindowHandle
             $null = $proceso.CloseMainWindow()
-            $cerro = $proceso.WaitForExit(10000)
+            Start-Sleep -Milliseconds 500
+            $oculta = -not $proceso.HasExited -and -not [VentanaDePrueba]::IsWindowVisible($ventana)
+            $otro = Start-Process -FilePath $exe -ArgumentList @('--carpeta', ('"' + $datos + '"')) -PassThru
+            $null = $otro.Handle
+            $unaSola = $otro.WaitForExit(10000) -and $otro.ExitCode -eq 0
+            if (-not $otro.HasExited) { $otro.Kill() }
+            Start-Sleep -Milliseconds 500
+            $unaSola = $unaSola -and [VentanaDePrueba]::IsWindowVisible($ventana)
+            $null = [VentanaDePrueba]::PostMessageW($ventana, 0x0111, [IntPtr]1002, [IntPtr]::Zero)
+            $cerro = -not $proceso.HasExited -and $proceso.WaitForExit(10000)
         }
-        Informar 'Se cierra bien' ($cerro -and $proceso.ExitCode -eq 0)
+        Informar 'Cerrar la ventana la deja en la bandeja' $oculta
+        Informar 'Abrir Ventrik otra vez muestra el que ya estaba abierto' $unaSola
+        Informar 'Salir de la bandeja lo cierra' ($cerro -and $proceso.ExitCode -eq 0)
     } finally {
         if (-not $proceso.HasExited) { $proceso.Kill() }
+        if (Test-Path $datos) { Remove-Item -Recurse -Force $datos }
     }
 }
 

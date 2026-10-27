@@ -8,6 +8,7 @@
 #include "common/archivos.h"
 #include "common/protocol/bytes.h"
 #include "common/texto.h"
+#include "common/utf.h"
 
 namespace ventrik::cliente {
 namespace {
@@ -31,12 +32,37 @@ static_assert(kMaximoArchivoGuardados >=
 struct MaximoDeAjuste {
   Ajuste ajuste;
   std::uint8_t maximo;
+  std::size_t texto;
 };
 
-constexpr std::array<MaximoDeAjuste, 4> kMaximos = {{{Ajuste::ruido, static_cast<std::uint8_t>(Ruido::alta)},
-                                                     {Ajuste::eco, static_cast<std::uint8_t>(Eco::prendido)},
-                                                     {Ajuste::volumen_automatico, 1},
-                                                     {Ajuste::bajar_otros, static_cast<std::uint8_t>(Bajar::mucho)}}};
+constexpr std::array<MaximoDeAjuste, 19> kMaximos = {
+    {{Ajuste::ruido, static_cast<std::uint8_t>(Ruido::alta), 0},
+     {Ajuste::eco, static_cast<std::uint8_t>(Eco::prendido), 0},
+     {Ajuste::volumen_automatico, 1, 0},
+     {Ajuste::bajar_otros, static_cast<std::uint8_t>(Bajar::mucho), 0},
+     {Ajuste::al_cerrar, 1, 0},
+     {Ajuste::al_minimizar, 1, 0},
+     {Ajuste::entrar_al_ultimo, 1, 0},
+     {Ajuste::al_entrar, 1, 0},
+     {Ajuste::idioma, 0, 8},
+     {Ajuste::teclas_sin_foco, 1, 0},
+     {Ajuste::seguir_al_soltar, static_cast<std::uint8_t>(kSeguirAlSoltarMs.size() - 1), 0},
+     {Ajuste::microfono, 0, kMaximoNombreDeDispositivo},
+     {Ajuste::salida, 0, kMaximoNombreDeDispositivo},
+     {Ajuste::volumen_avisos, kVolumenMaximo, 0},
+     {Ajuste::avisos_de_texto, 1, 0},
+     {Ajuste::avisos_de_voz, 1, 0},
+     {Ajuste::avisos_de_conexion, 1, 0},
+     {Ajuste::avisos_privados, 1, 0},
+     {Ajuste::avisos_minimizada, 1, 0}}};
+
+bool es_valido(const MaximoDeAjuste& regla, const std::vector<std::uint8_t>& valor) {
+  if (regla.texto == 0) {
+    return valor.size() == 1 && valor[0] <= regla.maximo;
+  }
+  const std::string_view texto(reinterpret_cast<const char*>(valor.data()), valor.size());
+  return !texto.empty() && texto.size() <= regla.texto && es_utf8_valido(texto);
+}
 
 bool son_validos(const std::map<std::uint16_t, std::vector<std::uint8_t>>& ajustes) {
   std::size_t total = 0;
@@ -46,8 +72,7 @@ bool son_validos(const std::map<std::uint16_t, std::vector<std::uint8_t>>& ajust
     const auto conocido = std::find_if(kMaximos.begin(), kMaximos.end(), [esta](const MaximoDeAjuste& m) {
       return static_cast<std::uint16_t>(m.ajuste) == esta;
     });
-    if (valor.size() > kMaximoLargoDeAjuste ||
-        (conocido != kMaximos.end() && (valor.size() != 1 || valor[0] > conocido->maximo))) {
+    if (valor.size() > kMaximoLargoDeAjuste || (conocido != kMaximos.end() && !es_valido(*conocido, valor))) {
       return false;
     }
   }
@@ -271,8 +296,25 @@ std::optional<std::uint8_t> ajuste_u8(const Guardados& guardados, Ajuste ajuste)
                                                                        : std::nullopt;
 }
 
+std::uint8_t ajuste_o(const Guardados& guardados, Ajuste ajuste, std::uint8_t de_fabrica) {
+  return ajuste_u8(guardados, ajuste).value_or(de_fabrica);
+}
+
+std::string ajuste_texto(const Guardados& guardados, Ajuste ajuste) {
+  const auto valor = guardados.ajustes.find(static_cast<std::uint16_t>(ajuste));
+  return valor != guardados.ajustes.end() ? std::string(valor->second.begin(), valor->second.end()) : std::string();
+}
+
 void poner_ajuste(Guardados& guardados, Ajuste ajuste, std::uint8_t valor) {
   guardados.ajustes[static_cast<std::uint16_t>(ajuste)] = {valor};
+}
+
+void poner_texto(Guardados& guardados, Ajuste ajuste, std::string_view texto) {
+  if (texto.empty()) {
+    guardados.ajustes.erase(static_cast<std::uint16_t>(ajuste));
+  } else {
+    guardados.ajustes[static_cast<std::uint16_t>(ajuste)] = std::vector<std::uint8_t>(texto.begin(), texto.end());
+  }
 }
 
 AjustesDeLimpieza limpieza_de(const Guardados& guardados, bool un_nucleo) {

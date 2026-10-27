@@ -31,6 +31,7 @@ constexpr int kPedazosTrasCallarse = 20;
 constexpr std::size_t kMaximoPersonasConVolumen = 16;
 
 int umbral_de(int por_ciento);
+int segmentos_de(int pico, int segmentos);
 std::int16_t con_ganancia(std::int16_t muestra, int por_ciento);
 std::uint8_t nivel_de(gsl::span<const std::int16_t> pedazo);
 void limitar(gsl::span<const float> mezcla, gsl::span<std::int16_t> salida, float& limite);

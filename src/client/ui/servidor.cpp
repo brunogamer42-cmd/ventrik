@@ -329,7 +329,7 @@ class Dibujo {
     if (sala_.dueno()) {
       botones.push_back({Clave::servidor_personalizar, Icono::lapiz, "10", "##personalizar"});
     }
-    botones.push_back({Clave::inicio_ajustes, Icono::ajustes, "3", "##ajustes"});
+    botones.push_back({Clave::inicio_ajustes, Icono::ajustes, nullptr, "##ajustes"});
     botones.push_back({Clave::inicio_desconectar, Icono::encendido, nullptr, "##desconectar"});
     float desde = std::max(fin_nombre, px(63) + debajo) + px(12);
     float necesario = 0;
@@ -343,7 +343,8 @@ class Dibujo {
       const ImVec2 tamano(ancho, px(medida::alto_biselado));
       ImGui::SetCursorScreenPos(ImVec2(desde, (alto - tamano.y) / 2));
       if (cual.etapa == nullptr) {
-        pedido_.desconectar = boton(cual.id, etiqueta, Estilo::biselado, tamano, cual.icono);
+        const bool tocado = boton(cual.id, etiqueta, Estilo::biselado, tamano, cual.icono);
+        (cual.clave == Clave::inicio_ajustes ? pedido_.ajustes : pedido_.desconectar) = tocado;
         if (solo_iconos) {
           cartel(t(cual.clave));
         }
@@ -890,22 +891,6 @@ class Dibujo {
     const std::string_view nombre = yo ? t(Clave::servidor_vos) : std::string_view(usuario.nombre);
     escribir_en(x + px(74), medio, nombre, color::texto2, Letra::normal, medida::letra, icono - x - px(86));
     return y + alto;
-  }
-
-  std::optional<float> deslizador(const char* id, ImVec2 desde, float ancho, float valor) const {
-    ImDrawList& dibujo = *ImGui::GetWindowDrawList();
-    ImGui::SetCursorScreenPos(ImVec2(desde.x, desde.y - px(8)));
-    std::optional<float> nuevo;
-    ImGui::InvisibleButton(id, ImVec2(ancho, px(16)));
-    if (ImGui::IsItemActive()) {
-      nuevo = std::clamp((ImGui::GetIO().MousePos.x - desde.x) / ancho, 0.0f, 1.0f);
-    }
-    const float corte = desde.x + ancho * nuevo.value_or(valor);
-    dibujo.AddRectFilled(ImVec2(desde.x, desde.y - px(3)), ImVec2(corte, desde.y + px(3)), tono(color::claro), px(3));
-    dibujo.AddRectFilled(ImVec2(corte, desde.y - px(3)), ImVec2(desde.x + ancho, desde.y + px(3)), tono(color::linea),
-                         px(3));
-    dibujo.AddCircleFilled(ImVec2(corte, desde.y), px(7), tono(color::claro));
-    return nuevo;
   }
 
   void chat() {

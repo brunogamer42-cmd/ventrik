@@ -10,6 +10,7 @@
 
 struct IUnknown;
 #include <d3d9.h>
+#include <shellapi.h>
 
 #include <imgui.h>
 #include <imgui_impl_win32.h>
@@ -25,6 +26,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND ventana, UINT 
 namespace ventrik::ui {
 namespace {
 constexpr wchar_t kClase[] = L"VentrikVentanaPrincipal";
+constexpr wchar_t kMarca[] = L"VentrikCarpeta";
 constexpr int kAnchoReferencia = 1376;
 constexpr int kAltoReferencia = 768;
 constexpr int kAnchoMinimo = 1100;
@@ -474,17 +476,87 @@ bool Ventana::dibujar_cuadro(const std::function<void()>& dibujar) {
   if (arranque_ms_ == 0) {
     arranque_ms_ = ms_desde_que_arranco();
   }
-  if (!IsWindowVisible(ventana_)) {
+  if (!IsWindowVisible(ventana_) && !situacion_.oculta) {
     ShowWindow(ventana_, como_mostrar_);
   }
   return true;
 }
 
 void Ventana::traer_al_frente() {
+  if (situacion_.oculta) {
+    situacion_.oculta = false;
+    poner_en_bandeja(false);
+    ShowWindow(ventana_, SW_SHOW);
+  }
   if (IsIconic(ventana_)) {
     ShowWindow(ventana_, SW_RESTORE);
   }
   SetForegroundWindow(ventana_);
+}
+
+void Ventana::bandeja(bool al_cerrar, bool al_minimizar, std::wstring abrir, std::wstring salir) {
+  cerrar_a_bandeja_ = al_cerrar;
+  minimizar_a_bandeja_ = al_minimizar;
+  abrir_ = std::move(abrir);
+  salir_ = std::move(salir);
+}
+
+std::uint32_t marca_de(std::wstring carpeta) {
+  CharLowerBuffW(carpeta.data(), static_cast<DWORD>(carpeta.size()));
+  std::uint32_t marca = 2166136261U;
+  for (const wchar_t letra : carpeta) {
+    marca = (marca ^ letra) * 16777619U;
+  }
+  return marca;
+}
+
+bool despertar_otra(std::uint32_t marca) {
+  for (HWND otra = FindWindowExW(nullptr, nullptr, kClase, nullptr); otra != nullptr;
+       otra = FindWindowExW(nullptr, otra, kClase, nullptr)) {
+    if (reinterpret_cast<std::uintptr_t>(GetPropW(otra, kMarca)) == marca) {
+      DWORD proceso = 0;
+      GetWindowThreadProcessId(otra, &proceso);
+      AllowSetForegroundWindow(proceso);
+      return PostMessageW(otra, WM_COMMAND, kOrdenAbrir, 0) != FALSE;
+    }
+  }
+  return false;
+}
+
+void Ventana::marcar(std::uint32_t marca) {
+  SetPropW(ventana_, kMarca, reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(marca)));
+}
+
+void Ventana::ocultar() {
+  situacion_.oculta = true;
+  ShowWindow(ventana_, SW_HIDE);
+  poner_en_bandeja(true);
+}
+
+void Ventana::poner_en_bandeja(bool poner) {
+  NOTIFYICONDATAW icono = {};
+  icono.cbSize = NOTIFYICONDATAW_V2_SIZE;
+  icono.hWnd = ventana_;
+  icono.uID = 1;
+  icono.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+  icono.uCallbackMessage = kMensajeBandeja;
+  icono.hIcon = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), L"VENTRIK", IMAGE_ICON,
+                                              GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+                                              LR_DEFAULTCOLOR | LR_SHARED));
+  GetWindowTextW(ventana_, icono.szTip, ARRAYSIZE(icono.szTip));
+  Shell_NotifyIconW(poner ? NIM_ADD : NIM_DELETE, &icono);
+}
+
+void Ventana::menu_de_bandeja() {
+  const HMENU menu = CreatePopupMenu();
+  AppendMenuW(menu, MF_STRING, kOrdenAbrir, abrir_.c_str());
+  AppendMenuW(menu, MF_STRING, kOrdenSalir, salir_.c_str());
+  POINT donde = {};
+  GetCursorPos(&donde);
+  SetForegroundWindow(ventana_);
+  TrackPopupMenu(menu, TPM_RIGHTBUTTON, donde.x, donde.y, 0, ventana_, nullptr);
+  PostMessageW(ventana_, WM_NULL, 0, 0);
+  DestroyMenu(menu);
 }
 
 int Ventana::correr(const std::function<bool()>& atender, const std::function<void()>& dibujar) {
@@ -565,6 +637,10 @@ LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LP
     return 1;
   }
   auto* yo = reinterpret_cast<Ventana*>(GetWindowLongPtrW(ventana, GWLP_USERDATA));
+  if (yo != nullptr && mensaje == yo->barra_creada_ && yo->situacion_.oculta) {
+    yo->poner_en_bandeja(true);
+    return 0;
+  }
   switch (mensaje) {
     case WM_NCCREATE:
       SetWindowLongPtrW(ventana, GWLP_USERDATA,
@@ -601,6 +677,33 @@ LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LP
       if ((wparam & 0xFFF0) == SC_KEYMENU && lparam == 0) {
         return 0;
       }
+      if ((wparam & 0xFFF0) == SC_MINIMIZE && yo != nullptr && yo->minimizar_a_bandeja_) {
+        yo->ocultar();
+        return 0;
+      }
+      break;
+    case WM_CLOSE:
+      if (yo != nullptr && yo->cerrar_a_bandeja_) {
+        yo->ocultar();
+        return 0;
+      }
+      break;
+    case kMensajeBandeja:
+      if (yo != nullptr && LOWORD(lparam) == WM_LBUTTONUP) {
+        yo->traer_al_frente();
+      } else if (yo != nullptr && LOWORD(lparam) == WM_RBUTTONUP) {
+        yo->menu_de_bandeja();
+      }
+      return 0;
+    case WM_COMMAND:
+      if (yo != nullptr && wparam == kOrdenAbrir) {
+        yo->traer_al_frente();
+        return 0;
+      }
+      if (wparam == kOrdenSalir) {
+        DestroyWindow(ventana);
+        return 0;
+      }
       break;
     case WM_GETMINMAXINFO:
       if (yo != nullptr) {
@@ -620,6 +723,10 @@ LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LP
       }
       return 0;
     case WM_DESTROY:
+      RemovePropW(ventana, kMarca);
+      if (yo != nullptr && yo->situacion_.oculta) {
+        yo->poner_en_bandeja(false);
+      }
       PostQuitMessage(0);
       return 0;
     default:

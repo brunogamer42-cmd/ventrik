@@ -282,8 +282,9 @@ std::uint32_t MotorVoz::tomar_limpieza_us() {
                                     static_cast<std::uint64_t>(std::max<LONGLONG>(frecuencia.QuadPart, 1)));
 }
 
-int MotorVoz::nivel(int segmentos) const {
-  const int pico = pico_.load(std::memory_order_relaxed);
+int MotorVoz::nivel(int segmentos) const { return segmentos_de(pico_.load(std::memory_order_relaxed), segmentos); }
+
+int segmentos_de(int pico, int segmentos) {
   if (pico <= 0) {
     return 0;
   }

@@ -15,6 +15,9 @@
 
 namespace ventrik::ui {
 constexpr UINT kMensajeNovedades = WM_APP + 1;
+constexpr UINT kMensajeBandeja = WM_APP + 2;
+constexpr UINT_PTR kOrdenAbrir = 1001;
+constexpr UINT_PTR kOrdenSalir = 1002;
 
 struct UsoVentana {
   std::map<UINT, std::uint32_t> mensajes;
@@ -35,12 +38,15 @@ struct Situacion {
   bool juego = false;
   bool bloqueada = false;
   bool ahorro = false;
-  bool dibuja() const { return !minimizada && !tapada && !juego && !bloqueada; }
+  bool oculta = false;
+  bool dibuja() const { return !minimizada && !oculta && !tapada && !juego && !bloqueada; }
 };
 
 bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, std::optional<LPARAM>& ultimo_mouse);
 DWORD espera_entre_cuadros(double ultimo_ms);
 bool tapa_el_monitor(const RECT& ventana, const RECT& monitor, LONG estilo, LONG extendido);
+std::uint32_t marca_de(std::wstring carpeta);
+bool despertar_otra(std::uint32_t marca);
 
 class Ventana {
  public:
@@ -62,6 +68,9 @@ class Ventana {
   std::uint32_t arranque_ms() const { return arranque_ms_; }
   int correr(const std::function<bool()>& atender, const std::function<void()>& dibujar);
   void al_terminar_la_sesion(std::function<void()> terminar) { al_terminar_ = std::move(terminar); }
+  void bandeja(bool al_cerrar, bool al_minimizar, std::wstring abrir, std::wstring salir);
+  void ocultar();
+  void marcar(std::uint32_t marca);
 
  private:
   struct Grafica;
@@ -72,6 +81,8 @@ class Ventana {
   void mirar_situacion();
   bool recuperar_dispositivo();
   bool dibujar_cuadro(const std::function<void()>& dibujar);
+  void poner_en_bandeja(bool poner);
+  void menu_de_bandeja();
 
   std::unique_ptr<Grafica> grafica_;
   HWND ventana_ = nullptr;
@@ -88,6 +99,11 @@ class Ventana {
   UINT ancho_nuevo_ = 0;
   UINT alto_nuevo_ = 0;
   std::function<void()> al_terminar_;
+  bool cerrar_a_bandeja_ = false;
+  bool minimizar_a_bandeja_ = false;
+  std::wstring abrir_;
+  std::wstring salir_;
+  UINT barra_creada_ = RegisterWindowMessageW(L"TaskbarCreated");
 };
 
 }
