@@ -536,7 +536,16 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - el diálogo de elegir archivo es de Windows y modal: mientras está abierto, la ventana de Ventrik no se dibuja. La voz sigue en sus hilos. Importar un paquete grande decodifica en el hilo de la ventana, unos segundos en la HP;
     - cada aviso después de 2 s de silencio vuelve a abrir la salida, que en Windows 10 tarda unas decenas de ms en el hilo de la ventana;
     - si el dispositivo de "Sonar por" se desconecta, suena por el de Windows (no por el de la voz).
-- **Lo que sigue:** la prueba a mano de los pasos 3.4 a 3.7, en la PC y en la XP.
+- **Prueba a mano de 3.4 a 3.7 (2026-10-27):** Ajustes, bandeja, susurro y sonidos andan en la PC y en la XP. La limpieza "reduce el ruido estático del micrófono más que el ventilador".
+  - **Medido** con una frase de la voz de Windows (System.Speech) y un ventilador simulado (ruido grave, zumbido de 140 Hz con armónicos y soplido):
+    - **RNNoise deja pasar el zumbido:** sin voz alrededor baja un ventilador solo 4 a 8 dB, porque un zumbido con armónicos se parece a la voz. SpeexDSP en Baja lo bajaba 14 dB. Las pruebas de la limpieza usaban solo ruido blanco, que RNNoise borra entero, por eso no se vio;
+    - **el volumen automático subía el ventilador:** la probabilidad de voz de SpeexDSP (`Pframe`, preprocess.c) da más de 0,5 con casi cualquier ruido parejo, así que el control aprendía del ruido. Al callar, el ventilador quedaba entre 5 y 20 dB más fuerte que sin limpiar. En la HP (16 kHz, ruido apagado de fábrica y volumen prendido) subía el ventilador de la propia máquina.
+  - **Arreglo:**
+    - en Media y Alta, detrás de RNNoise pasa el preprocesador de SpeexDSP (−25 y −35 dB). Un ventilador sin voz baja ahora 26 a 31 dB en Media y 31 a 39 en Alta. La voz pierde 1 dB o menos;
+    - el volumen automático usa el control de SpeexDSP como medidor. Le llegan solo los bloques con voz, en una copia, y la ganancia que da se aplica en rampa a todo. Es voz lo que está 10 dB sobre el piso del micrófono antes de limpiar (el piso baja al instante y sube 4,3 dB por segundo) y, con RNNoise, lo que RNNoise también toma por voz. Se mira antes de limpiar porque lo que dejan los filtros fluctúa y engañaba al umbral (probado: el ventilador volvía a subir 12 dB). Medido: el ventilador sin voz no sube; una voz baja en una pieza tranquila sube 13 a 18 dB; en 2 minutos de charla la ganancia se mantiene. Una voz más baja que el ventilador ya no se sube (subirla subía el ventilador igual);
+    - **costo:** ruido Media a 48 kHz pasa de 248 a unos 300 µs cada 10 ms (3 % de un núcleo) en la PC de prueba; en la clásica, 836 µs (8,4 %), que solo se usa en PCs de varios núcleos. A 16 kHz no cambia: ahí ya era solo SpeexDSP.
+  - **Pruebas nuevas:** un ventilador con zumbido (grave, armónicos y soplido) baja 20 dB o más en Media y Alta, 12 en Media a 16 kHz y 10 en Baja; el volumen automático no sube ese ventilador cuando nadie habla, a 48 y a 16 kHz, con y sin quitar ruido; ese ventilador no abre "por voz" con la limpieza. Con el código anterior fallan seis de estas comprobaciones.
+- **Lo que sigue:** la prueba a mano del ventilador, en la PC y en la HP.
 
 ## Ramas y repositorio
 

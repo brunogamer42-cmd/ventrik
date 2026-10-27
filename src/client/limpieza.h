@@ -47,6 +47,8 @@ class Limpieza {
   std::array<float, 480> salida_{};
   std::array<std::int16_t, 480> sin_eco_{};
   float ganancia_ = 1;
+  float volumen_puesto_ = 1;
+  double piso_ = 1e12;
   Ruido ruido_puesto_ = Ruido::apagado;
   std::atomic<Ruido> ruido_{Ruido::apagado};
   std::atomic<bool> eco_prendido_{false};

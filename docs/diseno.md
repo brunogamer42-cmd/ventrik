@@ -369,12 +369,12 @@ Recorrido de la voz:
      1. el volumen del micrófono;
      2. el eco (SpeexDSP, con lo que sale por los parlantes como referencia);
      3. el ruido;
-     4. "Ajustar solo el volumen del micrófono" (el control automático de SpeexDSP);
+     4. "Ajustar solo el volumen del micrófono" (el control automático de SpeexDSP). Aprende solo de los bloques con voz: los que están 10 dB sobre el ruido de fondo del micrófono sin limpiar y, con RNNoise, los que RNNoise también toma por voz. Entre palabras mantiene la ganancia, así que nunca sube un ventilador por sí solo;
      5. recién después se decide si se transmite, así que un ventilador o el teclado ya no abren "por voz". La decisión mira la voz ya sin ruido pero antes del volumen automático: así el volumen automático no abre "por voz" subiendo un ruido bajo. El medidor muestra el micrófono sin limpiar.
    - **"Quitar ruido de fondo" tiene tres niveles:**
      - Baja: SpeexDSP, −15 dB;
-     - Media: RNNoise;
-     - Alta: RNNoise, y además baja lo que RNNoise dice que no es voz;
+     - Media: RNNoise, y detrás SpeexDSP con −25 dB para el ruido parejo que RNNoise deja (el zumbido de un ventilador tiene tono, como la voz, y RNNoise lo deja pasar);
+     - Alta: lo mismo con −35 dB, y además baja lo que RNNoise dice que no es voz;
      - RNNoise trabaja solo a 48 kHz: a 16 y 8 kHz, Media y Alta usan SpeexDSP con −25 y −35 dB.
    - **De fábrica:**
      - en PCs comunes, ruido Media, eco "Automática: se apaga con auriculares" y el volumen automático prendido;

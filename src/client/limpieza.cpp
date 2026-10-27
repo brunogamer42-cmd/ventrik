@@ -1,7 +1,9 @@
 #include "client/limpieza.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
+#include <numeric>
 
 #include <rnnoise.h>
 #include <speex/speex_echo.h>
@@ -14,6 +16,8 @@ constexpr float kNoEsVoz = 0.5f;
 constexpr float kBajaSinVoz = 0.3f;
 constexpr float kNivelDelVolumen = 12000;
 constexpr spx_int32_t kGananciaMaxima = 20;
+constexpr double kSubeElPiso = 1.01;
+constexpr double kSobreElPiso = 10;
 
 spx_int32_t supresion(Ruido ruido) {
   return ruido == Ruido::baja ? -15 : ruido == Ruido::media ? -25 : -35;
@@ -25,6 +29,15 @@ int pico_de(gsl::span<const std::int16_t> muestras) {
     pico = std::max(pico, std::abs(static_cast<int>(muestra)));
   }
   return pico;
+}
+
+void rampa(gsl::span<std::int16_t> muestras, float& ganancia, float objetivo) {
+  const float paso = (objetivo - ganancia) / static_cast<float>(muestras.size());
+  for (auto& muestra : muestras) {
+    ganancia += paso;
+    muestra = static_cast<std::int16_t>(std::clamp(muestra * ganancia, -32768.0f, 32767.0f));
+  }
+  ganancia = objetivo;
 }
 
 }
@@ -90,23 +103,32 @@ int Limpieza::limpiar(gsl::span<std::int16_t> captura) {
     speex_echo_capture(eco_, captura.data(), sin_eco_.data());
     std::copy_n(sin_eco_.begin(), captura.size(), captura.begin());
   }
+  const double energia = std::inner_product(captura.begin(), captura.end(), captura.begin(), 1.0);
+  piso_ = std::min(energia, piso_ * kSubeElPiso);
+  bool hablando = energia > piso_ * kSobreElPiso;
   if (!rnnoise_.empty() && ruido >= Ruido::media) {
     std::copy(captura.begin(), captura.end(), entrada_.begin());
     const float voz =
         rnnoise_process_frame(reinterpret_cast<DenoiseState*>(rnnoise_.data()), salida_.data(), entrada_.data());
-    const float objetivo = ruido == Ruido::alta && voz < kNoEsVoz ? kBajaSinVoz : 1.0f;
-    const float paso = (objetivo - ganancia_) / static_cast<float>(captura.size());
-    for (std::size_t i = 0; i < captura.size(); ++i) {
-      ganancia_ += paso;
-      captura[i] = static_cast<std::int16_t>(std::clamp(salida_[i] * ganancia_, -32768.0f, 32767.0f));
-    }
-    ganancia_ = objetivo;
-  } else if (ruido != Ruido::apagado) {
+    hablando = hablando && voz >= kNoEsVoz;
+    std::transform(salida_.begin(), salida_.begin() + captura.size(), captura.begin(),
+                   [](float muestra) { return static_cast<std::int16_t>(std::clamp(muestra, -32768.0f, 32767.0f)); });
+    rampa(captura, ganancia_, ruido == Ruido::alta && voz < kNoEsVoz ? kBajaSinVoz : 1.0f);
+  }
+  if (ruido != Ruido::apagado) {
     speex_preprocess_run(ruido_previo_, captura.data());
   }
   const int pico = pico_de(captura);
   if (volumen_) {
-    speex_preprocess_run(volumen_previo_, captura.data());
+    float objetivo = volumen_puesto_;
+    if (hablando) {
+      std::copy(captura.begin(), captura.end(), sin_eco_.begin());
+      speex_preprocess_run(volumen_previo_, sin_eco_.data());
+      spx_int32_t decibeles = 0;
+      speex_preprocess_ctl(volumen_previo_, SPEEX_PREPROCESS_GET_AGC_GAIN, &decibeles);
+      objetivo = std::pow(10.0f, static_cast<float>(decibeles) / 20);
+    }
+    rampa(captura, volumen_puesto_, objetivo);
   }
   return pico;
 }

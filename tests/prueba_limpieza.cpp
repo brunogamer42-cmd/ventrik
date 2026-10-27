@@ -35,6 +35,22 @@ std::vector<std::int16_t> ruido_blanco(std::size_t cuantas, double amplitud, uns
   return muestras;
 }
 
+std::vector<std::int16_t> ventilador(std::size_t cuantas, unsigned frecuencia, double fuerza) {
+  std::mt19937 azar(9);
+  std::normal_distribution<double> normal(0, 1);
+  std::vector<std::int16_t> muestras(cuantas);
+  double grave = 0;
+  for (std::size_t i = 0; i < cuantas; ++i) {
+    grave = 0.95 * grave + normal(azar);
+    double zumbido = 0;
+    for (int armonico = 1; armonico <= 4; ++armonico) {
+      zumbido += std::sin(2 * 3.14159265 * 140 * armonico * static_cast<double>(i) / frecuencia) / armonico;
+    }
+    muestras[i] = static_cast<std::int16_t>(fuerza * (50 * grave + 300 * zumbido + 120 * normal(azar)));
+  }
+  return muestras;
+}
+
 double decibeles(double antes, double despues) { return 10 * std::log10(despues / antes); }
 
 double energia_de(const std::vector<std::int16_t>& muestras, std::size_t desde, std::size_t hasta) {
@@ -86,18 +102,21 @@ TEST_CASE("La cancelación de eco borra lo que sale por los parlantes y vuelve a
 }
 
 TEST_CASE("Quitar ruido baja un ventilador y deja pasar la voz, a 48 y a 16 kHz") {
-  for (const auto& [frecuencia, ruido, minimo] : {std::make_tuple(48000u, Ruido::media, 10.0),
-                                                  std::make_tuple(48000u, Ruido::alta, 10.0),
-                                                  std::make_tuple(16000u, Ruido::media, 6.0),
-                                                  std::make_tuple(48000u, Ruido::baja, 6.0)}) {
-    Limpieza limpieza(frecuencia);
-    limpieza.usar({ruido, false, false});
-    const auto ventilador = ruido_blanco(frecuencia * 2, 800, 3);
-    const auto limpio = limpiar_todo(limpieza, ventilador);
-    const double baja = decibeles(energia_de(ventilador, frecuencia, ventilador.size()),
-                                  energia_de(limpio, frecuencia, limpio.size()));
-    MESSAGE(frecuencia << " Hz, nivel " << static_cast<int>(ruido) << ": " << baja << " dB");
-    CHECK(baja <= -minimo);
+  for (const auto& [frecuencia, ruido, minimo] : {std::make_tuple(48000u, Ruido::media, 20.0),
+                                                  std::make_tuple(48000u, Ruido::alta, 20.0),
+                                                  std::make_tuple(16000u, Ruido::media, 12.0),
+                                                  std::make_tuple(48000u, Ruido::baja, 10.0)}) {
+    for (const bool con_zumbido : {false, true}) {
+      Limpieza limpieza(frecuencia);
+      limpieza.usar({ruido, false, false});
+      const auto crudo = con_zumbido ? ventilador(frecuencia * 2, frecuencia, 1) : ruido_blanco(frecuencia * 2, 800, 3);
+      const auto limpio = limpiar_todo(limpieza, crudo);
+      const double baja =
+          decibeles(energia_de(crudo, frecuencia, crudo.size()), energia_de(limpio, frecuencia, limpio.size()));
+      MESSAGE(frecuencia << " Hz, nivel " << static_cast<int>(ruido) << std::string(con_zumbido ? ", con zumbido: " : ": ")
+                         << baja << " dB");
+      CHECK(baja <= -minimo);
+    }
   }
 }
 
@@ -121,22 +140,40 @@ TEST_CASE("El volumen automático sube una voz que llega baja") {
   CHECK(sube >= 3);
 }
 
+TEST_CASE("El volumen automático no sube un ventilador cuando nadie habla") {
+  for (const auto& [frecuencia, ruido, tope] :
+       {std::make_tuple(48000u, Ruido::apagado, 1.0), std::make_tuple(48000u, Ruido::media, -15.0),
+        std::make_tuple(16000u, Ruido::apagado, 1.0), std::make_tuple(16000u, Ruido::media, -10.0)}) {
+    Limpieza limpieza(frecuencia);
+    limpieza.usar({ruido, false, true});
+    const auto crudo = ventilador(frecuencia * 4, frecuencia, 1);
+    const auto limpio = limpiar_todo(limpieza, crudo);
+    const double cambia =
+        decibeles(energia_de(crudo, frecuencia * 2, crudo.size()), energia_de(limpio, frecuencia * 2, limpio.size()));
+    MESSAGE(frecuencia << " Hz, nivel " << static_cast<int>(ruido) << ": " << cambia << " dB");
+    CHECK(cambia <= tope);
+  }
+}
+
 TEST_CASE("Por voz no se abre con un ventilador si se quita el ruido, y el volumen automático no lo abre") {
-  for (const auto& [limpiar, fuerza, se_abre] : {std::make_tuple(Limpiar{Ruido::apagado, false, false}, 1500.0, true),
-                                                 std::make_tuple(Limpiar{Ruido::media, false, false}, 1500.0, false),
-                                                 std::make_tuple(Limpiar{Ruido::media, false, true}, 1500.0, false),
-                                                 std::make_tuple(Limpiar{Ruido::apagado, false, true}, 300.0, false)}) {
+  for (const auto& [limpiar, fuerza, con_zumbido, se_abre] :
+       {std::make_tuple(Limpiar{Ruido::apagado, false, false}, 1500.0, false, true),
+        std::make_tuple(Limpiar{Ruido::media, false, false}, 1500.0, false, false),
+        std::make_tuple(Limpiar{Ruido::media, false, true}, 1500.0, false, false),
+        std::make_tuple(Limpiar{Ruido::apagado, false, true}, 300.0, false, false),
+        std::make_tuple(Limpiar{Ruido::apagado, false, false}, 3.0, true, true),
+        std::make_tuple(Limpiar{Ruido::media, false, true}, 3.0, true, false)}) {
     PuenteVoz puente;
     MotorVoz motor(puente, Calidad{});
     REQUIRE(motor.ok());
     motor.sensibilidad(50);
     motor.por_voz(true);
     motor.limpiar(limpiar);
-    const auto ventilador = ruido_blanco(48000 * 3, fuerza, 11);
+    const auto crudo = con_zumbido ? ventilador(48000 * 3, 48000, fuerza) : ruido_blanco(48000 * 3, fuerza, 11);
     std::vector<std::int16_t> salida(480);
     int paquetes_al_final = 0;
-    for (std::size_t desde = 0; desde + 480 <= ventilador.size(); desde += 480) {
-      motor.procesar(gsl::make_span(ventilador).subspan(desde, 480), salida);
+    for (std::size_t desde = 0; desde + 480 <= crudo.size(); desde += 480) {
+      motor.procesar(gsl::make_span(crudo).subspan(desde, 480), salida);
       PaqueteVoz sacado;
       while (puente.subida.sacar(sacado)) {
         paquetes_al_final += desde >= 48000 * 2 ? 1 : 0;
