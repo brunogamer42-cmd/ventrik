@@ -36,7 +36,7 @@ Mencion mencion_en(std::string_view texto, std::string_view nombre);
 AjusteDeAvisos ajuste_de(const AvisosDelServidor& avisos, std::uint32_t canal);
 bool avisa(const AvisosDelServidor& avisos, std::uint32_t canal, Mencion mencion, std::uint64_t ahora);
 void cambiar_canal(AvisosDelServidor& avisos, std::uint32_t canal, const AjusteDeAvisos& ajuste);
-void normalizar(AvisosDelServidor& avisos, std::uint64_t ahora);
+bool normalizar(AvisosDelServidor& avisos, std::uint64_t ahora);
 bool son_validos(const AvisosDelServidor& avisos);
 
 }

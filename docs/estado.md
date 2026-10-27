@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-26, con el diseño de los sonidos de los avisos.
+Última actualización: 2026-10-27, con el paso 3.3b (las pantallas de silenciar avisos).
 
 ## Dónde estamos
 
@@ -326,7 +326,28 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - doce tandas de mensajes comunes después de una mención no la borran ni la vuelven a mandar;
     - en las 4 combinaciones, la ventana de verdad minimizada no abre aviso en 4 s con un mensaje común y sí con "@ventana";
     - fuzzing: `fuzz_textos` (`mencion_en`), `fuzz_sala` (mensajes con @Ana y @todos, y ajustes al azar) y `fuzz_guardados` (semilla v6).
-- **Lo que sigue:** paso 3.3b (las pantallas de silenciar avisos); después, la prueba a mano de las notificaciones, del paso 3.2 y del 3.3 juntas.
+- **Etapa 3, paso 3.3b: las pantallas de silenciar avisos (hecho, 2026-10-27).**
+  - **`ui/menu_avisos`:** los menús de ImGui ("Silenciar ▸", "Avisarme de ▸", el del servidor y el de cada canal) y el diálogo "Avisos de <servidor>", para usar desde la pantalla del servidor y desde Inicio.
+    - "Avisarme de ▸" muestra lo elegido a la derecha; ImGui no lo trae para los submenús, así que se anota el ancho en la columna de atajos del menú (`MenuColumns`, de imgui_internal) y se escribe a mano.
+    - El diálogo con los 60 canales posibles no entraba en la pantalla: la lista mide lo que cabe y se desplaza con su barra.
+    - Cerrado, el diálogo sale al principio, sin medir la nota ni armar textos (principio 1 de docs/optimizacion.md).
+  - **Servidor:**
+    - el ▾ va junto a la dirección (el nombre del servidor llega en la etapa 4); silenciado, la campana tachada y "Silenciado hasta las HH:MM" en el lugar del cartel PRONTO;
+    - el clic derecho en los canales es para todos; el canal silenciado se ve apagado, sin contador y con la campana tachada;
+    - "Marcar como leído" y "Marcar todo como leído" van en el pedido (`leidos`): Programa marca la sala (`Sala::marcar_leido`, ahora pública) y saca el aviso pendiente.
+  - **Inicio:** clic derecho en la tarjeta, con lo guardado de ese servidor; el diálogo sin conexión dice cuántos canales tienen ajuste propio.
+  - **Programa:** `cambiar_avisos` normaliza, guarda en programa.dat y, si es el servidor conectado, se lo pasa a `Avisos` y a la pantalla.
+  - **Consumo (sin hilos ni despertares nuevos):**
+    - el vencimiento de un silencio se mira en el tic de 1 s que ya existía: `normalizar` trabaja en el lugar y dice si cambió algo, y solo entonces se copia y se guarda;
+    - un texto guardado más (`TextosGuardados::silenciado`, "Silenciado hasta las HH:MM"), que se arma de nuevo solo si cambia la hora o el idioma;
+    - banco: el servidor grande con el servidor y 30 canales silenciados, 111 µs por cuadro (105 sin silencios); con el diálogo abierto y 30 canales en la lista, 200 µs (solo mientras está abierto).
+  - **Pruebas (prueba_pantallas):**
+    - el clic derecho de un invitado: silenciar por 1 hora, "Todos los mensajes", "Volver a activar", "Igual que el servidor" (el canal sale de la lista) y "Marcar como leído"; el invitado no puede editar;
+    - el ▾: silenciar por 1 hora (la cabecera muestra la hora), "Marcar todo como leído", "Avisos del servidor…" (cambiar a "Todos" y Quitar un canal) y Desconectar;
+    - el clic derecho en una tarjeta de Inicio: "Hasta que lo vuelva a activar", "Marcar todo" apagado y el diálogo sin conexión;
+    - el diálogo con 60 canales entra en la pantalla mínima y al 150 %, y se desplaza;
+    - `normalizar` dice si cambió algo.
+- **Lo que sigue:** la prueba a mano de las notificaciones, del paso 3.2 y del 3.3 juntas, en la PC y en la XP.
 
 ## Ramas y repositorio
 
@@ -600,7 +621,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **VS 2017 (clásica):** una lambda sin captura no ve una `constexpr` local (error C3493): usar `static constexpr`.
 - **`/GL` y compilaciones cortadas:** si una compilación se corta o se queda sin memoria (por ejemplo, compilando con los 20 fuzzers corriendo), los archivos del enlace incremental (`*.iobj`, `*.ipdb`) quedan dañados y el enlace falla con errores internos (C1001, LNK1000, LNK2016) en archivos que no cambiaron. Se arregla borrándolos de `build\<versión>`. No compilar mientras corre el fuzzing largo.
 - **Corpus que crece:** libFuzzer ejecuta todo el corpus antes de empezar y `-max_total_time` no corta esa parte. El de `fuzz_voz` llegó a 7.646 casos (Opus con AddressSanitizer en 32 bits va a unos 60 a 100 casos por segundo) y solo cargarlo pasaba el límite de check.ps1 ("No terminó a tiempo"). Se compacta con `-merge=1` (quedaron 2.560 con la misma cobertura). `-merge=1` se vuelve a llamar a sí mismo con la ruta sin comillas: con los espacios de la carpeta del proyecto falla, así que se copian el .exe, sus DLL y los corpus a una carpeta sin espacios. Volvió a pasar después de una corrida de 10 minutos (el de 64 bits llegó a 2.953 casos y compactado seguía en 2.875, casi todos con algo propio): desde entonces, en la corrida corta de check.ps1 cada fuzzer carga solo su carpeta y las semillas; en la larga (300 s o más) también la del otro. El 2026-10-26 el de 64 bits llegó a 3.212 casos, a unos 35 por segundo con los 20 fuzzers a la vez: dos corridas de check.ps1 pasaron justo (3.222 casos en total, o sea casi solo la carga) y la tercera no terminó a tiempo. Desde entonces la corrida corta arranca de las semillas en una carpeta vacía (`build\fuzzing\corto`, se borra cada vez) y no toca el corpus guardado; la larga lo sigue cargando entero y es la que lo hace crecer.
-- **Compilador:** si aparecen de golpe `C1001` (error interno), `LNK1000` o `LNK2016` con `@comp.id`, se dañaron los archivos incrementales del enlace optimizado (`*.iobj`, `*.ipdb`): se borran junto con el .exe y se vuelve a compilar. Pasó el 2026-10-26 con las pruebas de la moderna; con el disco con lugar de sobra.
+- **Compilador:** si aparecen de golpe `C1001` (error interno), `LNK1000` o `LNK2016` con `@comp.id`, se dañaron los archivos incrementales del enlace optimizado (`*.iobj`, `*.ipdb`): se borran junto con el .exe y se vuelve a compilar. Pasó el 2026-10-26 con las pruebas de la moderna; con el disco con lugar de sobra. El 2026-10-27 dio otra señal, sin ningún error al enlazar: ventrik_pruebas.exe se cerraba solo (0xC0000005) en la primera excepción de C++, aun en la prueba de gsl, que no había cambiado. Se arregló igual.
 - **PowerShell y funciones de Windows:** `$null` pasado a un parámetro `string` de `Add-Type` llega como `""`, no como nulo (`FindWindowW(clase, $null)` no encuentra nada). Para la ventana del programa, usar `$proceso.MainWindowHandle`.
 
 ## Pendientes (además de los VENTRIK_PENDIENTE)

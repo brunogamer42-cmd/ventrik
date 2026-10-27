@@ -48,7 +48,7 @@ Mencion mencion_en(std::string_view texto, std::string_view nombre) {
     return Mencion::ninguna;
   }
   const std::wstring buscado = nombre_para_comparar(nombre);
-  const std::array<std::string_view, 3> generales = {"todos", "aqu\xC3\xAD", "aqui"};
+  const std::array<std::string_view, 5> generales = {"todos", "aqu\xC3\xAD", "aqui", "everyone", "here"};
   Mencion hallada = Mencion::ninguna;
   std::size_t arroba = texto.find('@');
   for (std::size_t vistas = 0; arroba != std::string_view::npos && vistas < kArrobasPorMensaje;
@@ -100,17 +100,23 @@ void cambiar_canal(AvisosDelServidor& avisos, std::uint32_t canal, const AjusteD
   }
 }
 
-void normalizar(AvisosDelServidor& avisos, std::uint64_t ahora) {
-  const auto vencer = [ahora](AjusteDeAvisos& ajuste) {
-    ajuste.silenciado_hasta = silenciado(ajuste, ahora) ? ajuste.silenciado_hasta : 0;
+bool normalizar(AvisosDelServidor& avisos, std::uint64_t ahora) {
+  bool cambio = false;
+  const auto vencer = [ahora, &cambio](AjusteDeAvisos& ajuste) {
+    if (ajuste.silenciado_hasta != 0 && !silenciado(ajuste, ahora)) {
+      ajuste.silenciado_hasta = 0;
+      cambio = true;
+    }
   };
   vencer(avisos.servidor);
   for (auto& canal : avisos.canales) {
     vencer(canal.ajuste);
   }
-  avisos.canales.erase(std::remove_if(avisos.canales.begin(), avisos.canales.end(),
-                                      [](const AvisosDeCanal& canal) { return es_comun(canal.ajuste); }),
-                       avisos.canales.end());
+  const auto fin = std::remove_if(avisos.canales.begin(), avisos.canales.end(),
+                                  [](const AvisosDeCanal& canal) { return es_comun(canal.ajuste); });
+  cambio = cambio || fin != avisos.canales.end();
+  avisos.canales.erase(fin, avisos.canales.end());
+  return cambio;
 }
 
 bool son_validos(const AvisosDelServidor& avisos) {

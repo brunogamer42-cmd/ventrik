@@ -213,7 +213,7 @@ std::vector<Orden> Sala::elegir_voz(std::uint32_t id) {
     entrando_ = true;
   }
   negado_.reset();
-  marcar_leido();
+  marcar_leido(chat().canal);
   return ordenes;
 }
 
@@ -225,7 +225,7 @@ std::vector<Orden> Sala::elegir_texto(std::uint32_t id) {
   texto_ = Chat{id};
   ultimo_texto_ = id;
   negado_.reset();
-  marcar_leido();
+  marcar_leido(chat().canal);
   return {protocolo::MirarCanal{id}, pedir(texto_, 0, Sentido::viejos, kMensajesAlEntrar)};
 }
 
@@ -335,7 +335,7 @@ std::vector<Orden> Sala::atender(const protocolo::CanalBorrado& borrado) {
   }
   if (texto_.canal == borrado.id) {
     texto_ = Chat{};
-    marcar_leido();
+    marcar_leido(chat().canal);
   }
   return voz_.canal == borrado.id ? cambiar_voz(borrado.movidos_a) : std::vector<Orden>{};
 }
@@ -383,7 +383,7 @@ std::vector<Orden> Sala::atender(const protocolo::Negado& negado) {
   entrando_ = entrando_ && negado.pedido != protocolo::TipoMensaje::entrar_a_canal;
   if (negado.pedido == protocolo::TipoMensaje::mirar_canal) {
     texto_ = Chat{};
-    marcar_leido();
+    marcar_leido(chat().canal);
     historial_despues_ = std::chrono::steady_clock::now() + kEsperaTrasRechazo;
   }
   if (negado.pedido == protocolo::TipoMensaje::pedir_historial) {
@@ -405,7 +405,7 @@ std::vector<Orden> Sala::atender(const PingMedido& ping) {
 
 std::vector<Orden> Sala::cambiar_voz(std::uint32_t id) {
   voz_ = Chat{id};
-  marcar_leido();
+  marcar_leido(chat().canal);
   return id == 0 ? std::vector<Orden>{} : std::vector<Orden>{pedir(voz_, 0, Sentido::viejos, kMensajesAlEntrar)};
 }
 
@@ -417,13 +417,13 @@ void Sala::subir(std::uint32_t id, std::uint32_t contador) {
   if (auto* info = buscar(canales_, id)) {
     info->contador = std::max(info->contador, contador);
     if (id == chat().canal) {
-      marcar_leido();
+      marcar_leido(chat().canal);
     }
   }
 }
 
-void Sala::marcar_leido() {
-  if (const auto* info = canal(chat().canal)) {
+void Sala::marcar_leido(std::uint32_t id) {
+  if (const auto* info = canal(id)) {
     leidos_[info->id] = info->contador;
   }
 }

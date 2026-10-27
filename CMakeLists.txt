@@ -189,7 +189,7 @@ target_sources(ventrik_cliente_base PRIVATE src/client/voz_primero.cpp)
 target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm)
 add_library(ventrik_interfaz STATIC
   src/client/ui/aviso_ventana.cpp src/client/ui/aviso_windows.cpp src/client/ui/dibujante.cpp src/client/ui/iconos.cpp src/client/ui/inicio.cpp
-  src/client/ui/piezas.cpp
+  src/client/ui/menu_avisos.cpp src/client/ui/piezas.cpp
   src/client/ui/programa.cpp src/client/ui/servidor.cpp src/client/ui/ventana.cpp)
 target_link_libraries(ventrik_interfaz PUBLIC ventrik_cliente_base imgui d3d9 user32 gdi32)
 

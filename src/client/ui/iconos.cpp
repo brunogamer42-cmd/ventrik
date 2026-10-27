@@ -142,6 +142,12 @@ void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, I
     case Icono::flecha_arriba:
       trazo({ImVec2(-4.5f, 2), ImVec2(0, -2.5f), ImVec2(4.5f, 2)}, false);
       break;
+    case Icono::campana:
+      arco(0, -1.5f, 4, kPi, 2 * kPi);
+      trazo({ImVec2(-4, -1.5f), ImVec2(-4, 2.5f), ImVec2(-6, 4.5f), ImVec2(6, 4.5f), ImVec2(4, 2.5f), ImVec2(4, -1.5f)},
+            false);
+      dibujo.AddLine(p(-1.5f, 6.5f), p(1.5f, 6.5f), color, grosor);
+      break;
     case Icono::colgar:
       arco(0, 4, 7, 1.15f * kPi, 1.85f * kPi);
       trazo({ImVec2(-6.2f, 0.8f), ImVec2(-6.8f, 3.5f), ImVec2(-3, 4), ImVec2(-2.6f, 2)}, false);

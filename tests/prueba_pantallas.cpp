@@ -13,10 +13,12 @@
 #include <imgui_impl_null.h>
 #include <imgui_internal.h>
 
+#include "client/horas.h"
 #include "client/sala.h"
 #include "client/ui/aviso_ventana.h"
 #include "client/ui/dibujante.h"
 #include "client/ui/inicio.h"
+#include "client/ui/menu_avisos.h"
 #include "client/ui/piezas.h"
 #include "client/ui/servidor.h"
 #include "client/ui/ventana.h"
@@ -338,6 +340,27 @@ TEST_CASE("El nombre de la tecla para hablar sale de los textos o de Windows") {
 namespace {
 bool hay_ventana_emergente() { return ImGui::GetCurrentContext()->OpenPopupStack.Size > 0; }
 
+ImVec2 en_menu(int fila) {
+  const ImGuiWindow& menu = *ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+  return ImVec2(menu.Pos.x + 40, menu.Pos.y + 16 + 22 * static_cast<float>(fila));
+}
+
+ImVec2 en_dialogo(float x, float y) {
+  const ImGuiWindow& dialogo = *ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+  return ImVec2(dialogo.Pos.x + x, dialogo.Pos.y + y);
+}
+
+template <typename Pedido>
+std::optional<ventrik::cliente::AvisosDelServidor> avisos_de(const std::vector<Pedido>& pedidos) {
+  std::optional<ventrik::cliente::AvisosDelServidor> avisos;
+  for (const auto& pedido : pedidos) {
+    if (pedido.avisos) {
+      avisos = pedido.avisos;
+    }
+  }
+  return avisos;
+}
+
 template <typename Orden>
 std::vector<Orden> ordenes_de(const std::vector<ui::PedidoServidor>& pedidos) {
   std::vector<Orden> encontradas;
@@ -418,7 +441,7 @@ TEST_CASE("El clic derecho del dueño abre el menú, y cambiar o borrar mandan s
   sin_pantalla.cuadro(pantalla, sala, fila);
   CHECK(hay_ventana_emergente());
   sin_pantalla.usar_boton(0);
-  const ImVec2 cambiar(130, 207);
+  const ImVec2 cambiar(130, 305);
   sin_pantalla.cuadro(pantalla, sala, cambiar);
   sin_pantalla.cuadro(pantalla, sala, cambiar, true);
   sin_pantalla.cuadro(pantalla, sala, cambiar);
@@ -699,7 +722,7 @@ TEST_CASE("Los textos guardados de la pantalla cambian con el dato y con el idio
   CHECK(pantalla.fechas.empty());
 }
 
-TEST_CASE("Si borran el canal mientras su cuadro está abierto, el cuadro se cierra; el invitado no tiene menú") {
+TEST_CASE("Si borran el canal mientras su cuadro está abierto, el cuadro se cierra; el invitado no puede editar") {
   SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
   auto sala = sala_llena(true, 4, 3, 5);
   auto pantalla = pantalla_servidor();
@@ -721,7 +744,148 @@ TEST_CASE("Si borran el canal mientras su cuadro está abierto, el cuadro se cie
   sin_pantalla.cuadro(otra, invitado, fila);
   sin_pantalla.cuadro(otra, invitado, fila, true);
   sin_pantalla.cuadro(otra, invitado, fila);
+  CHECK(hay_ventana_emergente());
+  sin_pantalla.usar_boton(0);
+  const ImVec2 editar(130, 305);
+  sin_pantalla.cuadro(otra, invitado, editar);
+  sin_pantalla.cuadro(otra, invitado, editar, true);
+  sin_pantalla.cuadro(otra, invitado, editar);
+  CHECK(otra.dialogo == ui::Dialogo::ninguno);
+}
+
+TEST_CASE("Con clic derecho en un canal, cualquiera lo silencia, elige de qué avisar, lo reactiva y lo marca leído") {
+  using ventrik::cliente::ajuste_de;
+  using ventrik::cliente::Avisar;
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(false, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  std::vector<ui::PedidoServidor> pedidos;
+  const auto cuadro = [&](ImVec2 donde, bool clic = false) {
+    pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, donde, clic));
+  };
+  const auto tocar = [&](ImVec2 donde) {
+    cuadro(donde);
+    cuadro(donde, true);
+    cuadro(donde);
+  };
+  const auto abrir_menu = [&] {
+    pedidos.clear();
+    sin_pantalla.usar_boton(1);
+    tocar(ImVec2(100, 192));
+    sin_pantalla.usar_boton(0);
+    REQUIRE(hay_ventana_emergente());
+  };
+  const ImVec2 silenciar(130, 254);
+  const ImVec2 avisarme(130, 276);
+  const auto elegir = [&](ImVec2 submenu, int fila) {
+    abrir_menu();
+    cuadro(submenu);
+    cuadro(submenu);
+    tocar(en_menu(fila));
+    const auto avisos = avisos_de(pedidos);
+    if (avisos) {
+      pantalla.avisos = *avisos;
+    }
+    return avisos.has_value();
+  };
+
+  const std::uint64_t antes = ventrik::cliente::ahora_ms();
+  REQUIRE(elegir(silenciar, 1));
   CHECK_FALSE(hay_ventana_emergente());
+  CHECK(ajuste_de(pantalla.avisos, 2).silenciado_hasta >= antes + 3600000);
+  CHECK(ajuste_de(pantalla.avisos, 2).silenciado_hasta <= ventrik::cliente::ahora_ms() + 3600000);
+  CHECK(ajuste_de(pantalla.avisos, 2).aun_con_mencion);
+  CHECK(pantalla.avisos.servidor.silenciado_hasta == 0);
+  cuadro(ImVec2(5, 5));
+
+  REQUIRE(elegir(avisarme, 1));
+  CHECK(ajuste_de(pantalla.avisos, 2).avisar == Avisar::todos);
+  CHECK(ventrik::cliente::silenciado(ajuste_de(pantalla.avisos, 2), ventrik::cliente::ahora_ms()));
+
+  REQUIRE(elegir(silenciar, 0));
+  CHECK(ajuste_de(pantalla.avisos, 2).silenciado_hasta == 0);
+  CHECK(ajuste_de(pantalla.avisos, 2).avisar == Avisar::todos);
+  REQUIRE(elegir(avisarme, 0));
+  CHECK(pantalla.avisos.canales.empty());
+
+  abrir_menu();
+  tocar(ImVec2(130, 232));
+  const bool marcado = std::any_of(pedidos.begin(), pedidos.end(), [](const ui::PedidoServidor& pedido) {
+    return pedido.leidos == std::vector<std::uint32_t>{2};
+  });
+  CHECK(marcado);
+}
+
+TEST_CASE("El ▾ del servidor lo silencia por 1 hora y la cabecera lo dice; el diálogo cambia de qué avisar y quita un canal") {
+  using ventrik::cliente::Avisar;
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  pantalla.avisos.canales = {{4, {0, true, Avisar::nada}}};
+  std::vector<ui::PedidoServidor> pedidos;
+  const auto cuadro = [&](ImVec2 donde, bool clic = false) {
+    pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, donde, clic));
+  };
+  const auto tocar = [&](ImVec2 donde) {
+    cuadro(donde);
+    cuadro(donde, true);
+    cuadro(donde);
+  };
+  const ImVec2 nombre(150, 20);
+  const auto aplicar = [&] {
+    const auto avisos = avisos_de(pedidos);
+    if (avisos) {
+      pantalla.avisos = *avisos;
+    }
+    pedidos.clear();
+    return avisos.has_value();
+  };
+
+  const std::uint64_t antes = ventrik::cliente::ahora_ms();
+  cuadro(ImVec2(5, 5));
+  tocar(nombre);
+  REQUIRE(hay_ventana_emergente());
+  cuadro(en_menu(2));
+  cuadro(en_menu(2));
+  tocar(en_menu(1));
+  REQUIRE(aplicar());
+  const std::uint64_t hasta = pantalla.avisos.servidor.silenciado_hasta;
+  CHECK(hasta >= antes + 3600000);
+  CHECK(hasta <= ventrik::cliente::ahora_ms() + 3600000);
+  cuadro(ImVec2(5, 5));
+  CHECK(pantalla.textos.silenciado.texto == ui::estado_de_silencio(pantalla.idioma, pantalla.avisos.servidor));
+  CHECK(pantalla.textos.silenciado.texto.find(ventrik::cliente::hora_local(hasta)) != std::string::npos);
+
+  tocar(nombre);
+  tocar(en_menu(3));
+  const bool todos = std::any_of(pedidos.begin(), pedidos.end(), [](const ui::PedidoServidor& pedido) {
+    return pedido.leidos == std::vector<std::uint32_t>{1, 2, 3, 4};
+  });
+  CHECK(todos);
+  pedidos.clear();
+
+  tocar(nombre);
+  tocar(en_menu(1));
+  cuadro(ImVec2(5, 5));
+  REQUIRE(hay_ventana_emergente());
+  tocar(en_dialogo(110, 177));
+  REQUIRE(aplicar());
+  CHECK(pantalla.avisos.servidor.avisar == Avisar::todos);
+  CHECK(pantalla.avisos.canales.size() == 1);
+  tocar(en_dialogo(582, 354));
+  REQUIRE(aplicar());
+  CHECK(pantalla.avisos.canales.empty());
+  CHECK(pantalla.avisos.servidor.silenciado_hasta == hasta);
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  cuadro(ImVec2(5, 5));
+  cuadro(ImVec2(5, 5));
+  CHECK_FALSE(hay_ventana_emergente());
+
+  tocar(nombre);
+  tocar(ImVec2(100, 221));
+  const bool desconectar = std::any_of(pedidos.begin(), pedidos.end(),
+                                       [](const ui::PedidoServidor& pedido) { return pedido.desconectar; });
+  CHECK(desconectar);
 }
 
 TEST_CASE("Dos cuadros iguales no cambian nada, y el mouse sobre una fila cambia solo una zona chica") {
@@ -898,6 +1062,24 @@ TEST_CASE("banco de las pantallas" * doctest::skip()) {
     MESSAGE("servidor con " << canales << " canales y " << personas << " personas: " << us << " us por cuadro, "
                             << ImGui::GetDrawData()->TotalVtxCount << " vertices");
   }
+  {
+    using ventrik::cliente::kHastaQueLoActive;
+    SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+    auto sala = sala_llena(true, 60, 512, 300, "hola, este es un mensaje comun de unas cuantas palabras");
+    auto pantalla = pantalla_servidor();
+    pantalla.avisos.servidor.silenciado_hasta = kHastaQueLoActive;
+    for (std::uint32_t canal = 1; canal <= 60; canal += 2) {
+      ventrik::cliente::cambiar_canal(pantalla.avisos, canal, {kHastaQueLoActive, true, ventrik::cliente::Avisar::nada});
+    }
+    double us = medir([&] { sin_pantalla.cuadro(pantalla, sala, ImVec2(900, 400)); });
+    MESSAGE("servidor silenciado, con 30 de sus 60 canales silenciados: " << us << " us por cuadro, "
+                                                                           << ImGui::GetDrawData()->TotalVtxCount
+                                                                           << " vertices");
+    pantalla.abrir_avisos = true;
+    us = medir([&] { sin_pantalla.cuadro(pantalla, sala, ImVec2(900, 400)); });
+    MESSAGE("con el dialogo de avisos abierto y 30 canales en la lista: "
+            << us << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
+  }
   SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
   ui::PantallaInicio pantalla;
   Guardados guardados;
@@ -907,4 +1089,86 @@ TEST_CASE("banco de las pantallas" * doctest::skip()) {
   const double us = medir([&] { sin_pantalla.cuadro(pantalla, guardados, ImVec2(900, 400)); });
   MESSAGE("inicio con 10 servidores: " << us << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount
                                        << " vertices");
+}
+
+TEST_CASE("en Inicio, el clic derecho en una tarjeta silencia ese servidor y abre sus avisos sin conexión") {
+  SinPantalla sin_pantalla;
+  ui::PantallaInicio pantalla;
+  Guardados guardados = muchos();
+  guardados.servidores[0].avisos.canales = {{7, {0, true, ventrik::cliente::Avisar::nada}}};
+  std::vector<ui::Pedido> pedidos;
+  const auto cuadro = [&](ImVec2 donde, bool clic = false) {
+    pedidos.push_back(sin_pantalla.cuadro(pantalla, guardados, donde, clic));
+  };
+  const auto tocar = [&](ImVec2 donde) {
+    cuadro(donde);
+    cuadro(donde, true);
+    cuadro(donde);
+  };
+  const auto abrir_menu = [&] {
+    pedidos.clear();
+    sin_pantalla.usar_boton(1);
+    tocar(ImVec2(200, 280));
+    sin_pantalla.usar_boton(0);
+    REQUIRE(hay_ventana_emergente());
+  };
+
+  const std::uint64_t antes = ventrik::cliente::ahora_ms();
+  abrir_menu();
+  cuadro(en_menu(2));
+  cuadro(en_menu(2));
+  tocar(en_menu(5));
+  auto avisos = avisos_de(pedidos);
+  REQUIRE(avisos);
+  CHECK(avisos->servidor.silenciado_hasta == ventrik::cliente::kHastaQueLoActive);
+  CHECK(avisos->servidor.silenciado_hasta > antes);
+  CHECK(avisos->canales.size() == 1);
+
+  abrir_menu();
+  tocar(en_menu(3));
+  CHECK_FALSE(avisos_de(pedidos));
+  CHECK(hay_ventana_emergente());
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  cuadro(ImVec2(5, 5));
+  cuadro(ImVec2(5, 5));
+  CHECK_FALSE(hay_ventana_emergente());
+
+  abrir_menu();
+  tocar(en_menu(1));
+  cuadro(ImVec2(5, 5));
+  REQUIRE(hay_ventana_emergente());
+  CHECK(pantalla.avisos_de == guardados.servidores[0].direccion);
+  pedidos.clear();
+  tocar(en_dialogo(527, 177));
+  avisos = avisos_de(pedidos);
+  REQUIRE(avisos);
+  CHECK(avisos->servidor.avisar == ventrik::cliente::Avisar::nada);
+  CHECK(avisos->canales.size() == 1);
+  const bool del_primero = std::all_of(pedidos.begin(), pedidos.end(),
+                                       [](const ui::Pedido& pedido) { return !pedido.avisos || pedido.cual == 0; });
+  CHECK(del_primero);
+}
+
+TEST_CASE("El diálogo de avisos entra en la pantalla y se desplaza aunque tenga los 60 canales con ajuste propio") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    SinPantalla sin_pantalla(escala, tamano);
+    auto sala = sala_llena(true, 60, 3, 5);
+    auto pantalla = pantalla_servidor();
+    for (std::uint32_t canal = 1; canal <= 60; ++canal) {
+      ventrik::cliente::cambiar_canal(pantalla.avisos, canal, {0, true, ventrik::cliente::Avisar::todos});
+    }
+    pantalla.abrir_avisos = true;
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+    REQUIRE(hay_ventana_emergente());
+    const ImGuiWindow& dialogo = *ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+    CHECK(dialogo.Pos.y >= 0);
+    CHECK(dialogo.Pos.y + dialogo.Size.y <= tamano.y);
+    const ImVec2 lista = en_dialogo(dialogo.Size.x / 2, ui::px(360));
+    for (int i = 0; i < 40; ++i) {
+      sin_pantalla.rodar(-1);
+      sin_pantalla.cuadro(pantalla, sala, lista);
+    }
+    CHECK(pantalla.avisos.canales.size() == 60);
+  }
 }

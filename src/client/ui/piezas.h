@@ -41,7 +41,8 @@ enum class Icono {
   teclado,
   parlante,
   pulso,
-  flecha_arriba
+  flecha_arriba,
+  campana
 };
 
 using Campo = std::array<char, 128>;

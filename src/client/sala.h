@@ -61,6 +61,7 @@ class Sala {
   std::optional<Orden> ir_a_lo_ultimo();
   void a_la_vista(std::uint64_t id) { visible().ancla = id; }
   void soltar_lejanos();
+  void marcar_leido(std::uint32_t canal);
 
   std::uint32_t tu_id() const { return tu_id_; }
   bool dueno() const { return dueno_; }
@@ -103,7 +104,6 @@ class Sala {
   Chat* chat_de(std::uint32_t canal);
   bool puede_pedir(const Chat& chat) const;
   void subir(std::uint32_t canal, std::uint32_t contador);
-  void marcar_leido();
 
   std::uint32_t tu_id_ = 0;
   bool dueno_ = false;

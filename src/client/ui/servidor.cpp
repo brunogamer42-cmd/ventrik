@@ -11,6 +11,7 @@
 #include "client/guardados.h"
 #include "client/horas.h"
 #include "client/ui/inicio.h"
+#include "client/ui/menu_avisos.h"
 #include "common/utf.h"
 
 namespace ventrik::ui {
@@ -101,14 +102,13 @@ class Dibujo {
  public:
   Dibujo(PantallaServidor& pantalla, cliente::Sala& sala)
       : pantalla_(pantalla), sala_(sala), ancho_(ImGui::GetIO().DisplaySize.x),
-        alto_(ImGui::GetIO().DisplaySize.y) {
+        alto_(ImGui::GetIO().DisplaySize.y), ahora_(cliente::ahora_ms()) {
     const auto yo = sala_.usuarios().find(sala_.tu_id());
     mi_nombre_ = yo != sala_.usuarios().end() ? std::string_view(yo->second.nombre) : std::string_view();
-    const std::uint64_t ahora = cliente::ahora_ms();
-    if (ahora / 60000 != pantalla_.minuto) {
-      pantalla_.minuto = ahora / 60000;
-      pantalla_.hoy = cliente::dia_local(ahora);
-      pantalla_.ayer = cliente::dia_local(ahora - kMsPorDia);
+    if (ahora_ / 60000 != pantalla_.minuto) {
+      pantalla_.minuto = ahora_ / 60000;
+      pantalla_.hoy = cliente::dia_local(ahora_);
+      pantalla_.ayer = cliente::dia_local(ahora_ - kMsPorDia);
     }
   }
 
@@ -118,6 +118,10 @@ class Dibujo {
     chat();
     estado();
     dialogo();
+    if (auto avisos = dialogo_avisos(pantalla_.idioma, pantalla_.direccion, pantalla_.avisos, &sala_.canales(), ahora_,
+                                     pantalla_.abrir_avisos)) {
+      pedido_.avisos = std::move(avisos);
+    }
     return std::move(pedido_);
   }
 
@@ -169,15 +173,43 @@ class Dibujo {
     pantalla_.error_dialogo.clear();
   }
 
+  bool callado(std::uint32_t canal) const {
+    return cliente::silenciado(cliente::ajuste_de(pantalla_.avisos, canal), ahora_);
+  }
+
   void menu_de_canal(const protocolo::CanalInfo& canal) {
-    if (!sala_.dueno() || !ImGui::BeginPopupContextItem("##menu")) {
+    if (!ImGui::BeginPopupContextItem("##menu")) {
       return;
     }
-    if (ImGui::Selectable(std::string(t(Clave::servidor_menu_cambiar)).c_str())) {
+    const bool voz = canal.tipo == TipoCanal::voz;
+    titulo_de_menu(voz ? canal.nombre : "#" + canal.nombre);
+    if (!voz && ImGui::MenuItem(std::string(t(Clave::avisos_marcar_leido)).c_str(), nullptr, false,
+                                sala_.nuevos(canal.id) > 0)) {
+      pedido_.leidos.push_back(canal.id);
+    }
+    if (voz && ImGui::MenuItem(std::string(t(Clave::avisos_entrar)).c_str(), nullptr, false,
+                               canal.id != sala_.tu_canal())) {
+      agregar(sala_.elegir_voz(canal.id));
+    }
+    if (voz && ImGui::MenuItem(std::string(t(Clave::avisos_ver_chat)).c_str(), nullptr, false,
+                               canal.id == sala_.tu_canal() && sala_.mirando() != 0)) {
+      agregar(sala_.elegir_voz(canal.id));
+    }
+    if (auto avisos = ui::menu_de_canal(pantalla_.idioma, pantalla_.avisos, canal, ahora_)) {
+      pedido_.avisos = std::move(avisos);
+    }
+    if (voz) {
+      nota_de_menu(t(Clave::avisos_nota_chat));
+    }
+    ImGui::Separator();
+    const std::string editar(t(Clave::avisos_editar_canal));
+    if (!sala_.dueno()) {
+      ImGui::MenuItem(editar.c_str(), std::string(t(Clave::avisos_admins)).c_str(), false, false);
+    } else if (ImGui::MenuItem(editar.c_str())) {
       abrir(Dialogo::cambiar, canal.id, canal.nombre, canal.solo_admins);
     }
-    if (canal.id != protocolo::kCanalGeneral &&
-        ImGui::Selectable(std::string(t(Clave::servidor_menu_borrar)).c_str())) {
+    if (sala_.dueno() && canal.id != protocolo::kCanalGeneral &&
+        ImGui::MenuItem(std::string(t(Clave::servidor_menu_borrar)).c_str())) {
       abrir(Dialogo::borrar, canal.id, canal.nombre, false);
     }
     ImGui::EndPopup();
@@ -215,11 +247,34 @@ class Dibujo {
     emblema(ImVec2(px(12), px(8)), px(42), pantalla_.logo);
     const ImVec2 nombre = medir(pantalla_.direccion, Letra::titulo, medida::letra_servidor);
     escribir(ImVec2(px(63), px(8)), pantalla_.direccion, color::texto, Letra::titulo, medida::letra_servidor);
+    const auto& servidor = pantalla_.avisos.servidor;
+    const bool servidor_callado = cliente::silenciado(servidor, ahora_);
+    const float medio_nombre = px(8) + nombre.y / 2;
+    float fin_nombre = px(63) + nombre.x + px(6);
+    if (servidor_callado) {
+      dibujar_icono_tachado(dibujo, Icono::campana, ImVec2(fin_nombre + px(7), medio_nombre), px(13),
+                            tono(color::apagado));
+      fin_nombre += px(18);
+    }
+    dibujar_icono(dibujo, Icono::flecha_abajo, ImVec2(fin_nombre + px(7), medio_nombre), px(10), tono(color::apagado));
+    fin_nombre += px(14);
+    ImGui::SetCursorScreenPos(ImVec2(px(63), px(8)));
+    if (ImGui::InvisibleButton("##nombre", ImVec2(fin_nombre - px(63), nombre.y), ImGuiButtonFlags_EnableNav)) {
+      ImGui::OpenPopup("##servidor");
+    }
     const std::string_view pronto = t(Clave::servidor_chip_pronto);
-    ImGui::SetCursorScreenPos(ImVec2(px(63), px(35)));
-    chip(ImGui::GetCursorScreenPos(), pronto);
-    ImGui::InvisibleButton("##frase", ImVec2(ancho_chip(pronto), px(16)));
-    cartel(t(Clave::servidor_frase_pronto));
+    float debajo = ancho_chip(pronto);
+    if (servidor_callado) {
+      const std::string& hasta = guardar(pantalla_.textos.silenciado, servidor.silenciado_hasta,
+                                         [&] { return estado_de_silencio(pantalla_.idioma, servidor); });
+      escribir(ImVec2(px(63), px(36)), hasta, color::apagado, Letra::normal, medida::letra_chica);
+      debajo = medir(hasta, Letra::normal, medida::letra_chica).x;
+    } else {
+      ImGui::SetCursorScreenPos(ImVec2(px(63), px(35)));
+      chip(ImGui::GetCursorScreenPos(), pronto);
+      ImGui::InvisibleButton("##frase", ImVec2(debajo, px(16)));
+      cartel(t(Clave::servidor_frase_pronto));
+    }
 
     float x = ancho_;
     if (sala_.tu_canal() == 0) {
@@ -273,7 +328,7 @@ class Dibujo {
     }
     botones.push_back({Clave::inicio_ajustes, Icono::ajustes, "3", "##ajustes"});
     botones.push_back({Clave::inicio_desconectar, Icono::encendido, nullptr, "##desconectar"});
-    float desde = px(63) + std::max(nombre.x, ancho_chip(pronto)) + px(12);
+    float desde = std::max(fin_nombre, px(63) + debajo) + px(12);
     float necesario = 0;
     for (const Boton& cual : botones) {
       necesario += ancho_boton(t(cual.clave), Estilo::biselado, cual.icono) + px(4);
@@ -296,6 +351,26 @@ class Dibujo {
       }
       desde += ancho + px(4);
     }
+    menu_servidor_abierto(alto);
+  }
+
+  void menu_servidor_abierto(float alto) {
+    ImGui::SetNextWindowPos(ImVec2(px(63), alto));
+    if (!ImGui::BeginPopup("##servidor")) {
+      return;
+    }
+    const EleccionDeServidor eleccion = menu_servidor(pantalla_.idioma, pantalla_.avisos, true, sala_.dueno(), ahora_);
+    if (eleccion.avisos) {
+      pedido_.avisos = eleccion.avisos;
+    }
+    pantalla_.abrir_avisos = pantalla_.abrir_avisos || eleccion.abrir_avisos;
+    if (eleccion.marcar_todo) {
+      for (const auto& canal : sala_.canales()) {
+        pedido_.leidos.push_back(canal.id);
+      }
+    }
+    pedido_.desconectar = pedido_.desconectar || eleccion.desconectar;
+    ImGui::EndPopup();
   }
 
   void lateral() {
@@ -699,16 +774,22 @@ class Dibujo {
     }
     const float medio = y + alto / 2;
     dibujar_icono(dibujo, Icono::numeral, ImVec2(x + px(25), medio), px(11), tono(color::apagado));
-    const std::uint32_t nuevos = sala_.nuevos(canal.id);
+    const bool apagado = callado(canal.id);
+    const std::uint32_t nuevos = apagado ? 0 : sala_.nuevos(canal.id);
     float derecha = hasta.x - px(8);
     if (nuevos > 0) {
       derecha -= contador_nuevos(ImVec2(derecha, medio), nuevos) + px(9);
+    }
+    if (apagado) {
+      dibujar_icono_tachado(dibujo, Icono::campana, ImVec2(derecha - px(6), medio), px(12), tono(color::apagado));
+      derecha -= px(20);
     }
     if (canal.solo_admins) {
       dibujar_icono(dibujo, Icono::candado, ImVec2(derecha - px(6), medio), px(12), tono(color::apagado));
       derecha -= px(20);
     }
-    escribir_en(x + px(40), medio, canal.nombre, nuevos > 0 || elegido ? color::texto : color::texto2,
+    escribir_en(x + px(40), medio, canal.nombre,
+                apagado && !elegido ? color::apagado : nuevos > 0 || elegido ? color::texto : color::texto2,
                 nuevos > 0 ? Letra::fuerte : Letra::normal, medida::letra, derecha - x - px(40));
     return y + alto;
   }
@@ -750,6 +831,10 @@ class Dibujo {
     const std::string cuantos = personas(canal.id);
     float derecha = hasta.x - px(8) - medir(cuantos, Letra::normal, medida::letra).x;
     escribir_en(derecha, medio, cuantos, color::texto2);
+    if (callado(canal.id)) {
+      dibujar_icono_tachado(dibujo, Icono::campana, ImVec2(derecha - px(12), medio), px(12), tono(color::apagado));
+      derecha -= px(20);
+    }
     if (aca) {
       const std::string_view estas = t(Clave::servidor_estas_aca);
       derecha -= px(7) + medir(estas, Letra::normal, medida::letra).x;
@@ -1244,6 +1329,7 @@ class Dibujo {
   cliente::Sala& sala_;
   float ancho_;
   float alto_;
+  std::uint64_t ahora_;
   std::string_view mi_nombre_;
   PedidoServidor pedido_;
 };

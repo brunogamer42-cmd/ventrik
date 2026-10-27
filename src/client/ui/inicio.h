@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -36,6 +37,8 @@ struct PantallaInicio {
   Campo nombre{};
   Campo codigo{};
   bool enfocar_codigo = false;
+  std::optional<red::Direccion> avisos_de;
+  bool abrir_avisos = false;
 };
 
 enum class Accion { ninguna, entrar_con_formulario, entrar_a_guardado, quitar, desconectar };
@@ -43,6 +46,7 @@ enum class Accion { ninguna, entrar_con_formulario, entrar_a_guardado, quitar, d
 struct Pedido {
   Accion accion = Accion::ninguna;
   std::size_t cual = 0;
+  std::optional<cliente::AvisosDelServidor> avisos;
 };
 
 Pedido dibujar_inicio(PantallaInicio& pantalla, const cliente::Guardados& guardados);

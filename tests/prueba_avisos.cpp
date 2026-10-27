@@ -298,6 +298,7 @@ TEST_CASE("Una mención es @ y tu nombre, sin importar mayúsculas, con sus acen
   CHECK(mencion_en("Tano sin arroba", "Tano") == Mencion::ninguna);
   CHECK(mencion_en("@todos a jugar", "Tano") == Mencion::todos);
   CHECK(mencion_en("@aqu\xC3\xAD y @aqui", "Tano") == Mencion::todos);
+  CHECK(mencion_en("@everyone and @Here", "Tano") == Mencion::todos);
   CHECK(mencion_en("@todos y @Tano", "Tano") == Mencion::directa);
   CHECK(mencion_en("@\xC3", "\xC3\xA9") == Mencion::ninguna);
   CHECK(mencion_en(std::string(1000, '@') + "Tano", "Tano") == Mencion::ninguna);
@@ -328,7 +329,9 @@ TEST_CASE("El canal manda sobre el servidor, y silenciado solo avisa una menció
   cambiar_canal(avisos, 7, {});
   CHECK(avisos.canales.size() == 2);
   cambiar_canal(avisos, 5, {kHora + 10, true, Avisar::como_el_servidor});
-  normalizar(avisos, kHora + 10);
+  CHECK_FALSE(normalizar(avisos, kHora));
+  CHECK(normalizar(avisos, kHora + 10));
+  CHECK_FALSE(normalizar(avisos, kHora + 10));
   CHECK(avisos.canales.size() == 1);
   CHECK(avisos.servidor.silenciado_hasta == 0);
   CHECK(son_validos(avisos));

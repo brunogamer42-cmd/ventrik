@@ -134,14 +134,15 @@ Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Rendimiento-silencia
     - Bots y Configuración del servidor (solo admins);
     - Desconectar.
 
-    El mismo menú sale con clic derecho en la tarjeta del servidor en Inicio.
-  - **Canal de texto,** con clic derecho: Marcar como leído, Silenciar canal ▸, Avisarme de ▸ y Editar canal (admins).
-  - **Chat de un canal de voz,** con clic derecho en el canal: Entrar al canal, Ver el chat del canal, Silenciar el chat ▸ y Avisarme del chat ▸. Silenciar el chat no toca la voz: si entrás, escuchás a todos igual.
+    El mismo menú sale con clic derecho en la tarjeta del servidor en Inicio; ahí, sin conexión, "Marcar todo como leído" va apagado y no está Desconectar. Hasta que el nombre del servidor viaje en el protocolo (etapa 4, con Hostear), el ▾ va junto a la dirección, que es lo que muestra la cabecera. Lo que todavía no existe va apagado: Invitar gente y Configuración del servidor (etapa 4) y Bots (etapa 15), con "PRONTO" para el dueño y "admins" para los demás.
+  - **Canal de texto,** con clic derecho (para todos): arriba el nombre del canal, Marcar como leído (apagado si no hay nuevos), Silenciar canal ▸, Avisarme de ▸ y Editar canal (admins; el dueño también tiene ahí Borrar canal).
+  - **Chat de un canal de voz,** con clic derecho en el canal: Entrar al canal, Ver el chat del canal, Silenciar el chat ▸ y Avisarme del chat ▸, y abajo la nota "Silenciar el chat no apaga la voz". Silenciar el chat no toca la voz: si entrás, escuchás a todos igual. Hoy el chat de un canal de voz se ve solo estando adentro, así que "Ver el chat del canal" se usa para volver a él desde un canal de texto, y va apagado en los demás.
 - **Silenciar ▸:**
   - por 15 minutos, 1 hora, 3 horas, 8 horas o 24 horas, o "Hasta que lo vuelva a activar";
-  - una casilla "Avisarme igual si me mencionan", tildada por defecto.
-- **Avisarme de ▸:** Igual que el servidor (lo que viene en los canales), Todos los mensajes, Solo menciones o Nada. En el servidor, "Solo menciones" viene elegido (decisión del dueño, 2026-10-26): un mensaje común solo sube el contador.
-- **Menciones:** tu nombre con @ adelante, y @todos y @aquí (también "@aqui"), salvo que el servidor tenga tildado "No contar @todos ni @aquí como mención" (viene tildado).
+  - una casilla "Avisarme igual si me mencionan", tildada por defecto;
+  - si ya está silenciado, arriba "Volver a activar los avisos" (no está en la captura, pero hace falta para deshacerlo).
+- **Avisarme de ▸:** Igual que el servidor (lo que viene en los canales), Todos los mensajes, Solo menciones o Nada, con ✓ en lo elegido y lo elegido a la derecha de "Avisarme de". En el servidor, "Solo menciones" viene elegido (decisión del dueño, 2026-10-26): un mensaje común solo sube el contador.
+- **Menciones:** tu nombre con @ adelante, y @todos y @aquí (también "@aqui", "@everyone" y "@here"), salvo que el servidor tenga tildado "No contar @todos ni @aquí como mención" (viene tildado).
   - No importan las mayúsculas, pero sí los acentos: en un servidor "José" y "Jose" pueden ser dos personas distintas, así que "@Jose" no nombra a José.
   - Después del nombre tiene que venir un espacio, un signo o el final: "@Tanoo" no nombra a Tano.
   - Se miran como mucho 32 "@" por mensaje.
@@ -156,7 +157,7 @@ Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Rendimiento-silencia
   - Avisarme de: Todos los mensajes ("Suena y avisa con cada uno"), Solo menciones ("Cuando te nombran a vos", elegido por defecto) o Nada ("Solo el contador de no leídos");
   - "No contar @todos ni @aquí como mención";
   - "Sonidos de la voz de este servidor (entra o sale gente)";
-  - la lista "Canales con su propio ajuste", con Quitar en cada uno y "Agregar canal";
+  - la lista "Canales con su propio ajuste", con Quitar en cada uno y "Agregar canal" (un menú con los canales, cada uno con Silenciar ▸ y Avisarme de ▸); si no entra en la pantalla, la lista se desplaza con su propia barra. Desde Inicio, sin conexión, los nombres de los canales no se conocen: la lista dice cuántos tienen ajuste propio;
   - abajo, la nota: el canal manda sobre el servidor, y esto se guarda en tu PC (y en tu copia de seguridad), el servidor no sabe qué silenciaste.
 - **Reglas:**
   - el ajuste del canal manda sobre el del servidor: un canal en "Todos los mensajes" avisa aunque el servidor esté silenciado;

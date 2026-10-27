@@ -265,6 +265,13 @@ class Programa {
         }
         aplicar_personas();
       }
+      for (const std::uint32_t canal : pedido.leidos) {
+        sala_->marcar_leido(canal);
+        avisos_.visto(canal);
+      }
+      if (pedido.avisos) {
+        cambiar_avisos(pendiente_.direccion, std::move(*pedido.avisos));
+      }
       if (pedido.por_voz || pedido.silencio || pedido.guardar) {
         guardar();
       }
@@ -273,7 +280,10 @@ class Programa {
       }
       return;
     }
-    const Pedido pedido = dibujar_inicio(pantalla_, guardados_);
+    Pedido pedido = dibujar_inicio(pantalla_, guardados_);
+    if (pedido.avisos) {
+      cambiar_avisos(guardados_.servidores[pedido.cual].direccion, std::move(*pedido.avisos));
+    }
     switch (pedido.accion) {
       case Accion::entrar_con_formulario:
         entrar_con_formulario();
@@ -304,6 +314,18 @@ class Programa {
   }
 
   void ordenar(std::vector<cliente::Orden> ordenes) { sesion_->ordenar(std::move(ordenes)); }
+
+  void cambiar_avisos(red::Direccion direccion, cliente::AvisosDelServidor avisos) {
+    cliente::normalizar(avisos, cliente::ahora_ms());
+    if (auto* guardado = cliente::buscar_guardado(guardados_, direccion)) {
+      guardado->avisos = avisos;
+      guardar();
+    }
+    if (sala_ && direccion == pendiente_.direccion) {
+      avisos_.ajustes(avisos);
+      servidor_.avisos = pendiente_.avisos = std::move(avisos);
+    }
+  }
 
   void aplicar_personas() {
     const auto* guardado = cliente::buscar_guardado(guardados_, pendiente_.direccion);
@@ -469,6 +491,7 @@ class Programa {
     servidor_.volumen_microfono = guardados_.volumen_microfono;
     servidor_.volumen_salida = guardados_.volumen_salida;
     servidor_.enfocar_mensaje = true;
+    servidor_.avisos = pendiente_.avisos;
     const std::wstring ultima_voz = nombre_para_comparar(pendiente_.nombre_canal);
     for (const auto& canal : sala_->canales()) {
       if (canal.tipo == protocolo::TipoCanal::voz && !ultima_voz.empty() &&
@@ -538,6 +561,9 @@ class Programa {
     }
     if (silenciados_enviados_ == std::vector<std::uint32_t>{0}) {
       aplicar_personas();
+    }
+    if (cliente::normalizar(servidor_.avisos, cliente::ahora_ms())) {
+      cambiar_avisos(pendiente_.direccion, servidor_.avisos);
     }
     const bool tenia_poca_memoria = std::exchange(poca_memoria_, queda_poca_memoria());
     if (poca_memoria_ && !tenia_poca_memoria) {

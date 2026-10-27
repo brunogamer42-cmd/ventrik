@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include "client/horas.h"
+#include "client/ui/menu_avisos.h"
 #include "client/ui/piezas.h"
 #include "common/cifrado/huella.h"
 #include "common/texto.h"
@@ -29,7 +30,7 @@ class Dibujo {
  public:
   Dibujo(PantallaInicio& pantalla, const cliente::Guardados& guardados)
       : pantalla_(pantalla), guardados_(guardados), ancho_(ImGui::GetIO().DisplaySize.x),
-        alto_(ImGui::GetIO().DisplaySize.y) {}
+        alto_(ImGui::GetIO().DisplaySize.y), ahora_(cliente::ahora_ms()) {}
 
   Pedido dibujar() {
     barra();
@@ -46,6 +47,7 @@ class Dibujo {
     ImGui::Dummy(ImVec2(1, 1));
     ImGui::EndChild();
     pie();
+    avisos();
     return pedido_;
   }
 
@@ -238,6 +240,36 @@ class Dibujo {
       }
       ImGui::EndPopup();
     }
+    if (encima && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+      ImGui::OpenPopup("##servidor");
+    }
+    if (ImGui::BeginPopup("##servidor")) {
+      const EleccionDeServidor eleccion = menu_servidor(pantalla_.idioma, servidor.avisos, false, false, ahora_);
+      if (eleccion.avisos) {
+        pedido_.avisos = eleccion.avisos;
+        pedido_.cual = cual;
+      }
+      if (eleccion.abrir_avisos) {
+        pantalla_.avisos_de = servidor.direccion;
+        pantalla_.abrir_avisos = true;
+      }
+      ImGui::EndPopup();
+    }
+  }
+
+  void avisos() {
+    const auto& servidores = guardados_.servidores;
+    const auto guardado = std::find_if(servidores.begin(), servidores.end(), [this](const auto& servidor) {
+      return pantalla_.avisos_de && servidor.direccion == *pantalla_.avisos_de;
+    });
+    if (guardado == servidores.end()) {
+      return;
+    }
+    if (auto cambiados = dialogo_avisos(pantalla_.idioma, red::a_texto(guardado->direccion), guardado->avisos, nullptr,
+                                        ahora_, pantalla_.abrir_avisos)) {
+      pedido_.avisos = std::move(cambiados);
+      pedido_.cual = static_cast<std::size_t>(guardado - servidores.begin());
+    }
   }
 
   template <typename Contenido>
@@ -327,6 +359,7 @@ class Dibujo {
   const cliente::Guardados& guardados_;
   const float ancho_;
   const float alto_;
+  std::uint64_t ahora_;
   Pedido pedido_;
 };
 

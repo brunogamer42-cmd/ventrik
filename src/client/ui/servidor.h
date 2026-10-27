@@ -67,6 +67,7 @@ struct TextosGuardados {
   TextoGuardado volumen_salida;
   TextoGuardado ping_corto;
   TextoGuardado volver;
+  TextoGuardado silenciado;
   std::deque<TextoGuardado> etapas;
 };
 
@@ -103,6 +104,8 @@ struct PantallaServidor {
   std::vector<cliente::PersonaGuardada> personas;
   std::uint32_t persona = 0;
   ImVec2 donde_persona{};
+  cliente::AvisosDelServidor avisos;
+  bool abrir_avisos = false;
   int nivel = 0;
   std::deque<Muestra> grafico;
   Campo buscar{};
@@ -134,6 +137,8 @@ struct PedidoServidor {
   std::optional<int> volumen_microfono;
   std::optional<int> volumen_salida;
   std::optional<cliente::PersonaGuardada> persona;
+  std::optional<cliente::AvisosDelServidor> avisos;
+  std::vector<std::uint32_t> leidos;
   bool guardar = false;
   std::vector<cliente::Orden> ordenes;
 };
