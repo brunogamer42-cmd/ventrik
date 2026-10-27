@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <map>
 #include <memory>
@@ -449,7 +450,9 @@ class Programa {
       sonar_ya(static_cast<cliente::Sonido>(*pedido.probar_sonido));
     }
     if (pedido.elegir_sonido) {
-      elegir_sonido(static_cast<cliente::Sonido>(*pedido.elegir_sonido));
+      despues_del_cuadro_ = [this, sonido = static_cast<cliente::Sonido>(*pedido.elegir_sonido)] {
+        elegir_sonido(sonido);
+      };
     }
     if (pedido.sonido_de_fabrica) {
       volver_a_fabrica(static_cast<cliente::Sonido>(*pedido.sonido_de_fabrica));
@@ -462,10 +465,10 @@ class Programa {
       guardar();
     }
     if (pedido.importar_sonidos) {
-      importar_sonidos();
+      despues_del_cuadro_ = [this] { importar_sonidos(); };
     }
     if (pedido.exportar_sonidos) {
-      exportar_sonidos();
+      despues_del_cuadro_ = [this] { exportar_sonidos(); };
     }
     if (pedido.guardar || (sin_guardar_ && !ImGui::IsAnyItemActive())) {
       guardar();
@@ -642,6 +645,10 @@ class Programa {
     avisado_ = false;
     bool cambio = false;
     sonidos_.atender(Reloj::now());
+    if (despues_del_cuadro_) {
+      std::exchange(despues_del_cuadro_, nullptr)();
+      cambio = true;
+    }
     const Situacion& situacion = ventana_.situacion();
     const bool minimizada = situacion.minimizada || situacion.oculta;
     avisos_.fuera(minimizada ? mostrar_minimizada_ : !situacion.con_foco);
@@ -1214,6 +1221,7 @@ class Programa {
   Ventana& ventana_;
   const std::wstring carpeta_;
   cliente::Sonidos sonidos_{carpeta_};
+  std::function<void()> despues_del_cuadro_;
   std::uint32_t canal_de_voz_ = 0;
   const bool integrar_;
   cliente::Avisos avisos_;
