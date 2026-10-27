@@ -270,19 +270,6 @@ bool escribir_icono(const std::wstring& ruta) {
   return icono.ok() && escribir_archivo_completo(ruta, icono.datos());
 }
 
-bool elevado() {
-  HANDLE ficha = nullptr;
-  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &ficha)) {
-    return false;
-  }
-  TOKEN_ELEVATION elevacion = {};
-  DWORD largo = 0;
-  const bool si = GetTokenInformation(ficha, TokenElevation, &elevacion, sizeof(elevacion), &largo) &&
-                  elevacion.TokenIsElevated != 0;
-  CloseHandle(ficha);
-  return si;
-}
-
 bool registrar(const std::wstring& carpeta, bool prueba) {
   std::array<wchar_t, 32768> exe{};
   const DWORD largo = GetModuleFileNameW(nullptr, exe.data(), static_cast<DWORD>(exe.size()));
@@ -439,8 +426,21 @@ class NotificacionesDeWindows final : public Notificador {
 
 }
 
+bool proceso_elevado() {
+  HANDLE ficha = nullptr;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &ficha)) {
+    return false;
+  }
+  TOKEN_ELEVATION elevacion = {};
+  DWORD largo = 0;
+  const bool si = GetTokenInformation(ficha, TokenElevation, &elevacion, sizeof(elevacion), &largo) &&
+                  elevacion.TokenIsElevated != 0;
+  CloseHandle(ficha);
+  return si;
+}
+
 std::unique_ptr<Notificador> notificaciones_de_windows(HWND principal, const std::wstring& carpeta, bool prueba) {
-  if (!combase().ok() || elevado() || !iniciar_com() || !registrar(carpeta, prueba)) {
+  if (!combase().ok() || proceso_elevado() || !iniciar_com() || !registrar(carpeta, prueba)) {
     return nullptr;
   }
   principal_global = principal;
@@ -460,7 +460,7 @@ std::unique_ptr<Notificador> notificaciones_de_windows(HWND principal, const std
 }
 
 void escuchar_clics_de_windows(HWND principal) {
-  if (!elevado() && leer_valor(clave_de_aplicacion(false), L"CustomActivator") == texto_de_guid(kActivador)) {
+  if (!proceso_elevado() && leer_valor(clave_de_aplicacion(false), L"CustomActivator") == texto_de_guid(kActivador)) {
     principal_global = principal;
     registrar_activador(kActivador);
   }
@@ -523,6 +523,7 @@ std::wstring xml_de_aviso(const cliente::Notificacion& aviso) {
   return resultado;
 }
 #else
+bool proceso_elevado() { return false; }
 std::unique_ptr<Notificador> notificaciones_de_windows(HWND, const std::wstring&, bool) { return nullptr; }
 void escuchar_clics_de_windows(HWND) {}
 void soltar_clics_de_windows() {}

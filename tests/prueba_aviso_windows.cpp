@@ -71,7 +71,7 @@ TEST_CASE("Windows muestra, reemplaza y quita las notificaciones de un canal") {
   const std::uint64_t memoria_antes = ventrik::cliente::Diagnostico().medir().memoria_propia;
   auto windows = ventrik::ui::notificaciones_de_windows(nullptr, carpeta, true);
   if (!windows) {
-    CHECK(ventrik::ui::xml_de_aviso(aviso_de_prueba(7, 1)).empty());
+    CHECK((ventrik::ui::proceso_elevado() || ventrik::ui::xml_de_aviso(aviso_de_prueba(7, 1)).empty()));
     MESSAGE("las notificaciones de Windows no estan disponibles en esta PC");
     return;
   }

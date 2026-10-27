@@ -22,6 +22,7 @@ class Notificador {
   virtual std::uint32_t mostrados() const = 0;
 };
 
+bool proceso_elevado();
 std::unique_ptr<Notificador> notificaciones_de_windows(HWND principal, const std::wstring& carpeta,
                                                        bool prueba = false);
 void escuchar_clics_de_windows(HWND principal);
