@@ -690,8 +690,74 @@ C++ no protege la memoria por sí solo, así que las reglas de escritura y las p
 - **Revisión automática:** las advertencias del compilador se tratan como errores en el código propio (las bibliotecas de terceros se compilan tal como vienen, sin modificarlas), y se usa análisis estático (`/analyze`, clang-tidy).
 - **Fuzzing:** un programa le tira millones de paquetes y archivos rotos al código hasta encontrar dónde falla. Corre en una compilación de prueba con AddressSanitizer, que detecta cada error de memoria en el momento.
 - **Protecciones del compilador:** `/GS`, `/NXCOMPAT`, `/DYNAMICBASE`, `/guard:cf` y `/SAFESEH`. /SAFESEH existe solo en 32 bits, así que va únicamente en la versión clásica. XP SP3 aprovecha /GS, /SAFESEH y DEP, que la versión clásica activa al arrancar con SetProcessDEPPolicy para no depender de la configuración de Windows. XP no tiene ASLR, que llegó con Vista, ni CFG, que llegó con Windows 8.1. Por eso hay una versión moderna aparte (ver "Tecnología elegida").
-- **Actualizaciones firmadas:** cada actualización va firmada, y el programa trae la clave pública adentro y rechaza lo que no esté firmado. Firmar el .exe para Windows (Authenticode) suele requerir un certificado pago; como el proyecto es de código abierto, se puede pedir gratis a [SignPath Foundation](https://signpath.org/) (ver "Viabilidad como programa gratuito").
+- **Actualizaciones firmadas:** cada actualización va firmada, y el programa trae la clave pública adentro y rechaza lo que no esté firmado. Firmar el .exe para Windows (Authenticode) suele requerir un certificado pago; como el proyecto es de código abierto, se puede pedir gratis a [SignPath Foundation](https://signpath.org/) (ver "Viabilidad como programa gratuito"). Cómo se buscan, se muestran y se instalan: "Actualizaciones firmadas" más abajo.
 - **Bibliotecas:** versiones fijas, seguimiento de avisos de seguridad y actualización rápida. Las de imágenes ya tuvieron fallas graves: libwebp, una usada en ataques reales en 2023 ([CVE-2023-4863](https://db.gcve.eu/cve/CVE-2023-4863)), y stb\_image, varias al leer GIF ([CVE-2023-45661](https://ubuntu.com/security/CVE-2023-45661)).
+
+### Actualizaciones firmadas
+
+Diseño del dueño del 2026-10-26, para la etapa 11. Capturas: docs/pantallas/Actualizaciones*.png, Ajustes-acerca.png, Ajustes-acerca-al-dia.png, Inicio-actualizacion.png e InicioVisual-actualizacion.png (en Inicio.png e InicioVisual.png solo cambia el pie).
+
+- **De dónde saca las versiones:**
+  - **Nada de la API de GitHub para revisar:** sin cuenta, api.github.com deja 60 pedidos por hora por IP, y con CGNAT muchos usuarios comparten una IP.
+  - **Un manifiesto firmado,** subido como archivo de cada versión publicada en GitHub:
+    - estable: `https://github.com/<dueño>/<repo>/releases/latest/download/manifest.json` ("latest" es la última publicada que no es borrador ni pre-release);
+    - pruebas: `https://github.com/<dueño>/<repo>/releases/download/canal-pruebas/manifest.json` (`canal-pruebas` es un pre-release fijo; cada versión de prueba reemplaza su manifiesto).
+  - **Redirecciones:** GitHub responde 302 hacia su dominio de descargas; el programa las sigue.
+  - **XP:** GitHub pide TLS 1.2 o más nuevo, que XP no trae. La clásica usa Mbed TLS, que ya está en el proyecto y trae TLS 1.2. Lo que falta es la lista de autoridades raíz dentro del programa, que también pide la etapa 14 para hablar con Google: queda pendiente para esa etapa.
+- **El manifiesto:**
+  - **Firma:** con la llave del proyecto, en **ECDSA P-256 con Mbed TLS**; la clave pública viene adentro del programa. El diseño del dueño pedía Ed25519, pero Mbed TLS no lo trae y el proyecto usa solo Mbed TLS para el cifrado: sumar otra biblioteca necesita su permiso. Es la misma curva que la firma de llaves de seguridad.
+  - **Se descarta** si la firma no vale, si la versión es más vieja que la instalada (nadie te puede hacer bajar de versión) o si la fecha es más vieja que la del último manifiesto aceptado.
+  - **Campos:**
+    - versión y fecha;
+    - por compilación (moderna de 64 bits y clásica de 32 bits): dirección del archivo, tamaño y SHA-256;
+    - `seguridad`: si trae algún arreglo de seguridad;
+    - `minima`: la versión más vieja que todavía puede conectarse a servidores de esta versión;
+    - `ultima_para_xp`: si existe, la clásica se queda en esa versión y deja de ofrecer las siguientes;
+    - `destacados`: de 2 a 4 frases cortas para "Novedades";
+    - `cambios`: los de esta versión y las anteriores (por lo menos las últimas 20), cada una con su versión y fecha.
+  - **Los cambios van en categorías fijas:** Seguridad, Nuevo, Arreglos, Cambios y Quitado. Escritos para el usuario: sin nombres de funciones ni de archivos.
+  - **Salen de CHANGELOG.md,** una sección por versión con esas categorías. El script de publicación arma desde ahí el texto de la versión en GitHub y el campo `cambios`, y firma el manifiesto.
+  - **El programa muestra siempre los cambios del manifiesto firmado,** nunca la página de GitHub.
+- **Cuándo revisa:**
+  - al abrir el programa, después de que aparece la ventana, sin demorar el arranque;
+  - si queda abierto, una vez cada 24 horas (un temporizador más, que se justifica en docs/estado.md al programarlo);
+  - a mano, con "Buscar actualizaciones" en Ajustes → Acerca de;
+  - sin conexión: 10 segundos de límite y ningún error a la vista; el pie de Inicio dice "No se pudo revisar";
+  - se apaga con "Buscar actualizaciones al abrir el programa" (activado de entrada);
+  - privacidad: GitHub ve la IP y la versión, nada más; no se manda ninguna identificación. La ayuda lo aclara.
+- **Qué ve el usuario:**
+  - **Ajustes → Acerca de** (Ajustes-acerca.png y -al-dia.png): el aviso de la versión nueva o "Estás al día · revisado hoy a las 23:10" con "Buscar actualizaciones"; "Buscar al abrir"; "Cuando hay una nueva" (Avisarme y que yo elija / Instalarla al cerrar el programa / Solo los arreglos de seguridad, sin preguntar); Canal (Estable / Pruebas); "Ver todos los cambios".
+  - **El pie de Inicio** (Inicio-actualizacion.png e InicioVisual-actualizacion.png): "Versión 0.2.0 disponible · Ver cambios" en amarillo, que abre la ventana de la actualización.
+  - **La ventana de la versión nueva** (Actualizaciones.png): los cambios por categoría, las versiones que te saltaste ("También trae la 0.1.2"), "Ver en GitHub" y Actualizar ahora / Al cerrar el programa / Más tarde.
+    - En un canal de voz (Actualizaciones-en-llamada.png), el botón principal pasa a "Actualizar al salir del canal": nunca se corta una llamada.
+    - Bajando (Actualizaciones-bajando.png): barra, pasos (versión, bajada, firma y huella, reinicio) y "Seguir en segundo plano".
+    - Al volver a abrirse (Actualizaciones-novedades.png): "Novedades de la 0.2.0", con los `destacados`. Se puede apagar.
+    - Firma inválida (Actualizaciones-error.png): se borra el archivo y se sigue con la versión actual.
+  - **Cuándo se abre sola:** con "Avisarme", una vez por versión, al encontrarla; si trae un arreglo de seguridad, en cada arranque hasta que se instale; si no, quedan el pie de Inicio y Acerca de.
+  - **Debajo de la `minima`:** la ventana no tiene "Más tarde", y explica que los servidores nuevos no la van a aceptar; con servidores viejos se sigue usando. El rechazo ya existe hoy en la negociación del protocolo (un programa viejo recibe "versión vieja", ver "Dos versiones que se entienden"); en la etapa 11 suma el botón que abre la ventana de la actualización ("Actualizá Ventrik para entrar").
+- **Cómo se instala:**
+  1. Baja la compilación de esa PC (moderna o clásica) a una carpeta temporal del programa, en segundo plano, con prioridad baja y tope de velocidad (docs/optimizacion.md).
+  2. Comprueba el SHA-256 del manifiesto firmado; si no coincide, borra el archivo y muestra el error. El .exe además tiene que traer la firma Authenticode del proyecto (SignPath).
+  3. Espera el momento: nunca en medio de una llamada ni de una transferencia de archivos.
+  4. **El ayudante** hace el reemplazo: Ventrik se cierra, el ayudante espera a que termine el proceso, guarda la versión actual en `anterior\`, pone la nueva y la abre con `--recien-actualizado`. Vuelve a comprobar la firma él mismo, sin confiar en lo que le pasa el programa. Para cumplir "un solo .exe", el ayudante es el mismo ventrik.exe copiado a la carpeta temporal y abierto con `--actualizar`, no un `ventrik-actualizar.exe` aparte.
+  5. **Vuelta atrás automática:** si la versión nueva no avisa "arranqué bien" (ventana principal abierta y configuración leída) en 60 segundos, o se cierra con error dos veces seguidas, el ayudante restaura `anterior\` y muestra por qué.
+  6. Al volver a abrirse, entra solo al servidor donde estaba y muestra las Novedades.
+  7. **Permisos de Windows:** en una carpeta del usuario no hace falta pedir permiso; en "Archivos de programa", pide permiso (UAC) solo para el reemplazo. **Hoy no hay instalador:** el .exe se copia a mano (por ejemplo, `build\para_xp`) y los datos van en %APPDATA%\Ventrik. Los instaladores llegan en la etapa 11; la propuesta es que instalen en una carpeta del usuario, así actualizar no pide permiso (lo decide el dueño en esa etapa).
+  8. **La configuración, los chats y los datos locales no se tocan.** Si una versión cambia el formato de la base, la migración hace una copia antes y la vuelta atrás la restaura.
+- **El servidor y las PCs de nodos:**
+  - el programa del servidor revisa igual, al arrancar y una vez por día;
+  - el admin elige en Configuración del servidor: avisarme, instalar cuando no haya nadie conectado o instalar en un horario;
+  - con varias PCs (nodos, etapa 13), se actualizan de a una: cada nodo vuelve a entrar y recién ahí sigue el siguiente, así el servidor nunca se cae entero;
+  - un cliente y un servidor de versiones distintas se entienden mientras los dos estén por encima de la `minima` del otro;
+  - a un cliente demasiado viejo el servidor le responde "Actualizá Ventrik para entrar", con un botón que abre la ventana de actualización.
+- **Pruebas:**
+  - manifiestos rechazados: firma alterada, versión más vieja que la instalada y fecha anterior a la última aceptada;
+  - un archivo con un byte cambiado se rechaza y se borra; una descarga cortada se retoma o se reinicia, nunca se instala incompleta;
+  - una versión que se cierra al arrancar vuelve sola a la anterior, con los datos intactos;
+  - en un canal de voz, "Actualizar ahora" espera a que salgas;
+  - sin conexión, el programa arranca igual de rápido y sin errores;
+  - en XP, la clásica baja e instala desde GitHub (TLS 1.2 con Mbed TLS);
+  - con nodos (etapa 13), la actualización de a una no corta a nadie.
 
 ### Capas extra y niveles de seguridad
 

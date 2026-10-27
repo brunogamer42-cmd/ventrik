@@ -210,6 +210,14 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - si las builds de Windows 10 anteriores a 1809 aceptan la registración por registro;
     - el Asistente de concentración de Windows 10;
     - si wpndatabase.db queda sin cifrar.
+- **Diseño actualizado (2026-10-26): actualizaciones desde GitHub, con lista de cambios (etapa 11, no es para la etapa en curso).** En docs/diseno.md, "Actualizaciones firmadas"; las tareas, en la etapa 11 de docs/plan.md.
+  - **Qué es:** un manifiesto firmado en cada versión publicada en GitHub (estable y pruebas), con los cambios por categoría armados desde CHANGELOG.md; revisar al abrir y cada 24 horas sin la API de GitHub; la ventana de la versión nueva, las Novedades y el pie de Inicio; instalar sin cortar llamadas, con un ayudante y vuelta atrás automática; el servidor también se actualiza.
+  - **Capturas:** entraron Actualizaciones.png, -bajando, -en-llamada, -error y -novedades, Ajustes-acerca-al-dia.png, Inicio-actualizacion.png e InicioVisual-actualizacion.png; se reemplazaron Ajustes-acerca.png, Inicio.png e InicioVisual.png (solo cambia el pie).
+  - **Ajustado a lo decidido acá:**
+    - la firma va en ECDSA P-256 con Mbed TLS y no en Ed25519 (Mbed TLS no lo trae; otra biblioteca necesita el permiso del dueño);
+    - el ayudante es el mismo ventrik.exe abierto con `--actualizar`, por la regla de un solo .exe;
+    - TLS 1.2 en XP ya está (Mbed TLS); falta la lista de autoridades raíz, pendiente junto con la de la etapa 14;
+    - hoy no hay instalador (el .exe se copia a mano): la carpeta de instalación se decide en la etapa 11, con la propuesta de una carpeta del usuario para que actualizar no pida permiso.
 - **Etapa 3, paso 3.2a: varias voces a la vez (hecho, 2026-10-26).** El programa mezcla hasta 4 voces (`kVoces`, puente_voz.h), las más fuertes.
   - **Protocolo:** `Medio` suma `u16 tiempo` (milisegundos del reloj de audio del que habla: cuenta todo lo que entra del micrófono, también sin transmitir, para que en el paso 3.2c una pausa no parezca una traba de la red) y `u8 nivel` (dB sobre −127 dBov, de 0 a 127; el lector rechaza más). Primero cambió en el lugar, en el protocolo 2. Pero con eso, un servidor de antes (el de prueba de la PC había quedado del 25) aceptaba la conexión y tiraba toda la voz sin avisar: el dueño no se oía en ninguna punta. Por eso sube al **protocolo 3** (programa 0.3.0): un servidor o un programa de antes ahora rechaza la conexión con "versión vieja". Regla desde ahora: cada cambio de formato de un mensaje sube el protocolo.
   - **Lugares:** cada voz tiene su decodificador (los 4 en un solo bloque con `opus_decoder_init`, para fijarlo en RAM de una vez), su colchón y su PCM.
