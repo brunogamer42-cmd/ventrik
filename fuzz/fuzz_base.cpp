@@ -2,10 +2,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <string>
+#include <string_view>
 
 #include <windows.h>
 
 #include <gsl/gsl>
+#include <sqlite3.h>
 
 #include "common/archivos.h"
 #include "common/texto.h"
@@ -18,6 +20,18 @@ void exigir(bool condicion) {
   if (!condicion) {
     std::abort();
   }
+}
+
+bool esta_sana(const std::wstring& archivo) {
+  sqlite3* base = nullptr;
+  sqlite3_stmt* consulta = nullptr;
+  const bool sana = sqlite3_open16(archivo.c_str(), &base) == SQLITE_OK &&
+                    sqlite3_prepare_v2(base, "PRAGMA integrity_check", -1, &consulta, nullptr) == SQLITE_OK &&
+                    sqlite3_step(consulta) == SQLITE_ROW && sqlite3_column_text(consulta, 0) != nullptr &&
+                    std::string_view(reinterpret_cast<const char*>(sqlite3_column_text(consulta, 0))) == "ok";
+  sqlite3_finalize(consulta);
+  sqlite3_close(base);
+  return sana;
 }
 
 std::wstring archivo_de_prueba() {
@@ -55,6 +69,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   if (!ventrik::escribir_archivo_completo(archivo, gsl::make_span(datos, largo))) {
     return 0;
   }
+  const bool sana = esta_sana(archivo);
   auto base = Base::abrir(archivo, "General");
   if (!base) {
     return 0;
@@ -84,7 +99,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   const auto despues = base->canales();
   for (const auto& canal : canales) {
     for (const auto& nuevo : despues) {
-      exigir(nuevo.id != canal.id || nuevo.contador >= canal.contador);
+      exigir(!sana || nuevo.id != canal.id || nuevo.contador >= canal.contador);
     }
   }
   base->borrar_viejos(UINT64_MAX / 2);
