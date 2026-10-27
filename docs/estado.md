@@ -232,7 +232,33 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - en las 4 combinaciones, Ana oye a Beto y a Carla a la vez;
     - `fuzz_voz` con 8 que hablan y sin ids repetidos en `hablando`, y las semillas regeneradas al formato nuevo.
   - **Riesgo:** 4 decodificadores a 16 kHz en la netbook (unos 3,7 % cada uno, diseno.md). Se mide en la prueba a mano del final del paso 3.2; si no da, 3 voces en la calidad baja.
-- **Lo que sigue:** pasos 3.2b (volumen por persona y "Silenciar para mí") y 3.2c (colchón que se ajusta solo); la prueba a mano de las notificaciones (3.1b) y la del paso 3.2 van juntas al final.
+- **Etapa 3, paso 3.2b: volumen por persona y "Silenciar para mí" (hecho, 2026-10-27).** Tocar el nombre de otra persona abre su tarjeta, al lado de la lista, como en las capturas Rendimiento*.png: avatar, nombre, "En <canal>", "Volumen de <nombre> para vos" y "Silenciar para mí" / "Volver a escuchar" (diseno.md, "Panel de audio" → "Por persona").
+  - **Protocolo:** `SilenciarPersonas` (tipo 20) lleva la lista entera de ids silenciados y reemplaza la anterior: así no hay ráfagas contra el límite de pedidos y los ids viejos se van solos. Tope 32, ordenada, sin repetidos ni el 0 (el lector rechaza lo demás).
+  - **Servidor:** la lista vive con la conexión (sobrevive a cambiar de canal y a salir y volver a la voz; se copia a la voz después de cada `alta`) y se va al desconectar. `reenviar` salta al oyente si el que habla está en su lista (`binary_search`, como mucho 32).
+  - **Programa:**
+    - `ajustes_de_voz` (guardados.cpp) empareja lo guardado con los presentes por nombre exacto y da la tabla de volúmenes del motor y la lista para el servidor;
+    - corre al conectar, al abrir la voz, cuando alguien entra o sale del servidor y al tocar el panel; la lista se manda solo si cambió;
+    - si el servidor la rechaza por el límite de pedidos (`Negado`), se vuelve a mandar en el tic de 1 s (si no, "Volver a escuchar" podía quedar sin llegar y el servidor seguía sin mandar esa voz);
+    - el motor tiene 16 volúmenes (`id << 8 | %` en atómicos, sin candados): al 0 % no se decodifica y se suelta su lugar.
+  - **programa.dat versión 5:** cada servidor guarda hasta 16 personas (nombre, volumen, silenciada). La que se cambia va adelante y la 17 saca a la más vieja; las que vuelven a 100 % y sin silenciar se borran. El tope del archivo pasa a 64 KB, con un `static_assert` que calcula el peor caso.
+  - **Topes:** 16 personas por servidor, 16 volúmenes en el motor, 32 silenciados por conexión en el servidor. Sin hilos ni despertares nuevos.
+  - **Pruebas:**
+    - el mensaje (bytes, tope, orden, el 0);
+    - el servidor filtra solo a quien silenció;
+    - con el servidor real, vale desde antes de entrar a la voz y sigue al salir y volver;
+    - programa.dat v5 (ida y vuelta, nombres repetidos, volumen de más, silenciada mal, 17 personas, el archivo más grande);
+    - `ajustar_persona` y `ajustes_de_voz`;
+    - el motor al 50 % da ×0,25 de energía y al 0 % no decodifica;
+    - en las 4 combinaciones, Ana silencia a Carla y deja de recibirla mientras Beto la sigue oyendo;
+    - el banco sin ventana dibuja filas con el parlante tachado;
+    - `fuzz_voz_servidor` cambia la lista al azar y `fuzz_protocolo` lee el mensaje nuevo.
+- **Diseño actualizado (2026-10-27): silenciar avisos por servidor y por canal.** En docs/diseno.md, "Silenciar avisos por servidor y por canal".
+  - **Qué es:** tres niveles (servidor, canal de texto y chat de un canal de voz), "Silenciar ▸" con plazos y "Avisarme de ▸", el diálogo "Avisos de <servidor>", el menú ▾ del nombre del servidor (y el mismo menú con clic derecho en Inicio) y la línea "Servidores y canales silenciados" en Ajustes → Avisos y sonidos.
+  - **Decisión del dueño:** por defecto, "Solo menciones": un mensaje común solo sube el contador. Las menciones (@nombre, @todos, @aquí) llegan con este paso.
+  - **Capturas:** se reemplazaron las 13 Rendimiento*.png y Ajustes-avisos*.png, y entraron 5 nuevas: Rendimiento-silenciar-servidor, -silenciar-canal, -silenciar-chat-voz, -avisos-servidor y -silenciados.
+  - **La tarjeta de una persona** aparece en todas con "Volumen de <nombre> para vos" y "Silenciar para mí": el panel del paso 3.2b se hace como esa tarjeta. La descripción, las insignias y el "ausente" se suman cuando llegan sus etapas.
+  - **Cuándo:** es un paso propio de la etapa 3, después del 3.2: el menú ▾ del servidor, el clic derecho en los canales, las menciones, el diálogo y las reglas, guardado en programa.dat (la copia de Drive llega en la etapa 14).
+- **Lo que sigue:** paso 3.2c (colchón que se ajusta solo); después, silenciar avisos por servidor y por canal. La prueba a mano de las notificaciones (3.1b) y la del paso 3.2 van juntas al final del 3.2.
 
 ## Ramas y repositorio
 
@@ -506,6 +532,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **VS 2017 (clásica):** una lambda sin captura no ve una `constexpr` local (error C3493): usar `static constexpr`.
 - **`/GL` y compilaciones cortadas:** si una compilación se corta o se queda sin memoria (por ejemplo, compilando con los 20 fuzzers corriendo), los archivos del enlace incremental (`*.iobj`, `*.ipdb`) quedan dañados y el enlace falla con errores internos (C1001, LNK1000, LNK2016) en archivos que no cambiaron. Se arregla borrándolos de `build\<versión>`. No compilar mientras corre el fuzzing largo.
 - **Corpus que crece:** libFuzzer ejecuta todo el corpus antes de empezar y `-max_total_time` no corta esa parte. El de `fuzz_voz` llegó a 7.646 casos (Opus con AddressSanitizer en 32 bits va a unos 60 a 100 casos por segundo) y solo cargarlo pasaba el límite de check.ps1 ("No terminó a tiempo"). Se compacta con `-merge=1` (quedaron 2.560 con la misma cobertura). `-merge=1` se vuelve a llamar a sí mismo con la ruta sin comillas: con los espacios de la carpeta del proyecto falla, así que se copian el .exe, sus DLL y los corpus a una carpeta sin espacios. Volvió a pasar después de una corrida de 10 minutos (el de 64 bits llegó a 2.953 casos y compactado seguía en 2.875, casi todos con algo propio): desde entonces, en la corrida corta de check.ps1 cada fuzzer carga solo su carpeta y las semillas; en la larga (300 s o más) también la del otro. El 2026-10-26 el de 64 bits llegó a 3.212 casos, a unos 35 por segundo con los 20 fuzzers a la vez: dos corridas de check.ps1 pasaron justo (3.222 casos en total, o sea casi solo la carga) y la tercera no terminó a tiempo. Desde entonces la corrida corta arranca de las semillas en una carpeta vacía (`build\fuzzing\corto`, se borra cada vez) y no toca el corpus guardado; la larga lo sigue cargando entero y es la que lo hace crecer.
+- **Compilador:** si aparecen de golpe `C1001` (error interno), `LNK1000` o `LNK2016` con `@comp.id`, se dañaron los archivos incrementales del enlace optimizado (`*.iobj`, `*.ipdb`): se borran junto con el .exe y se vuelve a compilar. Pasó el 2026-10-27 con las pruebas de la moderna; con el disco con lugar de sobra.
 - **PowerShell y funciones de Windows:** `$null` pasado a un parámetro `string` de `Add-Type` llega como `""`, no como nulo (`FindWindowW(clase, $null)` no encuentra nada). Para la ventana del programa, usar `$proceso.MainWindowHandle`.
 
 ## Pendientes (además de los VENTRIK_PENDIENTE)

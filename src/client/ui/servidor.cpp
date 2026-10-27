@@ -27,6 +27,7 @@ constexpr float kAnchoFlotante = 255;
 constexpr float kAltoFlotanteTecla = 212;
 constexpr float kAltoFlotanteVoz = 268;
 constexpr float kAltoFlotanteSalida = 100;
+constexpr float kAltoFlotantePersona = 172;
 constexpr float kMargenSalir = 8;
 constexpr float kAltoDia = 30;
 constexpr float kAltoGrupo = 27;
@@ -456,8 +457,8 @@ class Dibujo {
                    [&] { return con_datos(t(Clave::servidor_por_ciento), {std::to_string(valor)}); });
   }
 
-  bool abrir_flotante(const char* id, ImVec2 abajo_izquierda, float alto) const {
-    ImGui::SetNextWindowPos(abajo_izquierda, ImGuiCond_Always, ImVec2(0, 1));
+  bool abrir_flotante(const char* id, ImVec2 abajo_izquierda, float alto, ImVec2 pivote = ImVec2(0, 1)) const {
+    ImGui::SetNextWindowPos(abajo_izquierda, ImGuiCond_Always, pivote);
     ImGui::SetNextWindowSize(ImVec2(px(kAnchoFlotante), px(alto)));
     if (!ImGui::BeginPopup(id)) {
       return false;
@@ -549,6 +550,60 @@ class Dibujo {
     ImGui::EndPopup();
   }
 
+  const cliente::PersonaGuardada* guardada(std::string_view nombre) const {
+    const auto encontrada = std::find_if(pantalla_.personas.begin(), pantalla_.personas.end(),
+                                         [nombre](const cliente::PersonaGuardada& persona) { return persona.nombre == nombre; });
+    return encontrada == pantalla_.personas.end() ? nullptr : &*encontrada;
+  }
+
+  void persona_flotante() {
+    const ImVec2 donde(pantalla_.donde_persona.x,
+                       std::min(pantalla_.donde_persona.y,
+                                ImGui::GetIO().DisplaySize.y - px(kAltoFlotantePersona + 8)));
+    if (!abrir_flotante("##persona", donde, kAltoFlotantePersona, ImVec2(0, 0))) {
+      return;
+    }
+    const auto usuario = sala_.usuarios().find(pantalla_.persona);
+    if (usuario == sala_.usuarios().end()) {
+      ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+      return;
+    }
+    const std::string& nombre = usuario->second.nombre;
+    const cliente::PersonaGuardada* antes = guardada(nombre);
+    cliente::PersonaGuardada persona = antes != nullptr ? *antes : cliente::PersonaGuardada{nombre};
+    const ImVec2 desde = ImGui::GetWindowPos();
+    const float x = desde.x + px(13);
+    const float derecha = desde.x + px(kAnchoFlotante - 14);
+    const Cara& su_cara = cara(nombre);
+    avatar(ImVec2(x, desde.y + px(12)), px(48), su_cara.iniciales, su_cara.color, color::texto, medida::letra, 0);
+    escribir_en(x + px(60), desde.y + px(26), nombre, color::texto, Letra::negrita, medida::letra, derecha - x - px(60));
+    const auto* canal = sala_.canal(usuario->second.canal);
+    escribir_en(x + px(60), desde.y + px(46),
+                canal != nullptr ? con_datos(t(Clave::servidor_en_canal), {canal->nombre})
+                                 : std::string(t(Clave::servidor_sin_canal_de_voz)),
+                color::apagado, Letra::normal, medida::letra_chica, derecha - x - px(60));
+    ImGui::GetWindowDrawList()->AddLine(ImVec2(desde.x, desde.y + px(72)),
+                                        ImVec2(desde.x + px(kAnchoFlotante), desde.y + px(72)), tono(color::linea));
+    escribir_en(x, desde.y + px(92), con_datos(t(Clave::servidor_volumen_de), {nombre}), color::texto2,
+                Letra::normal, medida::letra, derecha - x);
+    if (const auto nuevo = deslizador("##volumen_persona", ImVec2(x, desde.y + px(113)), derecha - x,
+                                      static_cast<float>(persona.volumen) / cliente::kVolumenMaximo)) {
+      persona.volumen = static_cast<std::uint8_t>(std::lround(*nuevo * cliente::kVolumenMaximo));
+      pedido_.persona = persona;
+    }
+    pedido_.guardar = pedido_.guardar || ImGui::IsItemDeactivated();
+    ImGui::SetCursorScreenPos(ImVec2(x, desde.y + px(128)));
+    if (boton("##silenciar_persona",
+              t(persona.silenciada ? Clave::servidor_volver_a_escuchar : Clave::servidor_silenciar_para_mi),
+              Estilo::contorneado, ImVec2(derecha - x, px(32)))) {
+      persona.silenciada = !persona.silenciada;
+      pedido_.persona = persona;
+      pedido_.guardar = true;
+    }
+    ImGui::EndPopup();
+  }
+
   bool visible(float y, float alto) const {
     const float arriba = ImGui::GetWindowPos().y;
     return y + alto >= arriba && y <= arriba + ImGui::GetWindowHeight();
@@ -591,6 +646,7 @@ class Dibujo {
     }
     ImGui::SetCursorScreenPos(ImVec2(origen.x, y));
     ImGui::Dummy(ImVec2(1, px(4)));
+    persona_flotante();
   }
 
   float grupo(float x, float y, float ancho, std::string_view etiqueta, const char* id, Dialogo crear) {
@@ -703,13 +759,24 @@ class Dibujo {
     return y + alto;
   }
 
-  float fila_persona(float x, float y, float ancho, const protocolo::UsuarioInfo& usuario) const {
+  float fila_persona(float x, float y, float ancho, const protocolo::UsuarioInfo& usuario) {
     const float alto = px(medida::fila_voz);
     if (!visible(y, alto)) {
       return y + alto;
     }
     ImDrawList& dibujo = *ImGui::GetWindowDrawList();
     const bool yo = usuario.id == sala_.tu_id();
+    if (!yo) {
+      ImGui::SetCursorScreenPos(ImVec2(x, y));
+      ImGui::PushID(static_cast<int>(usuario.id));
+      const bool tocada = ImGui::InvisibleButton("##persona", ImVec2(ancho, alto));
+      ImGui::PopID();
+      if (tocada) {
+        pantalla_.persona = usuario.id;
+        pantalla_.donde_persona = ImVec2(x + ancho - px(6), y - px(13));
+        ImGui::OpenPopup("##persona");
+      }
+    }
     const bool habla = yo ? pantalla_.transmitiendo
                           : std::find(pantalla_.hablando.begin(), pantalla_.hablando.end(), usuario.id) !=
                                 pantalla_.hablando.end();
@@ -718,17 +785,21 @@ class Dibujo {
     const Cara& su_cara = cara(usuario.nombre);
     avatar(ImVec2(x + px(38), medio - px(medida::avatar_lista) / 2), px(medida::avatar_lista), su_cara.iniciales,
            su_cara.color, color::texto, medida::letra_mini, habla ? color_voz : 0);
-    const float derecha = x + ancho - px(15);
+    float icono = x + ancho - px(23);
+    if (const auto* persona = yo ? nullptr : guardada(usuario.nombre); persona != nullptr && persona->silenciada) {
+      dibujar_icono_tachado(dibujo, Icono::parlante, ImVec2(icono, medio), px(14), tono(color::apagado));
+      icono -= px(20);
+    }
     const std::uint8_t silencio = yo ? pantalla_.silencio : usuario.silencio;
     if (silencio != 0) {
       dibujar_icono_tachado(dibujo,
                             (silencio & protocolo::kSilencioAudio) != 0 ? Icono::auriculares : Icono::microfono,
-                            ImVec2(derecha - px(8), medio), px(14), tono(yo ? color::rojo : color::apagado));
+                            ImVec2(icono, medio), px(14), tono(yo ? color::rojo : color::apagado));
     } else if (habla) {
-      dibujar_icono(dibujo, Icono::voz, ImVec2(derecha - px(8), medio), px(14), tono(color_voz));
+      dibujar_icono(dibujo, Icono::voz, ImVec2(icono, medio), px(14), tono(color_voz));
     }
     const std::string_view nombre = yo ? t(Clave::servidor_vos) : std::string_view(usuario.nombre);
-    escribir_en(x + px(74), medio, nombre, color::texto2, Letra::normal, medida::letra, derecha - x - px(94));
+    escribir_en(x + px(74), medio, nombre, color::texto2, Letra::normal, medida::letra, icono - x - px(86));
     return y + alto;
   }
 

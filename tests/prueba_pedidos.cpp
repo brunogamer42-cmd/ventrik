@@ -1,5 +1,6 @@
 #include <array>
 #include <cstdint>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -78,6 +79,23 @@ TEST_CASE("Los pedidos nuevos tienen bytes fijos") {
   CHECK(en_bytes(Negado{TipoMensaje::silenciar, MotivoNegado::demasiado_rapido}) == Bytes{19, 0, 4});
 }
 
+TEST_CASE("Silenciar personas lleva la lista entera, ordenada, sin el 0 y con tope") {
+  CHECK(en_bytes(SilenciarPersonas{{2, 0x01020304}}) == Bytes{2, 0, 2, 0, 0, 0, 4, 3, 2, 1});
+  ida_y_vuelta(SilenciarPersonas{});
+  std::vector<std::uint32_t> tope(kMaximoSilenciados);
+  std::iota(tope.begin(), tope.end(), 1u);
+  ida_y_vuelta(SilenciarPersonas{tope});
+  tope.push_back(kMaximoSilenciados + 1);
+  CHECK_FALSE(se_escribe(SilenciarPersonas{tope}));
+  for (const auto& mala : std::initializer_list<std::vector<std::uint32_t>>{{0}, {0, 1}, {3, 2}, {2, 2}}) {
+    CHECK_FALSE(se_escribe(SilenciarPersonas{mala}));
+  }
+  CHECK_FALSE(leer_mensaje<SilenciarPersonas>(Bytes{2, 0, 3, 0, 0, 0, 2, 0, 0, 0}));
+  CHECK_FALSE(leer_mensaje<SilenciarPersonas>(Bytes{1, 0, 0, 0, 0, 0}));
+  CHECK_FALSE(leer_mensaje<SilenciarPersonas>(Bytes{33, 0}));
+  CHECK(en_bytes(Negado{TipoMensaje::silenciar_personas, MotivoNegado::demasiado_rapido}) == Bytes{20, 0, 4});
+}
+
 TEST_CASE("El silencio solo vale 0, 1 o 3: el audio apagado exige el micrófono apagado") {
   for (const std::uint8_t silencio : std::initializer_list<std::uint8_t>{0, 1, 3}) {
     CHECK(leer_mensaje<Silenciar>(Bytes{silencio}));
@@ -139,7 +157,7 @@ TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{1, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 0}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 8}));
-  CHECK_FALSE(leer_mensaje<Negado>(Bytes{20, 0, 1}));
+  CHECK_FALSE(leer_mensaje<Negado>(Bytes{21, 0, 1}));
   CHECK_FALSE(leer_mensaje<Presentado>(Bytes{1, 0, 0, 0, 2, 0, 0, 0, 0}));
   CHECK_FALSE(leer_mensaje<Historial>(Bytes{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1}));
 }

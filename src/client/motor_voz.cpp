@@ -227,7 +227,7 @@ MotorVoz::Voz* MotorVoz::lugar_para(const PaqueteVoz& paquete) {
     const auto encontrada = std::find_if(voces_.begin(), voces_.end(), condicion);
     return encontrada == voces_.end() ? nullptr : &*encontrada;
   };
-  if (paquete.hablante == 0) {
+  if (paquete.hablante == 0 || por_ciento_de(paquete.hablante) == 0) {
     return nullptr;
   }
   if (Voz* suya = buscar([&paquete](const Voz& voz) { return voz.hablante == paquete.hablante; })) {
@@ -250,8 +250,31 @@ MotorVoz::Voz* MotorVoz::lugar_para(const PaqueteVoz& paquete) {
   return elegida;
 }
 
+void MotorVoz::personas(gsl::span<const std::pair<std::uint32_t, std::uint8_t>> volumenes) {
+  for (std::size_t i = 0; i < personas_.size(); ++i) {
+    personas_[i].store(i < volumenes.size() ? std::uint64_t{volumenes[i].first} << 8 | volumenes[i].second : 0,
+                       std::memory_order_relaxed);
+  }
+}
+
+int MotorVoz::por_ciento_de(std::uint32_t hablante) const {
+  for (const auto& persona : personas_) {
+    const std::uint64_t valor = persona.load(std::memory_order_relaxed);
+    if (valor >> 8 == hablante) {
+      return static_cast<int>(valor & 0xFF);
+    }
+  }
+  return 100;
+}
+
 void MotorVoz::sumar(std::size_t cual, gsl::span<float> mezcla, float ganancia) {
   Voz& voz = voces_[cual];
+  const int por_ciento = voz.hablante != 0 ? por_ciento_de(voz.hablante) : 100;
+  if (por_ciento == 0) {
+    voz.hablante = 0;
+    puente_.cambiar(puente_.hablando[cual], std::uint32_t{0});
+  }
+  ganancia = ganancia * static_cast<float>(por_ciento) / 100;
   for (auto hueco = mezcla; voz.hablante != 0 && !hueco.empty();) {
     if (voz.leidas == voz.cuantas) {
       decodificar(cual);

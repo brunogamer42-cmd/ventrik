@@ -1,6 +1,7 @@
 #include "common/protocol/pedidos.h"
 
 #include <algorithm>
+#include <functional>
 
 #include "common/texto.h"
 
@@ -182,7 +183,12 @@ bool sigue(Sentido sentido, std::uint64_t anterior, std::uint64_t id) {
 
 bool es_pedido(std::uint16_t tipo) {
   return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
-         tipo <= static_cast<std::uint16_t>(TipoMensaje::silenciar);
+         tipo <= static_cast<std::uint16_t>(TipoMensaje::silenciar_personas);
+}
+
+bool son_silenciados_validos(const std::vector<std::uint32_t>& usuarios) {
+  return (usuarios.empty() || usuarios.front() != 0) &&
+         std::adjacent_find(usuarios.begin(), usuarios.end(), std::greater_equal<>()) == usuarios.end();
 }
 
 }
@@ -431,6 +437,23 @@ void escribir(Escritor& escritor, const Silenciar& mensaje) {
 
 void leer(Lector& lector, Silenciar& mensaje) {
   mensaje.silencio = leer_silencio(lector);
+}
+
+void escribir(Escritor& escritor, const SilenciarPersonas& mensaje) {
+  if (!son_silenciados_validos(mensaje.usuarios)) {
+    escritor.marcar_error();
+    return;
+  }
+  escribir_lista(escritor, mensaje.usuarios, kMaximoSilenciados,
+                 [&escritor](std::uint32_t usuario) { escritor.escribir_u32(usuario); });
+}
+
+void leer(Lector& lector, SilenciarPersonas& mensaje) {
+  leer_lista(lector, mensaje.usuarios, kMaximoSilenciados,
+             [&lector](std::uint32_t& usuario) { usuario = lector.leer_u32(); });
+  if (!son_silenciados_validos(mensaje.usuarios)) {
+    lector.marcar_error();
+  }
 }
 
 void escribir(Escritor& escritor, const UsuarioSilencio& mensaje) {

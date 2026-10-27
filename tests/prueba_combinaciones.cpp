@@ -138,6 +138,19 @@ TEST_CASE("combinaciones: servidor y programa de verdad, de la misma versión o 
     CHECK(de_ana.hablaron == std::set<std::uint32_t>{beto_id, carla_id});
     CHECK(de_beto.hablaron == std::set<std::uint32_t>{ana_id, carla_id});
     CHECK(de_ana.a_la_vez == 2);
+
+    de_beto.motor.transmitir(false);
+    ana.ordenar(SilenciarPersonas{{carla_id}});
+    hablar_un_rato({&de_ana, &de_beto, &de_carla}, 300ms);
+    const std::uint32_t de_carla_a_ana = de_ana.puente->recibidos;
+    const std::uint32_t de_carla_a_beto = de_beto.puente->recibidos;
+    hablar_un_rato({&de_ana, &de_beto, &de_carla}, 1s);
+    CHECK(de_ana.puente->recibidos == de_carla_a_ana);
+    CHECK(de_beto.puente->recibidos > de_carla_a_beto);
+    ana.ordenar(SilenciarPersonas{});
+    hablar_un_rato({&de_ana, &de_beto, &de_carla}, 1s);
+    CHECK(de_ana.puente->recibidos > de_carla_a_ana);
+    de_beto.motor.transmitir(true);
     de_carla.motor.transmitir(false);
     carla.ordenar(EntrarACanal{0});
     carla.voz(nullptr);

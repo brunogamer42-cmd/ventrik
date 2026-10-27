@@ -24,6 +24,7 @@ enum class TipoMensaje : std::uint16_t {
   ping = 17,
   mirar_canal = 18,
   silenciar = 19,
+  silenciar_personas = 20,
   presentado = 30,
   presentacion_rechazada = 31,
   usuario_entro = 32,

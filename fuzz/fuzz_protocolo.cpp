@@ -168,7 +168,7 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
 
   revisar_pedidos<Presentarse, Presentado, PresentacionRechazada, UsuarioEntro, UsuarioSalio,
                   UsuarioCambioCanal, UsuarioSilencio, CanalCreado, CanalCambiado, CanalBorrado, EntrarACanal,
-                  Silenciar,
+                  Silenciar, SilenciarPersonas,
                   EnviarChat, MensajeChat, PedirHistorial, Historial, CrearCanal, CambiarCanal,
                   MirarCanal, MensajesNuevos, BorrarCanal, Negado, Ping, Pong, ClaveVoz, MedioSubida, MedioBajada>(marco.cuerpo);
   switch (static_cast<TipoMensaje>(marco.tipo)) {

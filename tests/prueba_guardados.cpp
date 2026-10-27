@@ -94,7 +94,7 @@ TEST_CASE("el archivo de servidores rechaza lo que no armó Ventrik") {
   marca[0] ^= 1;
   CHECK(leer_sin_tocar(marca) == LecturaGuardados::danados);
   auto version = bien;
-  version[4] = 5;
+  version[4] = 6;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::version_nueva);
   version[4] = 0;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::danados);
@@ -154,7 +154,7 @@ TEST_CASE("una lista de la versión 3 se lee sin silencio y con los volúmenes a
   CHECK(leidos.volumen_salida == ventrik::cliente::kVolumenPorDefecto);
   const auto nuevo = armar_guardados(leidos);
   REQUIRE(nuevo.size() == escritor.datos().size() + 3);
-  CHECK(nuevo[4] == 4);
+  CHECK(nuevo[4] == 5);
   CHECK(nuevo[9] == 0);
   CHECK(nuevo[10] == 100);
   CHECK(nuevo[11] == 100);
@@ -174,7 +174,7 @@ TEST_CASE("una lista de la versión 2 se lee con la tecla para hablar y la sensi
   CHECK(leidos.sensibilidad == ventrik::cliente::kSensibilidadPorDefecto);
   const auto nuevo = armar_guardados(leidos);
   REQUIRE(nuevo.size() == escritor.datos().size() + 5);
-  CHECK(nuevo[4] == 4);
+  CHECK(nuevo[4] == 5);
   CHECK(nuevo[7] == 0);
   CHECK(nuevo[8] == ventrik::cliente::kSensibilidadPorDefecto);
 }
@@ -216,6 +216,14 @@ TEST_CASE("no se arma un archivo de servidores con datos inválidos") {
   sin_armar([](Guardados& g) { g.servidores[0].nombre.clear(); });
   sin_armar([](Guardados& g) { g.servidores[0].nombre_canal = "a\nb"; });
   sin_armar([](Guardados& g) { g.servidores[1].direccion = g.servidores[0].direccion; });
+  sin_armar([](Guardados& g) { g.servidores[0].personas = {{"Sofi", 201, false}}; });
+  sin_armar([](Guardados& g) { g.servidores[0].personas = {{" Sofi", 50, false}}; });
+  sin_armar([](Guardados& g) { g.servidores[0].personas = {{"Sofi", 50, false}, {"Sofi", 0, true}}; });
+  sin_armar([](Guardados& g) {
+    for (int i = 0; i < 17; ++i) {
+      g.servidores[0].personas.push_back({"P" + std::to_string(i), 50, false});
+    }
+  });
   sin_armar([](Guardados& g) {
     for (std::uint32_t ip = 3; ip <= 33; ++ip) {
       g.servidores.push_back(servidor(ip));
@@ -265,8 +273,8 @@ TEST_CASE("una lista de la versión 1 se lee con sus servidores y sin lo leído"
   CHECK(leidos.servidores[0].nombre == "Tano");
   CHECK(leidos.servidores[0].leidos.empty());
   const auto nuevo = armar_guardados(leidos);
-  REQUIRE(nuevo.size() == escritor.datos().size() + 6);
-  CHECK(nuevo[4] == 4);
+  REQUIRE(nuevo.size() == escritor.datos().size() + 7);
+  CHECK(nuevo[4] == 5);
   auto con_leidos = escritor.datos();
   con_leidos.push_back(0);
   CHECK(leer_sin_tocar(con_leidos) == LecturaGuardados::danados);
@@ -300,6 +308,9 @@ TEST_CASE("se aceptan 64 leídos por servidor y la lista más grande entra en el
     for (std::uint32_t canal = 1; canal <= ventrik::cliente::kMaximoLeidosPorServidor; ++canal) {
       uno.leidos.push_back({canal, canal * 1000});
     }
+    for (std::size_t i = 0; i < ventrik::cliente::kMaximoPersonasPorServidor; ++i) {
+      uno.personas.push_back({largo.substr(0, 60) + std::to_string(10 + i), 200, true});
+    }
     grande.servidores.push_back(uno);
   }
   const auto bytes = armar_guardados(grande);
@@ -308,6 +319,49 @@ TEST_CASE("se aceptan 64 leídos por servidor y la lista más grande entra en el
   Guardados leidos;
   REQUIRE(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
   CHECK(armar_guardados(leidos) == bytes);
+}
+
+TEST_CASE("el volumen de cada persona se guarda por servidor y por nombre, hasta 16") {
+  using ventrik::cliente::PersonaGuardada;
+  Guardados guardados = ejemplo();
+  guardados.servidores[1].personas = {{"Sofi", 0, true}, {"Ñandú", 150, false}};
+  const auto bytes = armar_guardados(guardados);
+  REQUIRE_FALSE(bytes.empty());
+  Guardados leidos;
+  REQUIRE(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
+  REQUIRE(leidos.servidores[1].personas.size() == 2);
+  CHECK(leidos.servidores[1].personas[0].silenciada);
+  CHECK(leidos.servidores[1].personas[1].nombre == "Ñandú");
+  CHECK(leidos.servidores[1].personas[1].volumen == 150);
+  CHECK(armar_guardados(leidos) == bytes);
+  auto silenciada_mal = bytes;
+  silenciada_mal[silenciada_mal.size() - 1] = 2;
+  CHECK(leer_sin_tocar(silenciada_mal) == LecturaGuardados::danados);
+
+  std::vector<PersonaGuardada> personas;
+  ventrik::cliente::ajustar_persona(personas, {"Sofi", 50, false});
+  ventrik::cliente::ajustar_persona(personas, {"Beto", 100, true});
+  ventrik::cliente::ajustar_persona(personas, {" mal", 50, false});
+  ventrik::cliente::ajustar_persona(personas, {"Ana", 201, false});
+  REQUIRE(personas.size() == 2);
+  CHECK(personas[0].nombre == "Beto");
+  ventrik::cliente::ajustar_persona(personas, {"Sofi", 70, false});
+  CHECK(personas[0].nombre == "Sofi");
+  CHECK(personas[0].volumen == 70);
+  ventrik::cliente::ajustar_persona(personas, {"Beto", 100, false});
+  REQUIRE(personas.size() == 1);
+  for (int i = 0; i < 20; ++i) {
+    ventrik::cliente::ajustar_persona(personas, {"P" + std::to_string(i), 10, false});
+  }
+  CHECK(personas.size() == ventrik::cliente::kMaximoPersonasPorServidor);
+  CHECK(personas[0].nombre == "P19");
+
+  const std::map<std::uint32_t, ventrik::protocolo::UsuarioInfo> usuarios = {
+      {3, {3, "Sofi", 1, 0}}, {7, {7, "Beto", 1, 0}}, {9, {9, "Ana", 0, 0}}};
+  const auto ajustes = ventrik::cliente::ajustes_de_voz({{"Ana", 0, true}, {"Sofi", 30, false}, {"Nadie", 0, true}},
+                                                        usuarios);
+  CHECK(ajustes.volumenes == std::vector<std::pair<std::uint32_t, std::uint8_t>>{{3, 30}, {9, 0}});
+  CHECK(ajustes.silenciados == std::vector<std::uint32_t>{9});
 }
 
 TEST_CASE("recordar conserva lo leído del mismo servidor, salvo que cambie la huella") {

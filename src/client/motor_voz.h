@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include <gsl/gsl>
@@ -26,6 +27,7 @@ struct Calidad {
 Calidad calidad_automatica();
 
 constexpr int kPedazosTrasCallarse = 20;
+constexpr std::size_t kMaximoPersonasConVolumen = 16;
 
 int umbral_de(int por_ciento);
 std::int16_t con_ganancia(std::int16_t muestra, int por_ciento);
@@ -52,6 +54,7 @@ class MotorVoz {
     ganancia_microfono_ = microfono;
     ganancia_salida_ = salida;
   }
+  void personas(gsl::span<const std::pair<std::uint32_t, std::uint8_t>> volumenes);
   void solo_en_el_canal(bool si) { solo_ = si; }
   void por_voz(bool si) { por_voz_ = si; }
   void sensibilidad(int por_ciento) { umbral_ = umbral_de(por_ciento); }
@@ -94,6 +97,7 @@ class MotorVoz {
   void sumar(std::size_t cual, gsl::span<float> mezcla, float ganancia);
   void decodificar(std::size_t cual);
   void contar();
+  int por_ciento_de(std::uint32_t hablante) const;
 
   PuenteVoz& puente_;
   Calidad calidad_;
@@ -125,6 +129,7 @@ class MotorVoz {
   std::atomic<std::uint32_t> vaciados_{0};
   std::atomic<std::uint32_t> faltas_{0};
   std::atomic<std::uint32_t> sin_lugar_{0};
+  std::array<std::atomic<std::uint64_t>, kMaximoPersonasConVolumen> personas_{};
   MemoriaFija fija_;
 };
 

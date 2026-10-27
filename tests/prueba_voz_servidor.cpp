@@ -217,6 +217,27 @@ TEST_CASE("El servidor no reenvía la voz de quien tiene el micrófono silenciad
   CHECK(b.recibidas[0].medio.numero == 3);
 }
 
+TEST_CASE("El servidor no le manda a nadie la voz de quien silenció para sí") {
+  Banco banco;
+  REQUIRE(banco.voz.ok());
+  Programa a(banco, {0x0A000001, 5000}, alta(banco, 1, 0x0A000001, 1));
+  Programa b(banco, {0x0A000002, 5000}, alta(banco, 2, 0x0A000002, 1));
+  Programa c(banco, {0x0A000003, 5000}, alta(banco, 3, 0x0A000003, 1));
+  bombear(banco, {&a, &b, &c});
+  banco.voz.silenciados(2, {1, 4});
+  a.mandar(voz(1));
+  c.mandar(voz(1));
+  bombear(banco, {&a, &b, &c});
+  REQUIRE(b.recibidas.size() == 1);
+  CHECK(b.recibidas[0].origen == 3);
+  CHECK(c.recibidas.size() == 1);
+  banco.voz.silenciados(2, {});
+  a.mandar(voz(2));
+  bombear(banco, {&a, &b, &c});
+  REQUIRE(b.recibidas.size() == 2);
+  CHECK(b.recibidas[1].origen == 1);
+}
+
 TEST_CASE("Una IP sin conexión no recibe respuesta y otra IP no puede usar una clave ajena") {
   Banco banco;
   const auto clave_a = alta(banco, 1, 0x0A000001, 1);

@@ -122,6 +122,7 @@ class Programa {
     motor_ = std::make_unique<cliente::MotorVoz>(*puente_, calidad_);
     motor_->sensibilidad(guardados_.sensibilidad);
     motor_->por_voz(guardados_.por_voz);
+    aplicar_personas();
     aplicar_audio();
     audio_ = std::make_unique<cliente::Audio>();
     servidor_.hay_audio =
@@ -169,6 +170,7 @@ class Programa {
       abrir_aviso(*tocado);
       cambio = true;
     }
+    bool entraron_o_salieron = false;
     if (sesion_) {
       for (const cliente::Novedad& novedad : sesion_->esperar_novedades(0ms)) {
         cambio = true;
@@ -191,8 +193,17 @@ class Programa {
         } else if (sala_) {
           ordenar(sala_->aplicar(novedad));
           avisar_de(novedad);
+          entraron_o_salieron = entraron_o_salieron || std::holds_alternative<protocolo::UsuarioEntro>(novedad) ||
+                                std::holds_alternative<protocolo::UsuarioSalio>(novedad);
+          if (const auto* rechazo = std::get_if<protocolo::Negado>(&novedad);
+              rechazo != nullptr && rechazo->pedido == protocolo::TipoMensaje::silenciar_personas) {
+            silenciados_enviados_ = {0};
+          }
         }
       }
+    }
+    if (sala_ && entraron_o_salieron) {
+      aplicar_personas();
     }
     if (sala_) {
       ordenar_si(avisos_.pedir(Reloj::now(), sala_->esperando(), situacion.juego));
@@ -247,6 +258,12 @@ class Programa {
         guardados_.volumen_salida = static_cast<std::uint8_t>(*pedido.volumen_salida);
       }
       aplicar_audio();
+      if (pedido.persona) {
+        if (auto* guardado = cliente::buscar_guardado(guardados_, pendiente_.direccion)) {
+          cliente::ajustar_persona(guardado->personas, *pedido.persona);
+        }
+        aplicar_personas();
+      }
       if (pedido.por_voz || pedido.silencio || pedido.guardar) {
         guardar();
       }
@@ -286,6 +303,19 @@ class Programa {
   }
 
   void ordenar(std::vector<cliente::Orden> ordenes) { sesion_->ordenar(std::move(ordenes)); }
+
+  void aplicar_personas() {
+    const auto* guardado = cliente::buscar_guardado(guardados_, pendiente_.direccion);
+    servidor_.personas = guardado != nullptr ? guardado->personas : std::vector<cliente::PersonaGuardada>();
+    const cliente::AjustesDeVoz ajustes = cliente::ajustes_de_voz(servidor_.personas, sala_->usuarios());
+    if (motor_) {
+      motor_->personas(ajustes.volumenes);
+    }
+    if (ajustes.silenciados != silenciados_enviados_) {
+      silenciados_enviados_ = ajustes.silenciados;
+      ordenar({protocolo::SilenciarPersonas{ajustes.silenciados}});
+    }
+  }
 
   void ordenar_si(std::optional<cliente::Orden> orden) {
     if (orden) {
@@ -406,6 +436,7 @@ class Programa {
       pendiente_.texto = guardado->texto;
       pendiente_.nombre_canal = guardado->nombre_canal;
       pendiente_.leidos = guardado->leidos;
+      pendiente_.personas = guardado->personas;
     }
     if (canal_del_aviso_ != 0) {
       pendiente_.texto = std::exchange(canal_del_aviso_, 0);
@@ -454,6 +485,8 @@ class Programa {
     if (guardados_.silencio != 0) {
       ordenar({protocolo::Silenciar{guardados_.silencio}});
     }
+    silenciados_enviados_.clear();
+    aplicar_personas();
   }
 
   bool mirar_voz() {
@@ -499,6 +532,9 @@ class Programa {
     if (const auto yo = sala_->usuarios().find(sala_->tu_id());
         yo != sala_->usuarios().end() && yo->second.silencio != guardados_.silencio) {
       ordenar({protocolo::Silenciar{guardados_.silencio}});
+    }
+    if (silenciados_enviados_ == std::vector<std::uint32_t>{0}) {
+      aplicar_personas();
     }
     const bool tenia_poca_memoria = std::exchange(poca_memoria_, queda_poca_memoria());
     if (poca_memoria_ && !tenia_poca_memoria) {
@@ -592,6 +628,7 @@ class Programa {
   cliente::Avisos avisos_;
   std::unique_ptr<Notificador> notificador_;
   std::uint32_t canal_del_aviso_ = 0;
+  std::vector<std::uint32_t> silenciados_enviados_;
   std::uint64_t version_avisos_ = 0;
   bool juego_avisos_ = false;
   const cliente::Calidad calidad_ = cliente::calidad_automatica();

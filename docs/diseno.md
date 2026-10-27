@@ -58,7 +58,7 @@ La ventana tiene una sola organización y dos modos: los modos cambian cuánto h
 
 Organización de la ventana:
 
-- **Arriba:** el servidor, los botones (servidores, perfil, personalizar para los administradores, ajustes, desconectar), el selector de modo y el estado de la tecla para hablar ("Hablar con <tecla>" y "Transmitiendo"; silenciado, en lugar de "Transmitiendo" un aviso rojo, "Micrófono silenciado" o "Sin audio ni micrófono"; sin canal de voz, "Sin voz · micrófono apagado"). El micrófono y el audio ya no son botones de la cabecera: están en el panel de audio (ver "Panel de audio").
+- **Arriba:** el servidor (su nombre lleva ▾ y abre su menú; silenciado, muestra la campana tachada y debajo "Silenciado hasta las HH:MM"; ver "Silenciar avisos por servidor y por canal"), los botones (servidores, perfil, personalizar para los administradores, ajustes, desconectar), el selector de modo y el estado de la tecla para hablar ("Hablar con <tecla>" y "Transmitiendo"; silenciado, en lugar de "Transmitiendo" un aviso rojo, "Micrófono silenciado" o "Sin audio ni micrófono"; sin canal de voz, "Sin voz · micrófono apagado"). El micrófono y el audio ya no son botones de la cabecera: están en el panel de audio (ver "Panel de audio").
 - **Izquierda:** la lista de canales en dos grupos, "Canales de texto" arriba y "Canales de voz" abajo (ver "Canales de voz y de texto"), y al final el grupo "Sin canal de voz". Los de voz muestran las personas adentro y su estado: habla, micrófono apagado, audio apagado, ausente o no molestar (sin sonidos de aviso), y se pliegan. La lista se desplaza con su propia barra; abajo queda fijo el panel de audio: tu canal con "Salir del canal", el medidor y cuatro botones (ver "Panel de audio"). Sin canal de voz, el panel dice "Sin canal de voz" (ver "Entrar a un servidor y a la voz").
 - **Derecha:** el chat del canal de voz donde estás o del canal de texto que elegiste, con los archivos. Desde la etapa 12, ahí también se mira una pantalla compartida.
 - **Abajo:** la barra de estado con la conexión, el ping, el cifrado, la voz y la verificación del servidor.
@@ -92,7 +92,7 @@ El programa abre en **Inicio**. Ventrik se organiza por servidores; desde la eta
 | Pantalla | Qué tiene |
 | --- | --- |
 | Inicio (en los dos modos) | Tus servidores con su estado (en línea, cuántos hay, ping, tu último canal, solicitudes pendientes, tu servidor apagado), entrar con invitación, tu estado, el aviso de copia de tu identidad y el botón Reportar. En Visual suma el encabezado y el icono animados de cada servidor y tu tarjeta. "Entrar" respeta el ajuste "Al entrar a un servidor" |
-| Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil. Capturas, cada una en docs/pantallas/Rendimiento*.png y Visual*.png: la base (en un canal de voz), -sin-voz (solo con el chat), -canal-texto, -por-voz (transmitiendo por voz), -microfono y -por-voz-microfono (el panel flotante "Cómo transmitís"), -salida (el volumen de salida), -silenciado y -sin-audio |
+| Servidor (Rendimiento o Visual) | Canales de voz y de texto, chat, archivos, tu audio y tarjetas de perfil. Capturas, cada una en docs/pantallas/Rendimiento*.png y Visual*.png: la base (en un canal de voz), -sin-voz (solo con el chat), -canal-texto, -por-voz (transmitiendo por voz), -microfono y -por-voz-microfono (el panel flotante "Cómo transmitís"), -salida (el volumen de salida), -silenciado y -sin-audio; y en Rendimiento, -silenciar-servidor, -silenciar-canal y -silenciar-chat-voz (los menús de silenciar), -avisos-servidor (el diálogo "Avisos de <servidor>") y -silenciados (cómo se ve lo silenciado). Todas muestran abierta la tarjeta de una persona con su volumen para vos |
 | Explorar servidores | Lista pública con búsqueda por nombre, IP o región; red local; guardados. En Visual, al elegir un servidor se ven su fondo e icono animados |
 | Hostear un servidor | Asistente de 7 pasos (nombre y acceso, conexión, capacidad y voz, seguridad, chat y archivos, pantallas y varias PCs, revisar e iniciar) y la pantalla final Invitar gente (ver "Hostear: asistente por pasos") |
 | Ajustes | Una sección por vez, con un menú a la izquierda con buscador (ver "Ajustes"): General (con el idioma y "Al entrar a un servidor"), Apariencia, Teclas (hablar y susurros), Audio y micrófono, Avisos y sonidos (ver "Sonidos de los avisos"), Red, Descargas, Seguridad y Acerca de (con Reportar, la licencia y las bibliotecas). Las secciones de etapas futuras (Prestar esta PC, Amigos y privacidad, Copias de seguridad) llevan "PRONTO" en el menú y aparecen desactivadas y marcadas "EN DESARROLLO". Capturas: docs/pantallas/Ajustes-*.png, una por sección |
@@ -109,7 +109,7 @@ El programa abre en **Inicio**. Ventrik se organiza por servidores; desde la eta
 
 Avisan de lo que pasa mientras Ventrik no está al frente o está minimizado. Nunca avisan de tus propios mensajes, y tocarlas abre Ventrik en ese canal.
 
-- **De qué avisan:** mensajes nuevos en canales de texto, mensajes del chat de tu canal de voz y conexión cortada (el servidor se cortó o dejó de responder). En Ajustes → Avisos se apagan todas juntas o cada tipo por separado. No molestar las silencia.
+- **De qué avisan:** mensajes nuevos en canales de texto, mensajes del chat de tu canal de voz y conexión cortada (el servidor se cortó o dejó de responder). Los mensajes avisan según "Avisarme de" de cada servidor y canal: por defecto, solo las menciones (decisión del dueño, 2026-10-27; ver "Silenciar avisos por servidor y por canal"). En Ajustes → Avisos se apagan todas juntas o cada tipo por separado. No molestar las silencia.
 - **Qué dicen:** si hay un solo mensaje, quién lo escribió y el texto ("Tano en #general: ¿Arrancamos la segunda?"). Si hay varios, se amontonan en una sola notificación por canal, que se va actualizando: "3 mensajes en #general de Tano", o "de Tano, Sofi y 2 más".
 - **De dónde sale el texto:** de los canales de texto que no estás mirando, el servidor solo avisa el contador (ver "Canales de voz y de texto"). Cuando va a mostrar una notificación, el programa le pide esos mensajes nuevos al servidor como cualquier historial, con sus permisos y topes.
 - **Windows 10 y 11 (versión moderna):** las notificaciones del sistema, las que salen abajo a la derecha y quedan en el Centro de actividades, con el nombre y el ícono de Ventrik. Se cargan con GetProcAddress; si no están, se usa la ventana propia.
@@ -120,6 +120,46 @@ Avisan de lo que pasa mientras Ventrik no está al frente o está minimizado. Nu
   - hay una por canal, que se reemplaza al actualizarse;
   - si algo de esto falla, se usa la ventana propia.
 - **Privacidad:** Windows guarda sus notificaciones en un archivo propio, fuera de Ventrik y sin cifrar. Por eso, en Ajustes → Avisos se puede elegir que digan solo el canal y la cantidad, sin quién ni el texto.
+
+### Silenciar avisos por servidor y por canal
+
+Diseño del dueño del 2026-10-27. Capturas: docs/pantallas/Rendimiento-silenciar-servidor.png, -silenciar-canal.png, -silenciar-chat-voz.png, -avisos-servidor.png y -silenciados.png. Va con los avisos, en la etapa 3.
+
+- **Tres niveles:**
+  - **Servidor:** su nombre, con ▾, abre el menú:
+    - Invitar gente;
+    - Avisos del servidor…;
+    - Silenciar servidor ▸;
+    - Marcar todo como leído;
+    - Bots y Configuración del servidor (solo admins);
+    - Desconectar.
+
+    El mismo menú sale con clic derecho en la tarjeta del servidor en Inicio.
+  - **Canal de texto,** con clic derecho: Marcar como leído, Silenciar canal ▸, Avisarme de ▸ y Editar canal (admins).
+  - **Chat de un canal de voz,** con clic derecho en el canal: Entrar al canal, Ver el chat del canal, Silenciar el chat ▸ y Avisarme del chat ▸. Silenciar el chat no toca la voz: si entrás, escuchás a todos igual.
+- **Silenciar ▸:**
+  - por 15 minutos, 1 hora, 3 horas, 8 horas o 24 horas, o "Hasta que lo vuelva a activar";
+  - una casilla "Avisarme igual si me mencionan", tildada por defecto.
+- **Avisarme de ▸:** Igual que el servidor (lo que viene en los canales), Todos los mensajes, Solo menciones o Nada. En el servidor, "Solo menciones" viene elegido (decisión del dueño, 2026-10-27): un mensaje común solo sube el contador.
+- **Menciones:** llegan con este paso (hoy el chat no las tiene): tu nombre con @ adelante, y @todos y @aquí, salvo que el servidor tenga tildado "No contar @todos ni @aquí como mención".
+- **Silenciado:**
+  - sin sonido ni aviso de Windows;
+  - campana tachada junto al nombre;
+  - el canal se ve apagado y sin contador de no leídos;
+  - el servidor muestra "Silenciado hasta las HH:MM" debajo del nombre.
+- **Diálogo "Avisos de <servidor>":**
+  - "Silenciar el servidor" (No, o los mismos plazos) y "Avisarme igual si me mencionan";
+  - Avisarme de: Todos los mensajes ("Suena y avisa con cada uno"), Solo menciones ("Cuando te nombran a vos", elegido por defecto) o Nada ("Solo el contador de no leídos");
+  - "No contar @todos ni @aquí como mención";
+  - "Sonidos de la voz de este servidor (entra o sale gente)";
+  - la lista "Canales con su propio ajuste", con Quitar en cada uno y "Agregar canal";
+  - abajo, la nota: el canal manda sobre el servidor, y esto se guarda en tu PC (y en tu copia de seguridad), el servidor no sabe qué silenciaste.
+- **Reglas:**
+  - el ajuste del canal manda sobre el del servidor: un canal en "Todos los mensajes" avisa aunque el servidor esté silenciado;
+  - el vencimiento se guarda con fecha y hora, así sobrevive a cerrar el programa;
+  - todo se guarda en la base local (y en la copia de Drive), nunca en el servidor.
+- **Ajustes → Avisos y sonidos:** la línea "Servidores y canales silenciados", con lo silenciado y "Ver y cambiar".
+- En modo Visual va igual. En Amigos (etapa 14), el mismo menú sirve para silenciar a una persona o a un grupo.
 
 ### Ajustes
 
@@ -153,7 +193,7 @@ Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Ajustes-*.png, una p
   - **Derecha:**
     - Cómo transmitís: tecla para hablar o por voz; el medidor del micrófono, que se mueve solo mientras dura "Probar micrófono"; "Escucharme mientras pruebo"; la tecla y "Seguir transmitiendo al soltar".
     - Limpieza de la voz: quitar ruido de fondo con su nivel, cancelación de eco, ajustar solo el volumen del micrófono, y bajar el volumen de otros programas cuando alguien habla.
-- **Avisos y sonidos:** arriba van las opciones generales y el paquete de sonidos. Abajo, un selector de grupo (Voz · Chat · Llamadas y amigos · Servidor, cada uno con su cantidad) muestra un grupo por vez, con los avisos en dos columnas (ver "Sonidos de los avisos").
+- **Avisos y sonidos:** arriba van las opciones generales, la línea "Servidores y canales silenciados" con "Ver y cambiar" (ver "Silenciar avisos por servidor y por canal") y el paquete de sonidos. Abajo, un selector de grupo (Voz · Chat · Llamadas y amigos · Servidor, cada uno con su cantidad) muestra un grupo por vez, con los avisos en dos columnas (ver "Sonidos de los avisos").
 
 ### Sonidos de los avisos
 
@@ -411,6 +451,9 @@ Abajo a la izquierda, fijo debajo de la lista de canales. Capturas: docs/pantall
 - **Paneles flotantes:** se abren encima de la fila y se cierran al tocar afuera.
   - **"Cómo transmitís":** "Tecla para hablar | Por voz"; con la tecla, "Tecla <tecla>" y "Cambiar tecla"; por voz, la sensibilidad con su propio medidor y la marca. Abajo, "Volumen del micrófono" de 0 a 200 % y la nota "Dispositivo y supresión de ruido: Ajustes → Audio y micrófono".
   - **Salida:** "Volumen de salida" y la nota "El volumen de cada persona se cambia tocando su nombre".
+  - **Por persona** (capturas Rendimiento*.png, con la tarjeta de Tano abierta): tocar el nombre de otra persona en la lista de canales abre su tarjeta (ver "Tarjeta de perfil") al lado de la lista. Abajo de la tarjeta van "Volumen de <nombre> para vos", de 0 a 200 %, y el botón "Silenciar para mí".
+    - Silenciada para vos, su fila muestra el parlante tachado y el servidor deja de mandarte su voz.
+    - Se recuerda por servidor y por nombre, hasta 16 personas por servidor. Por nombre porque hasta la etapa 4 no hay identidad fija; ahí pasa a la identidad.
 - **Silenciado:**
   - el botón queda rojo con el ícono tachado;
   - en tu fila del canal se ve el micrófono o los auriculares tachados, también para los demás;
@@ -465,7 +508,7 @@ Tu perfil se guarda en tu PC y se manda a cada servidor al que entrás: no hay c
 
 ### Tarjeta de perfil
 
-Al tocar el nombre de alguien se abre su tarjeta. En modo Visual, cada persona elige cómo se ve la suya:
+Al tocar el nombre de alguien se abre su tarjeta: su avatar, su nombre, dónde está ("En Partida 1"), su descripción y sus insignias ("Fundador del servidor", "Miembro desde 2025"); abajo, "Volumen de <nombre> para vos" y "Silenciar para mí" (ver "Panel de audio"). Lo que todavía no existe (descripción, insignias, ausente) se suma cuando llega su etapa. En modo Visual, cada persona elige cómo se ve la suya:
 
 | Parte | Opciones | Cómo se dibuja |
 | --- | --- | --- |

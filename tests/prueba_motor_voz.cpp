@@ -240,6 +240,23 @@ TEST_CASE("El volumen multiplica cada muestra con tope, y sin audio no suena per
   CHECK(hablando == 9);
 }
 
+TEST_CASE("El volumen de cada persona multiplica su voz, y al 0 % ni se decodifica") {
+  std::uint32_t hablando = 0;
+  const auto normal = hablar_y_escuchar(Calidad{}, Calidad{}, hablando);
+  const std::vector<std::pair<std::uint32_t, std::uint8_t>> mitad = {{9, 50}};
+  const auto a_la_mitad = hablar_y_escuchar(Calidad{}, Calidad{}, hablando,
+                                            [&mitad](MotorVoz&, MotorVoz& receptor) { receptor.personas(mitad); });
+  const double proporcion = energia(a_la_mitad, a_la_mitad.size() / 2) / energia(normal, normal.size() / 2);
+  CHECK(proporcion > 0.2);
+  CHECK(proporcion < 0.3);
+  hablando = 0;
+  const std::vector<std::pair<std::uint32_t, std::uint8_t>> nada = {{3, 100}, {9, 0}};
+  const auto silenciado = hablar_y_escuchar(Calidad{}, Calidad{}, hablando,
+                                            [&nada](MotorVoz&, MotorVoz& receptor) { receptor.personas(nada); });
+  CHECK(energia(silenciado, 0) == 0);
+  CHECK(hablando == 0);
+}
+
 TEST_CASE("Con el micrófono silenciado no se comprime ni se manda nada, aunque se pida transmitir") {
   PuenteVoz puente;
   MotorVoz motor(puente, Calidad{});

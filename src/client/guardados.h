@@ -2,7 +2,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gsl/gsl>
@@ -13,8 +15,9 @@
 
 namespace ventrik::cliente {
 constexpr std::size_t kMaximoServidoresGuardados = 32;
-constexpr std::size_t kMaximoArchivoGuardados = 32768;
+constexpr std::size_t kMaximoArchivoGuardados = 65536;
 constexpr std::size_t kMaximoLeidosPorServidor = 64;
+constexpr std::size_t kMaximoPersonasPorServidor = 16;
 static_assert(kMaximoLeidosPorServidor >= protocolo::kMaximoCanales);
 constexpr std::uint8_t kTeclaHablarPorDefecto = 0xA4;
 constexpr std::uint8_t kSensibilidadMaxima = 100;
@@ -27,6 +30,12 @@ struct Leido {
   std::uint32_t numero = 0;
 };
 
+struct PersonaGuardada {
+  std::string nombre;
+  std::uint8_t volumen = kVolumenPorDefecto;
+  bool silenciada = false;
+};
+
 struct ServidorGuardado {
   red::Direccion direccion;
   cifrado::Huella::Bytes huella{};
@@ -35,6 +44,12 @@ struct ServidorGuardado {
   std::string nombre_canal;
   std::uint64_t ultima_vez_ms = 0;
   std::vector<Leido> leidos;
+  std::vector<PersonaGuardada> personas;
+};
+
+struct AjustesDeVoz {
+  std::vector<std::pair<std::uint32_t, std::uint8_t>> volumenes;
+  std::vector<std::uint32_t> silenciados;
 };
 
 struct Guardados {
@@ -56,6 +71,9 @@ bool es_tecla_valida(std::uint8_t tecla);
 std::uint8_t tecla_para_hablar(std::uint8_t guardada);
 ServidorGuardado* buscar_guardado(Guardados& guardados, const red::Direccion& direccion);
 bool recordar(Guardados& guardados, ServidorGuardado servidor);
+void ajustar_persona(std::vector<PersonaGuardada>& personas, PersonaGuardada persona);
+AjustesDeVoz ajustes_de_voz(const std::vector<PersonaGuardada>& personas,
+                            const std::map<std::uint32_t, protocolo::UsuarioInfo>& usuarios);
 
 LecturaGuardados cargar_guardados(Guardados& guardados, const std::wstring& carpeta);
 bool guardar_guardados(const Guardados& guardados, const std::wstring& carpeta);

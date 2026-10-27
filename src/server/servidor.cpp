@@ -78,6 +78,7 @@ struct Servidor::Conexion {
   std::uint32_t canal = 0;
   std::uint32_t mirando = 0;
   std::uint8_t silencio = 0;
+  std::vector<std::uint32_t> silenciados;
   std::vector<std::uint32_t> novedades;
   Reloj::time_point ultimo_aviso{};
   Cubeta chat;
@@ -596,6 +597,9 @@ void Servidor::atender_pedido(Conexion& conexion, const protocolo::Marco& marco)
     case TipoMensaje::silenciar:
       silenciar(conexion, marco);
       return;
+    case TipoMensaje::silenciar_personas:
+      silenciar_personas(conexion, marco);
+      return;
     case TipoMensaje::pedir_historial:
       pedir_historial(conexion, marco);
       return;
@@ -646,6 +650,7 @@ void Servidor::entrar_a_canal(Conexion& conexion, const protocolo::Marco& marco)
   } else if (const auto clave = voz_->alta(conexion.id, conexion.origen.ipv4, pedido->canal, Reloj::now(),
                                            derivar_de(*conexion.tls))) {
     voz_->silencio(conexion.id, conexion.silencio);
+    voz_->silenciados(conexion.id, conexion.silenciados);
     encolar(conexion, *clave);
   } else {
     negar(conexion, TipoMensaje::entrar_a_canal, MotivoNegado::lleno);
@@ -667,6 +672,16 @@ void Servidor::silenciar(Conexion& conexion, const protocolo::Marco& marco) {
   conexion.silencio = pedido->silencio;
   voz_->silencio(conexion.id, conexion.silencio);
   difundir(protocolo::UsuarioSilencio{conexion.id, conexion.silencio});
+}
+
+void Servidor::silenciar_personas(Conexion& conexion, const protocolo::Marco& marco) {
+  auto pedido = protocolo::leer_mensaje<protocolo::SilenciarPersonas>(marco.cuerpo);
+  if (!pedido) {
+    error_de_protocolo(conexion);
+    return;
+  }
+  conexion.silenciados = std::move(pedido->usuarios);
+  voz_->silenciados(conexion.id, conexion.silenciados);
 }
 
 void Servidor::enviar_chat(Conexion& conexion, const protocolo::Marco& marco) {

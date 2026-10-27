@@ -12,6 +12,7 @@
 
 #include <imgui.h>
 
+#include "client/guardados.h"
 #include "client/puente_voz.h"
 #include "client/sala.h"
 #include "client/ui/piezas.h"
@@ -99,6 +100,9 @@ struct PantallaServidor {
   int volumen_salida = 100;
   bool transmitiendo = false;
   cliente::Hablando hablando{};
+  std::vector<cliente::PersonaGuardada> personas;
+  std::uint32_t persona = 0;
+  ImVec2 donde_persona{};
   int nivel = 0;
   std::deque<Muestra> grafico;
   Campo buscar{};
@@ -129,6 +133,7 @@ struct PedidoServidor {
   std::optional<std::uint8_t> silencio;
   std::optional<int> volumen_microfono;
   std::optional<int> volumen_salida;
+  std::optional<cliente::PersonaGuardada> persona;
   bool guardar = false;
   std::vector<cliente::Orden> ordenes;
 };

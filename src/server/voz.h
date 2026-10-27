@@ -51,6 +51,7 @@ class Voz {
   void mover(std::uint32_t id, std::uint32_t canal);
   void baja(std::uint32_t id);
   void silencio(std::uint32_t id, std::uint8_t valor);
+  void silenciados(std::uint32_t id, std::vector<std::uint32_t> usuarios);
   std::optional<std::uint32_t> recibir(const red::Direccion& origen,
                                        gsl::span<const std::uint8_t> datagrama, Instante ahora);
   std::vector<std::uint32_t> revisar(Instante ahora);
@@ -64,6 +65,7 @@ class Voz {
     std::uint32_t ip = 0;
     std::uint32_t canal = 0;
     std::uint8_t silencio = 0;
+    std::vector<std::uint32_t> silenciados;
     std::array<std::uint8_t, 16> identidad{};
     cifrado::Secreto clave{32};
     Instante rotar_en;

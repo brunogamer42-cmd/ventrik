@@ -569,6 +569,44 @@ TEST_CASE("El silencio llega a todos y al que entra después; sin audio no te ll
   CHECK(ana.esperar<Fin>());
 }
 
+TEST_CASE("Silenciar para mí vale desde antes de entrar a la voz y sigue al salir y volver") {
+  using ventrik::cliente::EstadoVoz;
+  using ventrik::cliente::PuenteVoz;
+  ServidorDePrueba servidor;
+  Cliente ana(servidor, "Ana");
+  Cliente beto(servidor, "Beto");
+  const auto ana_id = ana.entrar().tu_id;
+  const auto beto_id = beto.entrar().tu_id;
+  beto.ordenar(SilenciarPersonas{{ana_id}});
+  for (Cliente* cliente : {&ana, &beto}) {
+    cliente->ordenar(EntrarACanal{kCanalGeneral});
+  }
+  REQUIRE(ana.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == beto_id; }));
+  const auto pa = std::make_shared<PuenteVoz>();
+  const auto pb = std::make_shared<PuenteVoz>();
+  ana.voz(pa);
+  beto.voz(pb);
+  REQUIRE(esperar_que([&] { return pa->estado == EstadoVoz::lista && pb->estado == EstadoVoz::lista; }));
+  for (int vez = 0; vez < 5; ++vez) {
+    hablar(*pa);
+  }
+  CHECK_FALSE(escuchar(*pb, 500ms));
+  beto.ordenar(EntrarACanal{0});
+  beto.voz(nullptr);
+  REQUIRE(ana.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == beto_id && c.canal == 0; }));
+  beto.ordenar(EntrarACanal{kCanalGeneral});
+  REQUIRE(ana.esperar<UsuarioCambioCanal>([&](const auto& c) { return c.id == beto_id && c.canal == kCanalGeneral; }));
+  const auto otra = std::make_shared<PuenteVoz>();
+  beto.voz(otra);
+  REQUIRE(esperar_que([&] { return otra->estado == EstadoVoz::lista; }));
+  for (int vez = 0; vez < 5; ++vez) {
+    hablar(*pa);
+  }
+  CHECK_FALSE(escuchar(*otra, 500ms));
+  beto.ordenar(SilenciarPersonas{});
+  CHECK(llega_alguno(*pa, *otra));
+}
+
 TEST_CASE("Cerrar una sesión que todavía está saludando no espera el plazo del saludo") {
   const auto escucha = ventrik::red::escuchar({0x7F000001, 0});
   REQUIRE(escucha.valido());

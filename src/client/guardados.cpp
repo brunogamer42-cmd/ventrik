@@ -11,12 +11,22 @@
 namespace ventrik::cliente {
 namespace {
 constexpr std::uint32_t kMarca = 0x52504B56;
-constexpr std::uint16_t kVersion = 4;
+constexpr std::uint16_t kVersion = 5;
 constexpr std::uint16_t kVersionConLeidos = 2;
 constexpr std::uint16_t kVersionConModo = 3;
 constexpr std::uint16_t kVersionConSilencio = 4;
+constexpr std::uint16_t kVersionConPersonas = 5;
+constexpr std::size_t kTexto = 2 + kMaximoBytesNombre;
+static_assert(kMaximoArchivoGuardados >=
+              13 + kTexto + kMaximoServidoresGuardados *
+                                (6 + std::tuple_size<cifrado::Huella::Bytes>::value + 2 * kTexto + 14 +
+                                 kMaximoLeidosPorServidor * 8 + kMaximoPersonasPorServidor * (kTexto + 2)));
 
 bool nombre_opcional(const std::string& nombre) { return nombre.empty() || es_nombre_valido(nombre); }
+
+bool es_valida(const PersonaGuardada& persona) {
+  return es_nombre_valido(persona.nombre) && persona.volumen <= kVolumenMaximo;
+}
 
 bool es_valido(const ServidorGuardado& servidor) {
   const auto& leidos = servidor.leidos;
@@ -25,8 +35,17 @@ bool es_valido(const ServidorGuardado& servidor) {
       return false;
     }
   }
+  const auto& personas = servidor.personas;
+  for (auto persona = personas.begin(); persona != personas.end(); ++persona) {
+    if (!es_valida(*persona) || std::any_of(personas.begin(), persona, [&persona](const PersonaGuardada& otra) {
+          return otra.nombre == persona->nombre;
+        })) {
+      return false;
+    }
+  }
   return servidor.direccion.ipv4 != 0 && servidor.direccion.puerto != 0 && es_nombre_valido(servidor.nombre) &&
-         nombre_opcional(servidor.nombre_canal) && leidos.size() <= kMaximoLeidosPorServidor;
+         nombre_opcional(servidor.nombre_canal) && leidos.size() <= kMaximoLeidosPorServidor &&
+         personas.size() <= kMaximoPersonasPorServidor;
 }
 
 bool son_validos(const Guardados& guardados) {
@@ -94,6 +113,18 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
       const std::uint32_t canal = lector.leer_u32();
       servidor.leidos.push_back({canal, lector.leer_u32()});
     }
+    const std::size_t personas = version >= kVersionConPersonas ? lector.leer_u8() : 0;
+    for (std::size_t j = 0; j < personas && lector.ok(); ++j) {
+      PersonaGuardada persona;
+      persona.nombre = lector.leer_texto(kMaximoBytesNombre);
+      persona.volumen = lector.leer_u8();
+      const std::uint8_t silenciada = lector.leer_u8();
+      persona.silenciada = silenciada == 1;
+      if (silenciada > 1) {
+        return LecturaGuardados::danados;
+      }
+      servidor.personas.push_back(std::move(persona));
+    }
     leidos.servidores.push_back(std::move(servidor));
   }
   if (version == 0 || !lector.terminado() || !son_validos(leidos)) {
@@ -131,6 +162,12 @@ std::vector<std::uint8_t> armar_guardados(const Guardados& guardados) {
       escritor.escribir_u32(leido.canal);
       escritor.escribir_u32(leido.numero);
     }
+    escritor.escribir_u8(static_cast<std::uint8_t>(servidor.personas.size()));
+    for (const PersonaGuardada& persona : servidor.personas) {
+      escritor.escribir_texto(persona.nombre, kMaximoBytesNombre);
+      escritor.escribir_u8(persona.volumen);
+      escritor.escribir_u8(persona.silenciada ? 1 : 0);
+    }
   }
   return escritor.datos();
 }
@@ -167,6 +204,39 @@ bool recordar(Guardados& guardados, ServidorGuardado servidor) {
     servidores.resize(kMaximoServidoresGuardados);
   }
   return true;
+}
+
+void ajustar_persona(std::vector<PersonaGuardada>& personas, PersonaGuardada persona) {
+  if (!es_valida(persona)) {
+    return;
+  }
+  personas.erase(std::remove_if(personas.begin(), personas.end(),
+                                [&persona](const PersonaGuardada& otra) { return otra.nombre == persona.nombre; }),
+                 personas.end());
+  if (persona.volumen != kVolumenPorDefecto || persona.silenciada) {
+    personas.insert(personas.begin(), std::move(persona));
+  }
+  if (personas.size() > kMaximoPersonasPorServidor) {
+    personas.resize(kMaximoPersonasPorServidor);
+  }
+}
+
+AjustesDeVoz ajustes_de_voz(const std::vector<PersonaGuardada>& personas,
+                            const std::map<std::uint32_t, protocolo::UsuarioInfo>& usuarios) {
+  AjustesDeVoz ajustes;
+  for (auto usuario = usuarios.begin();
+       usuario != usuarios.end() && ajustes.volumenes.size() < kMaximoPersonasPorServidor; ++usuario) {
+    const auto persona = std::find_if(personas.begin(), personas.end(), [&usuario](const PersonaGuardada& guardada) {
+      return guardada.nombre == usuario->second.nombre;
+    });
+    if (persona != personas.end()) {
+      ajustes.volumenes.emplace_back(usuario->first, persona->silenciada ? 0 : persona->volumen);
+      if (persona->silenciada) {
+        ajustes.silenciados.push_back(usuario->first);
+      }
+    }
+  }
+  return ajustes;
 }
 
 LecturaGuardados cargar_guardados(Guardados& guardados, const std::wstring& carpeta) {
