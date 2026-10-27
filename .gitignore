@@ -65,3 +65,7 @@ timeout-*
 *.swp
 Thumbs.db
 desktop.ini
+
+# Los WAV originales de los sonidos (37 MB): se convierten con tools/sonidos.cpp
+# y entran a git solo los .vksn de recursos/sonidos/.
+/assets/

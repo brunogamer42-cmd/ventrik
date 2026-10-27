@@ -45,7 +45,8 @@ enum class Icono {
   pulso,
   flecha_arriba,
   campana,
-  flecha_izquierda
+  flecha_izquierda,
+  reproducir
 };
 
 using Campo = std::array<char, 128>;

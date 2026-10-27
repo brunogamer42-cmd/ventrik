@@ -505,7 +505,34 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - programa.dat rechaza nombres repetidos en un susurro, y las claves 21 a 23 quedan nombradas en el código para que nada las reuse;
     - pruebas nuevas: la decisión de las teclas; susurro en "por voz"; destinos mandados antes de entrar a la voz, al salir y volver, con un canal de texto y tras un rechazo; las ventanitas de susurro quietas; y en el fuzzing de programa.dat, volver a poner cada susurro deja el archivo igual;
     - **queda así, por diseño:** los destinos van por nombre y valen en cualquier servidor; si en otro servidor alguien se llama Sofi, le llegan los susurros a Sofi. Los nombres se comparan exactos (son los que da el servidor), y si se renombra un canal hay que elegirlo de nuevo.
-- **Lo que sigue:** paso 3.7 (sonidos de los avisos); al final, una sola prueba a mano en la PC y en la XP.
+- **Etapa 3, paso 3.7: sonidos de los avisos y paquetes (hecho, 2026-10-27).**
+  - **Bibliotecas nuevas** (aprobadas por el dueño): miniz 3.0.2 (zip) y jsmn 1.1.0 (JSON), con su versión, origen y huellas en third_party/.
+  - **`client/sonidos`:**
+    - **formato VKSN** (Opus en paquetes de 20 ms) para los de fábrica y los propios; `decodificar_archivo` lee WAV y MP3 con miniaudio y OGG con stb_vorbis, y pasa todo a 48 kHz mono;
+    - **dónde suenan:** por una salida propia (`Audio` solo con parlantes, sin micrófono), que se abre al sonar y se cierra 2 s después del último. El dispositivo es el de "Sonar por" o, si no, el de la voz;
+    - **mezcla:** hasta 4 a la vez, con el mismo limitador de la voz (`limitar`), así nunca recorta;
+    - **memoria:** lo decodificado se guarda (tope de 2 MB, se va lo más viejo) y se suelta entero cuando Windows avisa poca memoria. Lo que suena queda vivo hasta cerrar la salida, para que el hilo de audio nunca lea memoria liberada.
+  - **Hilos y despertares:** el hilo de la salida de sonidos existe solo mientras suena algo y hasta 2 s después (con miniaudio, el suyo; en XP, el del puente WinMM). Cerrarla no suma ningún despertar: se revisa en el tic de 1 s que ya existía.
+  - **`client/cuando_suena`:** funciones puras que deciden qué suena (gente que entra o sale de tu canal, mensajes y menciones con las reglas de silencio de 3.3, silencios propios, rechazos y No molestar), probadas sin ventana.
+  - **Sonidos propios:** "Elegir un archivo…" abre el diálogo de Windows (`GetOpenFileNameW`, existe en XP). El archivo se valida (WAV, OGG o MP3, hasta 1 MB y 5 s, o 10 s los de llamada), se pasa a VKSN y se guarda en `<carpeta de datos>\sonidos\NN.vksn`. programa.dat guarda solo el nombre que se muestra (claves 60 a 86) y si cada aviso está prendido (claves 30 a 56), además de "Sonar por" (24) y No molestar (25).
+  - **Paquetes .vksonidos:** importar valida todo (topes del diseño) y guarda cada sonido como propio; exportar arma el zip con los propios en WAV.
+  - **Pantalla Ajustes → Avisos y sonidos**, como en las capturas Ajustes-avisos*.png: volumen, "Sonar por", No molestar, minimizada, qué avisa (de 3.5), silenciados, el paquete, el selector de grupos y cada aviso con su casilla, "Probar" y su origen. Las llamadas de amigos en No molestar se ven apagadas hasta la etapa 14.
+  - **Pruebas:** los 27 de fábrica dentro del programa; VKSN de ida y vuelta y sus rechazos; WAV a 48 kHz mono; largo, pesado o roto rechazado; mezcla de 3 sin pasar de 32767; la salida que se cierra sola; paquetes de ida y vuelta, con carpetas, rutas, demasiados archivos, bomba e índice roto; cuándo suena cada aviso. Fuzzing nuevo: `fuzz_sonido` (VKSN, WAV, MP3, OGG) y `fuzz_paquete` (zip y JSON), con semillas de OGG y MP3 reales (hechos con ffmpeg: un tono de 2,5 s). Esos mismos audios van dentro de `ventrik_pruebas` como recursos (tests/datos.rc), así las pruebas de OGG y MP3 corren también en la XP.
+  - **Sin ver a mano todavía:** la pantalla nueva se dibuja en las pruebas a todos los tamaños, pero no se pudo sacar una foto de la ventana de verdad (con otra ventana encima no dibuja y no toma los clics de prueba). Va en la prueba a mano del dueño.
+  - **Arreglos de la revisión:**
+    - **OGG en la clásica:** el tope de muestras se calculaba en 32 bits y daba la vuelta, así que todo OGG de más de un segundo se rechazaba en la XP. Ahora la cuenta es de 64 bits, y hay pruebas con OGG y MP3 reales;
+    - **paquetes armados para trabar:**
+      - un aviso repetido en el índice se toma una sola vez (como mucho 27);
+      - los OGG solo pueden ser de 1 o 2 canales y hasta 48 kHz;
+      - stb_vorbis decodifica dentro de un bloque fijo de 2 MB y no le pide memoria a Windows, así una cabecera rara falla sola;
+    - **memoria con avisos sin parar:** lo que está sonando se reusa por aviso, así no se junta una copia nueva por cada aviso mientras la salida sigue abierta;
+    - **"Mensaje nuevo" en canales de texto** se decide comparando el contador que llega con el que ya tenía la sala (`sonido_de_nuevos`), así suena también el primero y después de leer el canal;
+    - con el volumen de los avisos en 0 no se decodifica nada; los propios se guardan como `01.vksn` … `27.vksn`; "Exportar el mío" agrega `.vksonidos` si falta (el diálogo de XP solo agrega tres letras).
+  - **Límites que quedan, a la vista:**
+    - el diálogo de elegir archivo es de Windows y modal: mientras está abierto, la ventana de Ventrik no se dibuja. La voz sigue en sus hilos. Importar un paquete grande decodifica en el hilo de la ventana, unos segundos en la HP;
+    - cada aviso después de 2 s de silencio vuelve a abrir la salida, que en Windows 10 tarda unas decenas de ms en el hilo de la ventana;
+    - si el dispositivo de "Sonar por" se desconecta, suena por el de Windows (no por el de la voz).
+- **Lo que sigue:** la prueba a mano de los pasos 3.4 a 3.7, en la PC y en la XP.
 
 ## Ramas y repositorio
 

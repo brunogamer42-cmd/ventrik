@@ -52,6 +52,9 @@ struct PantallaAjustes {
   std::optional<red::Direccion> avisos_de;
   bool abrir_avisos = false;
   bool ocupado = false;
+  std::size_t grupo_de_sonidos = 0;
+  std::string aviso_de_sonidos;
+  bool aviso_es_error = false;
 };
 
 struct PedidoAjustes {
@@ -65,6 +68,12 @@ struct PedidoAjustes {
   bool probar_salida = false;
   std::optional<std::pair<std::size_t, cliente::AvisosDelServidor>> avisos;
   bool guardar = false;
+  std::optional<std::size_t> probar_sonido;
+  std::optional<std::size_t> elegir_sonido;
+  std::optional<std::size_t> sonido_de_fabrica;
+  bool importar_sonidos = false;
+  bool exportar_sonidos = false;
+  bool sonidos_de_fabrica = false;
 };
 
 PedidoAjustes dibujar_ajustes(PantallaAjustes& pantalla, const cliente::Guardados& guardados);

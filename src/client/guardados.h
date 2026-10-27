@@ -32,6 +32,10 @@ constexpr std::size_t kMaximoAjustes = 128;
 constexpr std::size_t kMaximoLargoDeAjuste = 2048;
 constexpr std::size_t kMaximoBloqueDeAjustes = 16384;
 constexpr std::size_t kMaximoNombreDeDispositivo = 256;
+constexpr std::size_t kSonidos = 27;
+constexpr std::size_t kMaximoNombreDePropio = 128;
+constexpr std::uint8_t kNoMolestarAlJugar = 1;
+constexpr std::uint8_t kNoMolestarSiempre = 2;
 
 enum class Ajuste : std::uint16_t {
   ruido = 1,
@@ -56,7 +60,11 @@ enum class Ajuste : std::uint16_t {
   susurro_1 = 20,
   susurro_2 = 21,
   susurro_3 = 22,
-  susurro_4 = 23
+  susurro_4 = 23,
+  sonar_por = 24,
+  no_molestar = 25,
+  sonido_1 = 30,
+  propio_1 = 60
 };
 constexpr std::array<std::uint16_t, 4> kSeguirAlSoltarMs = {0, 200, 500, 1000};
 enum class Eco : std::uint8_t { apagado, automatico, prendido };
@@ -127,6 +135,9 @@ void poner_ajuste(Guardados& guardados, Ajuste ajuste, std::uint8_t valor);
 void poner_texto(Guardados& guardados, Ajuste ajuste, std::string_view texto);
 AjustesDeLimpieza limpieza_de(const Guardados& guardados, bool un_nucleo);
 std::optional<Susurro> susurro_de(const Guardados& guardados, std::size_t lugar);
+bool sonido_prendido(const Guardados& guardados, std::size_t sonido);
+Ajuste ajuste_de_sonido(std::size_t sonido);
+Ajuste ajuste_de_propio(std::size_t sonido);
 void poner_susurro(Guardados& guardados, std::size_t lugar, const std::optional<Susurro>& susurro);
 protocolo::DestinosDeSusurro destinos_de(const Susurro& susurro, std::size_t lugar, std::uint32_t yo,
                                          const std::vector<protocolo::CanalInfo>& canales,

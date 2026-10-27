@@ -6,6 +6,7 @@
 #include <chrono>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -13,8 +14,18 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
+
+#include <windows.h>
+
+#include <commdlg.h>
+
+#include <cwchar>
 
 #include "client/audio.h"
+#include "client/cuando_suena.h"
+#include "client/paquete_de_sonidos.h"
+#include "client/sonidos.h"
 #include "client/avisos.h"
 #include "client/diagnostico.h"
 #include "client/guardados.h"
@@ -32,6 +43,7 @@
 #include "client/ui/servidor.h"
 #include "client/ui/ventana.h"
 #include "common/cifrado/inicio.h"
+#include "common/cifrado/secreto.h"
 #include "common/cifrado/tls.h"
 #include "common/archivos.h"
 #include "common/proceso.h"
@@ -145,6 +157,7 @@ class Programa {
     sesion_.reset();
     sala_.reset();
     listas_de_susurro();
+    canal_de_voz_ = 0;
     avisos_.desconectado();
     cerrar_voz();
   }
@@ -432,12 +445,170 @@ class Programa {
     if (pedido.avisos) {
       cambiar_avisos(guardados_.servidores[pedido.avisos->first].direccion, std::move(pedido.avisos->second));
     }
+    if (pedido.probar_sonido) {
+      sonar_ya(static_cast<cliente::Sonido>(*pedido.probar_sonido));
+    }
+    if (pedido.elegir_sonido) {
+      elegir_sonido(static_cast<cliente::Sonido>(*pedido.elegir_sonido));
+    }
+    if (pedido.sonido_de_fabrica) {
+      volver_a_fabrica(static_cast<cliente::Sonido>(*pedido.sonido_de_fabrica));
+      guardar();
+    }
+    if (pedido.sonidos_de_fabrica) {
+      for (std::size_t cual = 0; cual < cliente::kSonidos; ++cual) {
+        volver_a_fabrica(static_cast<cliente::Sonido>(cual));
+      }
+      guardar();
+    }
+    if (pedido.importar_sonidos) {
+      importar_sonidos();
+    }
+    if (pedido.exportar_sonidos) {
+      exportar_sonidos();
+    }
     if (pedido.guardar || (sin_guardar_ && !ImGui::IsAnyItemActive())) {
       guardar();
     }
     if (pedido.volver) {
       cerrar_ajustes();
     }
+  }
+
+  void sonar_ya(cliente::Sonido sonido) {
+    const std::string sonar_por = cliente::ajuste_texto(guardados_, cliente::Ajuste::sonar_por);
+    sonidos_.sonar(sonido, cliente::ajuste_o(guardados_, cliente::Ajuste::volumen_avisos, cliente::kVolumenPorDefecto),
+                   !cliente::ajuste_texto(guardados_, cliente::ajuste_de_propio(static_cast<std::size_t>(sonido))).empty(),
+                   sonar_por.empty() ? cliente::ajuste_texto(guardados_, cliente::Ajuste::salida) : sonar_por,
+                   Reloj::now());
+  }
+
+  void sonar(std::optional<cliente::Sonido> sonido) {
+    if (sonido && cliente::sonido_prendido(guardados_, static_cast<std::size_t>(*sonido)) &&
+        cliente::suena_con(cliente::ajuste_o(guardados_, cliente::Ajuste::no_molestar, cliente::kNoMolestarAlJugar),
+                           ventana_.situacion().juego) &&
+        (!cliente::es_sonido_de_voz(*sonido) || servidor_.avisos.sonidos_de_voz)) {
+      sonar_ya(*sonido);
+    }
+  }
+
+  std::optional<std::wstring> elegir_archivo(Clave titulo, Clave filtro, std::wstring_view patron, bool guardar_como) {
+    const Idioma idioma = ajustes_.idioma;
+    std::wstring filtros = a_utf16(texto(idioma, filtro));
+    filtros.push_back(L'\0');
+    filtros += patron;
+    filtros.push_back(L'\0');
+    const std::wstring titulo_ventana = a_utf16(texto(idioma, titulo));
+    std::vector<wchar_t> ruta(32768);
+    if (guardar_como) {
+      const std::wstring nombre = a_utf16(texto(idioma, Clave::archivo_paquete_nuevo));
+      std::copy(nombre.begin(), nombre.end(), ruta.begin());
+    }
+    OPENFILENAMEW pedido = {};
+    pedido.lStructSize = sizeof(pedido);
+    pedido.hwndOwner = ventana_.hwnd();
+    pedido.lpstrFilter = filtros.c_str();
+    pedido.lpstrFile = ruta.data();
+    pedido.nMaxFile = static_cast<DWORD>(ruta.size());
+    pedido.lpstrTitle = titulo_ventana.c_str();
+    pedido.Flags = OFN_NOCHANGEDIR | OFN_HIDEREADONLY | OFN_PATHMUSTEXIST |
+                   (guardar_como ? DWORD{OFN_OVERWRITEPROMPT} : DWORD{OFN_FILEMUSTEXIST});
+    if (!(guardar_como ? GetSaveFileNameW(&pedido) : GetOpenFileNameW(&pedido))) {
+      return std::nullopt;
+    }
+    std::wstring elegida = ruta.data();
+    const std::wstring_view extension = L".vksonidos";
+    if (guardar_como && (elegida.size() < extension.size() ||
+                         _wcsicmp(elegida.c_str() + elegida.size() - extension.size(), extension.data()) != 0)) {
+      elegida += extension;
+    }
+    return elegida;
+  }
+
+  void avisar_sonidos(Clave clave, std::size_t cuantos, bool error) {
+    ajustes_.aviso_de_sonidos = con_datos(texto(ajustes_.idioma, clave), {std::to_string(cuantos)});
+    ajustes_.aviso_es_error = error;
+  }
+
+  bool guardar_propio(cliente::Sonido sonido, const cliente::Muestras& muestras, std::string nombre) {
+    const auto vksn = cliente::codificar_vksn(muestras);
+    while (!nombre.empty() && (nombre.size() > cliente::kMaximoNombreDePropio || !es_utf8_valido(nombre))) {
+      nombre.pop_back();
+    }
+    if (vksn.empty() || nombre.empty() || !crear_carpetas(carpeta_ + L"\\sonidos") ||
+        !escribir_archivo_completo(cliente::archivo_propio(carpeta_, sonido), vksn)) {
+      return false;
+    }
+    cliente::poner_texto(guardados_, cliente::ajuste_de_propio(static_cast<std::size_t>(sonido)), nombre);
+    sonidos_.olvidar(sonido);
+    return true;
+  }
+
+  void volver_a_fabrica(cliente::Sonido sonido) {
+    cliente::poner_texto(guardados_, cliente::ajuste_de_propio(static_cast<std::size_t>(sonido)), {});
+    DeleteFileW(cliente::archivo_propio(carpeta_, sonido).c_str());
+    sonidos_.olvidar(sonido);
+  }
+
+  void elegir_sonido(cliente::Sonido sonido) {
+    const auto ruta = elegir_archivo(Clave::archivo_elegir_sonido, Clave::archivo_filtro_sonidos, L"*.wav;*.ogg;*.mp3", false);
+    if (!ruta) {
+      return;
+    }
+    cifrado::Secreto contenido;
+    const auto muestras = leer_archivo(*ruta, cliente::kMaximoArchivoDeSonido, contenido) == LecturaArchivo::leido
+                              ? cliente::decodificar_archivo(contenido.bytes(), cliente::maximo_de_muestras(sonido))
+                              : std::nullopt;
+    if (muestras && guardar_propio(sonido, *muestras, a_utf8(ruta->substr(ruta->find_last_of(L"\\/") + 1)))) {
+      ajustes_.aviso_de_sonidos.clear();
+      guardar();
+      sonar_ya(sonido);
+    } else {
+      avisar_sonidos(Clave::sonidos_archivo_malo, cliente::maximo_de_muestras(sonido) / cliente::kFrecuenciaDeSonidos, true);
+    }
+  }
+
+  void importar_sonidos() {
+    const auto ruta =
+        elegir_archivo(Clave::archivo_importar_paquete, Clave::archivo_filtro_paquetes, L"*.vksonidos", false);
+    if (!ruta) {
+      return;
+    }
+    cifrado::Secreto contenido;
+    const auto paquete = leer_archivo(*ruta, cliente::kMaximoPaquete, contenido) == LecturaArchivo::leido
+                             ? cliente::leer_paquete(contenido.bytes())
+                             : std::nullopt;
+    std::size_t importados = 0;
+    for (const cliente::SonidoDePaquete& sonido : paquete ? *paquete : std::vector<cliente::SonidoDePaquete>()) {
+      importados += guardar_propio(sonido.sonido, sonido.muestras, sonido.nombre) ? 1 : 0;
+    }
+    avisar_sonidos(importados == 0 ? Clave::sonidos_paquete_malo : Clave::sonidos_importados, importados, importados == 0);
+    guardar();
+  }
+
+  void exportar_sonidos() {
+    std::vector<cliente::SonidoDePaquete> sonidos;
+    for (std::size_t cual = 0; cual < cliente::kSonidos; ++cual) {
+      const auto sonido = static_cast<cliente::Sonido>(cual);
+      const std::string nombre = cliente::ajuste_texto(guardados_, cliente::ajuste_de_propio(cual));
+      cifrado::Secreto contenido;
+      auto muestras = !nombre.empty() && leer_archivo(cliente::archivo_propio(carpeta_, sonido),
+                                                      cliente::kMaximoArchivoDeSonido, contenido) == LecturaArchivo::leido
+                          ? cliente::decodificar_vksn(contenido.bytes(), cliente::maximo_de_muestras(sonido))
+                          : std::nullopt;
+      if (muestras) {
+        sonidos.push_back({sonido, nombre, std::move(*muestras)});
+      }
+    }
+    const auto ruta = sonidos.empty() ? std::nullopt
+                                      : elegir_archivo(Clave::archivo_exportar_paquete, Clave::archivo_filtro_paquetes,
+                                                       L"*.vksonidos", true);
+    if (!ruta) {
+      return;
+    }
+    const auto paquete = cliente::armar_paquete(sonidos);
+    const bool bien = !paquete.empty() && escribir_archivo_completo(*ruta, paquete);
+    avisar_sonidos(bien ? Clave::sonidos_exportados : Clave::sonidos_no_se_guardo, sonidos.size(), !bien);
   }
 
   void aplicar_limpieza() {
@@ -470,6 +641,7 @@ class Programa {
   bool atender() {
     avisado_ = false;
     bool cambio = false;
+    sonidos_.atender(Reloj::now());
     const Situacion& situacion = ventana_.situacion();
     const bool minimizada = situacion.minimizada || situacion.oculta;
     avisos_.fuera(minimizada ? mostrar_minimizada_ : !situacion.con_foco);
@@ -495,6 +667,7 @@ class Programa {
           const std::string explicacion = cliente::explicar(pantalla_.idioma, *fin);
           if (sala_) {
             avisos_.corte(explicacion);
+            sonar(cliente::Sonido::conexion_perdida);
           }
           terminar(explicacion);
         } else if (const auto* historial = std::get_if<protocolo::Historial>(&novedad);
@@ -506,8 +679,15 @@ class Programa {
                    avisos_.pidiendo() && !sala_->esperando()) {
           avisos_.negado();
         } else if (sala_) {
+          sonar(cliente::sonido_de_gente(*sala_, novedad));
+          if (const auto* nuevos = std::get_if<protocolo::MensajesNuevos>(&novedad)) {
+            sonar(cliente::sonido_de_nuevos(*sala_, *nuevos, servidor_.avisos, cliente::ahora_ms()));
+          }
           ordenar(sala_->aplicar(novedad));
           avisar_de(novedad);
+          if (const auto* denegado = std::get_if<protocolo::Negado>(&novedad)) {
+            sonar(cliente::sonido_de_negado(*denegado));
+          }
           entraron_o_salieron = entraron_o_salieron || std::holds_alternative<protocolo::UsuarioEntro>(novedad) ||
                                 std::holds_alternative<protocolo::UsuarioSalio>(novedad) ||
                                 std::holds_alternative<protocolo::CanalCreado>(novedad) ||
@@ -570,6 +750,7 @@ class Programa {
         }
       }
       if (pedido.silencio) {
+        sonar(cliente::sonido_de_silencio(guardados_.silencio, *pedido.silencio));
         servidor_.silencio = guardados_.silencio = *pedido.silencio;
         ordenar({protocolo::Silenciar{*pedido.silencio}});
       }
@@ -688,6 +869,11 @@ class Programa {
       const bool voz = canal != nullptr && canal->tipo == protocolo::TipoCanal::voz;
       if (canal != nullptr && mensaje->canal == (voz ? sala_->tu_canal() : sala_->mirando())) {
         avisos_.mensaje(*mensaje, canal->nombre, voz);
+        const Situacion& situacion = ventana_.situacion();
+        const bool a_la_vista =
+            situacion.dibuja() && situacion.con_foco && !en_ajustes_ && sala_->chat().canal == mensaje->canal;
+        sonar(cliente::sonido_de_mensaje(*mensaje, sala_->tu_id(), pendiente_.nombre, a_la_vista, servidor_.avisos,
+                                         cliente::ahora_ms()));
       }
     } else if (const auto* nuevos = std::get_if<protocolo::MensajesNuevos>(&novedad)) {
       for (const auto& contador : nuevos->canales) {
@@ -857,6 +1043,10 @@ class Programa {
 
   bool mirar_voz() {
     const std::uint32_t canal = sala_->tu_canal();
+    if (canal != canal_de_voz_) {
+      sonar(canal != 0 ? cliente::Sonido::entrar_canal : cliente::Sonido::salir_canal);
+      canal_de_voz_ = canal;
+    }
     const bool cambio_de_voz = canal != 0 ? !motor_ && Reloj::now() >= abrir_desde_ : motor_ != nullptr;
     if (cambio_de_voz && canal != 0) {
       abrir_voz();
@@ -875,6 +1065,12 @@ class Programa {
     servidor_.susurrando = motor_ ? motor_->susurrando() : std::uint8_t{0};
     servidor_.hablando = puente_ ? puente_->quienes() : cliente::Hablando{};
     servidor_.te_susurra = te_susurra(puente_ ? puente_->susurrantes() : cliente::Hablando{});
+    if (!servidor_.por_voz && std::get<0>(antes) != servidor_.transmitiendo) {
+      sonar(servidor_.transmitiendo ? cliente::Sonido::transmitir_empieza : cliente::Sonido::transmitir_termina);
+    }
+    if (std::get<4>(antes).empty() && !servidor_.te_susurra.empty()) {
+      sonar(cliente::Sonido::susurro);
+    }
     const bool hablan = std::any_of(servidor_.hablando.begin(), servidor_.hablando.end(),
                                     [](std::uint32_t id) { return id != 0; }) &&
                         (guardados_.silencio & protocolo::kSilencioAudio) == 0;
@@ -927,6 +1123,7 @@ class Programa {
     }
     const bool tenia_poca_memoria = std::exchange(poca_memoria_, queda_poca_memoria());
     if (poca_memoria_ && !tenia_poca_memoria) {
+      sonidos_.soltar();
       ImGui::GetIO().Fonts->CompactCache();
       sala_->soltar_lejanos();
       soltar_lejanos(servidor_);
@@ -1016,6 +1213,8 @@ class Programa {
 
   Ventana& ventana_;
   const std::wstring carpeta_;
+  cliente::Sonidos sonidos_{carpeta_};
+  std::uint32_t canal_de_voz_ = 0;
   const bool integrar_;
   cliente::Avisos avisos_;
   cliente::OtrosProgramas otros_;

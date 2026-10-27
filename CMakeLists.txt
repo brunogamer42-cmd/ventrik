@@ -145,8 +145,8 @@ target_include_directories(ventrik_comun PUBLIC src "${VENTRIK_GENERADO}")
 target_link_libraries(ventrik_comun PUBLIC ventrik_opciones ventrik_sistema gsl mbedtls ws2_32 shell32)
 
 if(VENTRIK_VERSION STREQUAL "fuzzing")
-  foreach(fuzzer fuzz_base fuzz_guardados fuzz_identidad fuzz_nombres fuzz_protocolo fuzz_sala fuzz_textos
-          fuzz_utf fuzz_voz fuzz_voz_servidor)
+  foreach(fuzzer fuzz_base fuzz_guardados fuzz_identidad fuzz_nombres fuzz_paquete fuzz_protocolo fuzz_sala
+          fuzz_sonido fuzz_textos fuzz_utf fuzz_voz fuzz_voz_servidor)
     add_executable(${fuzzer} fuzz/${fuzzer}.cpp)
     target_link_libraries(${fuzzer} PRIVATE ventrik_comun)
     add_custom_command(TARGET ${fuzzer} POST_BUILD
@@ -163,6 +163,12 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
   target_sources(fuzz_voz PRIVATE src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/limpieza.cpp
                  src/client/motor_voz.cpp src/client/voz_primero.cpp)
   target_link_libraries(fuzz_voz PRIVATE opus rnnoise speexdsp)
+  foreach(fuzzer fuzz_paquete fuzz_sonido)
+    target_sources(${fuzzer} PRIVATE src/client/audio.cpp src/client/buffer_voz.cpp src/client/limpieza.cpp
+                   src/client/motor_voz.cpp src/client/paquete_de_sonidos.cpp src/client/sonidos.cpp
+                   src/client/voz_primero.cpp)
+    target_link_libraries(${fuzzer} PRIVATE opus rnnoise speexdsp miniaudio miniz jsmn stb_vorbis winmm ole32)
+  endforeach()
   return()
 endif()
 
@@ -182,12 +188,13 @@ if(VENTRIK_VERSION STREQUAL "asan")
 endif()
 add_library(ventrik_cliente_base STATIC
   src/client/arranque.cpp src/client/audio.cpp src/client/avisos.cpp src/client/buffer_voz.cpp src/client/canal_voz.cpp
-  src/client/conexion.cpp src/client/prueba_de_audio.cpp
+  src/client/conexion.cpp src/client/cuando_suena.cpp src/client/prueba_de_audio.cpp
   src/client/diagnostico.cpp src/client/guardados.cpp src/client/horas.cpp src/client/limpieza.cpp
-  src/client/motor_voz.cpp src/client/sala.cpp src/client/salida_de_windows.cpp src/client/sesion.cpp
-  src/client/silencios.cpp src/client/vigia.cpp)
+  src/client/motor_voz.cpp src/client/paquete_de_sonidos.cpp src/client/sala.cpp src/client/salida_de_windows.cpp
+  src/client/sesion.cpp src/client/silencios.cpp src/client/sonidos.cpp src/client/vigia.cpp)
 target_sources(ventrik_cliente_base PRIVATE src/client/voz_primero.cpp)
-target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm rnnoise speexdsp ole32)
+target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm rnnoise speexdsp ole32 miniz jsmn
+                      stb_vorbis comdlg32)
 add_library(ventrik_interfaz STATIC
   src/client/ui/aviso_ventana.cpp src/client/ui/aviso_windows.cpp src/client/ui/dibujante.cpp src/client/ui/iconos.cpp src/client/ui/inicio.cpp
   src/client/ui/ajustes.cpp src/client/ui/menu_avisos.cpp src/client/ui/piezas.cpp
@@ -199,6 +206,9 @@ target_link_libraries(ventrik PRIVATE ventrik_interfaz)
 
 add_executable(ventrik_servidor src/server/main.cpp)
 target_link_libraries(ventrik_servidor PRIVATE ventrik_servidor_base)
+
+add_executable(ventrik_sonidos tools/sonidos.cpp)
+target_link_libraries(ventrik_sonidos PRIVATE ventrik_cliente_base)
 
 enable_testing()
 add_executable(ventrik_pruebas
@@ -235,6 +245,7 @@ add_executable(ventrik_pruebas
   tests/prueba_rnnoise.cpp
   tests/prueba_sala.cpp
   tests/prueba_sesion.cpp
+  tests/prueba_sonidos.cpp
   tests/prueba_speexdsp.cpp
   tests/prueba_sqlite.cpp
   tests/prueba_stb_image.cpp
@@ -244,9 +255,10 @@ add_executable(ventrik_pruebas
   tests/prueba_voz_servidor.cpp
   tests/prueba_textos.cpp
   tests/prueba_utf.cpp
+  tests/datos.rc
   src/client/ventrik.rc)
 target_link_libraries(ventrik_pruebas PRIVATE
   ventrik_servidor_base ventrik_interfaz doctest
   argon2 gsl imgui imgui_null libwebp mbedtls miniaudio miniupnpc opus
-  rnnoise speexdsp sqlite stb_image)
+  rnnoise speexdsp sqlite stb_image miniz)
 add_test(NAME pruebas COMMAND ventrik_pruebas)

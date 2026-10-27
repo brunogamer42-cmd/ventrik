@@ -35,7 +35,7 @@ struct MaximoDeAjuste {
   std::size_t texto;
 };
 
-constexpr std::array<MaximoDeAjuste, 19> kMaximos = {
+constexpr std::array<MaximoDeAjuste, 21> kMaximos = {
     {{Ajuste::ruido, static_cast<std::uint8_t>(Ruido::alta), 0},
      {Ajuste::eco, static_cast<std::uint8_t>(Eco::prendido), 0},
      {Ajuste::volumen_automatico, 1, 0},
@@ -54,7 +54,10 @@ constexpr std::array<MaximoDeAjuste, 19> kMaximos = {
      {Ajuste::avisos_de_voz, 1, 0},
      {Ajuste::avisos_de_conexion, 1, 0},
      {Ajuste::avisos_privados, 1, 0},
-     {Ajuste::avisos_minimizada, 1, 0}}};
+     {Ajuste::avisos_minimizada, 1, 0},
+     {Ajuste::sonar_por, 0, kMaximoNombreDeDispositivo},
+     {Ajuste::no_molestar, kNoMolestarSiempre, 0}}};
+constexpr std::array<std::size_t, 3> kSonidosApagados = {8, 9, 22};
 
 bool es_valido(const MaximoDeAjuste& regla, const std::vector<std::uint8_t>& valor) {
   if (regla.texto == 0) {
@@ -91,15 +94,25 @@ std::optional<Susurro> leer_susurro(gsl::span<const std::uint8_t> valor) {
   return bien ? std::optional<Susurro>(std::move(susurro)) : std::nullopt;
 }
 
+std::optional<MaximoDeAjuste> regla_de(std::uint16_t clave) {
+  const auto conocido = std::find_if(kMaximos.begin(), kMaximos.end(), [clave](const MaximoDeAjuste& regla) {
+    return static_cast<std::uint16_t>(regla.ajuste) == clave;
+  });
+  const auto entre = [clave](Ajuste primero) {
+    return clave >= static_cast<std::size_t>(primero) && clave < static_cast<std::size_t>(primero) + kSonidos;
+  };
+  return conocido != kMaximos.end()   ? std::optional<MaximoDeAjuste>(*conocido)
+         : entre(Ajuste::sonido_1) ? std::optional<MaximoDeAjuste>({Ajuste::sonido_1, 1, 0})
+         : entre(Ajuste::propio_1) ? std::optional<MaximoDeAjuste>({Ajuste::propio_1, 0, kMaximoNombreDePropio})
+                                   : std::nullopt;
+}
+
 bool son_validos(const std::map<std::uint16_t, std::vector<std::uint8_t>>& ajustes) {
   std::size_t total = 0;
   for (const auto& [clave, valor] : ajustes) {
     total += valor.size();
-    const std::uint16_t esta = clave;
-    const auto conocido = std::find_if(kMaximos.begin(), kMaximos.end(), [esta](const MaximoDeAjuste& m) {
-      return static_cast<std::uint16_t>(m.ajuste) == esta;
-    });
-    if (valor.size() > kMaximoLargoDeAjuste || (conocido != kMaximos.end() && !es_valido(*conocido, valor)) ||
+    const auto regla = regla_de(clave);
+    if (valor.size() > kMaximoLargoDeAjuste || (regla && !es_valido(*regla, valor)) ||
         (es_de_susurro(clave) && !leer_susurro(valor))) {
       return false;
     }
@@ -343,6 +356,19 @@ void poner_texto(Guardados& guardados, Ajuste ajuste, std::string_view texto) {
   } else {
     guardados.ajustes[static_cast<std::uint16_t>(ajuste)] = std::vector<std::uint8_t>(texto.begin(), texto.end());
   }
+}
+
+Ajuste ajuste_de_sonido(std::size_t sonido) {
+  return static_cast<Ajuste>(static_cast<std::size_t>(Ajuste::sonido_1) + sonido);
+}
+
+Ajuste ajuste_de_propio(std::size_t sonido) {
+  return static_cast<Ajuste>(static_cast<std::size_t>(Ajuste::propio_1) + sonido);
+}
+
+bool sonido_prendido(const Guardados& guardados, std::size_t sonido) {
+  const bool de_fabrica = std::find(kSonidosApagados.begin(), kSonidosApagados.end(), sonido) == kSonidosApagados.end();
+  return ajuste_o(guardados, ajuste_de_sonido(sonido), de_fabrica ? 1 : 0) == 1;
 }
 
 std::optional<Susurro> susurro_de(const Guardados& guardados, std::size_t lugar) {

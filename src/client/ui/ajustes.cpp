@@ -49,7 +49,7 @@ constexpr std::array<Item, kSecciones> kMenu = {{{Seccion::general, Clave::ajust
                                                  {Seccion::copias, Clave::ajustes_copias, kSinGrupo, 14},
                                                  {Seccion::acerca, Clave::ajustes_acerca, kSinGrupo, 11}}};
 
-constexpr std::array<std::pair<Seccion, Clave>, 29> kBuscables = {{
+constexpr std::array<std::pair<Seccion, Clave>, 33> kBuscables = {{
     {Seccion::general, Clave::ajustes_iniciar_con_windows},
     {Seccion::general, Clave::ajustes_entrar_al_ultimo},
     {Seccion::general, Clave::ajustes_al_cerrar},
@@ -74,11 +74,59 @@ constexpr std::array<std::pair<Seccion, Clave>, 29> kBuscables = {{
     {Seccion::audio, Clave::ajustes_eco},
     {Seccion::audio, Clave::ajustes_volumen_automatico},
     {Seccion::audio, Clave::ajustes_bajar_otros},
+    {Seccion::avisos, Clave::ajustes_volumen_avisos},
+    {Seccion::avisos, Clave::ajustes_sonar_por},
+    {Seccion::avisos, Clave::ajustes_no_molestar},
+    {Seccion::avisos, Clave::ajustes_paquete},
     {Seccion::avisos, Clave::ajustes_avisos_texto},
     {Seccion::avisos, Clave::ajustes_avisos_voz},
     {Seccion::avisos, Clave::ajustes_avisos_conexion},
     {Seccion::avisos, Clave::ajustes_avisos_privados},
     {Seccion::avisos, Clave::ajustes_silenciados}}};
+
+struct Grupo {
+  std::size_t primero;
+  std::size_t cuantos;
+  int etapa;
+};
+
+constexpr std::array<Grupo, 4> kGruposDeSonidos = {{{0, 14, 0}, {14, 4, 0}, {18, 5, 14}, {23, 4, 0}}};
+constexpr std::array<std::size_t, 15> kSuenanYa = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 14, 15, 26};
+
+struct ItemDeSonido {
+  Clave nombre;
+  Clave nota;
+};
+
+constexpr std::array<ItemDeSonido, cliente::kSonidos> kItemsDeSonido = {{
+    {Clave::sonido_entrar_canal, kSinGrupo},
+    {Clave::sonido_salir_canal, kSinGrupo},
+    {Clave::sonido_alguien_entra, kSinGrupo},
+    {Clave::sonido_alguien_sale, kSinGrupo},
+    {Clave::sonido_mic_silenciado, kSinGrupo},
+    {Clave::sonido_mic_activado, kSinGrupo},
+    {Clave::sonido_audio_silenciado, kSinGrupo},
+    {Clave::sonido_audio_activado, kSinGrupo},
+    {Clave::sonido_transmitir_empieza, kSinGrupo},
+    {Clave::sonido_transmitir_termina, kSinGrupo},
+    {Clave::sonido_te_movieron, kSinGrupo},
+    {Clave::sonido_susurro, Clave::sonido_susurro_nota},
+    {Clave::sonido_conexion_perdida, kSinGrupo},
+    {Clave::sonido_reconectado, kSinGrupo},
+    {Clave::sonido_mensaje, Clave::sonido_mensaje_nota},
+    {Clave::sonido_mencion, kSinGrupo},
+    {Clave::sonido_mensaje_amigo, kSinGrupo},
+    {Clave::sonido_archivo_listo, kSinGrupo},
+    {Clave::sonido_llamada_entrante, Clave::sonido_llamada_nota},
+    {Clave::sonido_llamando, Clave::sonido_llamando_nota},
+    {Clave::sonido_llamada_termina, kSinGrupo},
+    {Clave::sonido_solicitud_amistad, kSinGrupo},
+    {Clave::sonido_amigo_conectado, kSinGrupo},
+    {Clave::sonido_pedido_entrada, kSinGrupo},
+    {Clave::sonido_alerta_seguridad, kSinGrupo},
+    {Clave::sonido_pantalla_compartida, kSinGrupo},
+    {Clave::sonido_error, kSinGrupo},
+}};
 
 std::wstring en_minusculas(std::string_view texto) {
   std::wstring ancho = a_utf16(texto);
@@ -539,9 +587,9 @@ class Dibujo {
   }
 
   std::optional<int> dispositivo(const char* id, ImVec2 donde, float ancho, const std::vector<std::string>& nombres,
-                                 Ajuste ajuste) {
+                                 Ajuste ajuste, Clave primera = Clave::ajustes_el_de_windows) {
     const std::string elegido = cliente::ajuste_texto(actuales(), ajuste);
-    std::vector<std::string> opciones = {s(Clave::ajustes_el_de_windows)};
+    std::vector<std::string> opciones = {s(primera)};
     opciones.insert(opciones.end(), nombres.begin(), nombres.end());
     const auto esta = std::find(nombres.begin(), nombres.end(), elegido);
     const int actual = elegido.empty() || esta == nombres.end() ? 0 : static_cast<int>(esta - nombres.begin()) + 1;
@@ -758,23 +806,103 @@ class Dibujo {
   }
 
   float avisos_y_sonidos(ImVec2 desde, float ancho) {
-    const float alto = px(420);
-    panel(desde, ImVec2(desde.x + ancho, desde.y + alto));
-    float y = titulo(desde, Clave::ajustes_avisos);
     const float x = desde.x + px(kRelleno);
     const float interior = ancho - 2 * px(kRelleno);
-    for (const auto& [ajuste, clave] : {std::make_pair(Ajuste::avisos_de_texto, Clave::ajustes_avisos_texto),
-                                        std::make_pair(Ajuste::avisos_de_voz, Clave::ajustes_avisos_voz),
-                                        std::make_pair(Ajuste::avisos_de_conexion, Clave::ajustes_avisos_conexion),
-                                        std::make_pair(Ajuste::avisos_privados, Clave::ajustes_avisos_privados),
-                                        std::make_pair(Ajuste::avisos_minimizada, Clave::ajustes_avisos_minimizada)}) {
+    const float mitad = (interior - px(kRelleno)) / 2;
+    const std::size_t grupo = std::min(pantalla_.grupo_de_sonidos, kGruposDeSonidos.size() - 1);
+    const Grupo& elegido = kGruposDeSonidos[grupo];
+    const float fila = px(47);
+    const float filas = fila * static_cast<float>((elegido.cuantos + 1) / 2);
+    const bool llamadas = elegido.etapa != 0;
+    const float alto_nota = alto_envuelto(t(Clave::ajustes_sonidos_nota), interior, medida::letra_chica);
+    const float alto = px(64 + 74 + 74 + 40 + 90 + 82 + 98 + 28 + 52 + 12) + (llamadas ? px(36) : 0) + filas + alto_nota +
+                       px(kRelleno) + (pantalla_.aviso_de_sonidos.empty() ? 0 : px(28));
+    panel(desde, ImVec2(desde.x + ancho, desde.y + alto));
+    float y = titulo(desde, Clave::ajustes_avisos);
+    const float derecha = x + mitad + px(kRelleno);
+    etiqueta(ImVec2(x, y), Clave::ajustes_volumen_avisos);
+    if (const auto nuevo = deslizador("##volumen_de_avisos", ImVec2(x, y + px(34)), mitad,
+                                      static_cast<float>(valor(Ajuste::volumen_avisos, 100)) / cliente::kVolumenMaximo)) {
+      fijar(Ajuste::volumen_avisos, static_cast<std::uint8_t>(std::lround(*nuevo * cliente::kVolumenMaximo)));
+    }
+    etiqueta(ImVec2(derecha, y), Clave::ajustes_sonar_por);
+    dispositivo("##sonar_por", ImVec2(derecha, y + px(18)), mitad, pantalla_.dispositivos.salidas, Ajuste::sonar_por,
+                Clave::ajustes_sonar_igual);
+    y += px(74);
+    etiqueta(ImVec2(x, y), Clave::ajustes_no_molestar);
+    if (const auto nuevo = lista("##no_molestar", ImVec2(x, y + px(18)), mitad,
+                                 {Clave::ajustes_no_molestar_nunca, Clave::ajustes_no_molestar_juego,
+                                  Clave::ajustes_no_molestar_siempre},
+                                 valor(Ajuste::no_molestar, cliente::kNoMolestarAlJugar))) {
+      fijar(Ajuste::no_molestar, static_cast<std::uint8_t>(*nuevo));
+    }
+    ImGui::BeginDisabled();
+    casilla(t(Clave::ajustes_llamadas_no_molestar), ImVec2(derecha, y + px(24)), true);
+    ImGui::EndDisabled();
+    cartel(con_datos(t(Clave::ajustes_llega_en), {"14"}));
+    y += px(74);
+    const bool minimizada = valor(Ajuste::avisos_minimizada, 1) == 1;
+    if (casilla(t(Clave::ajustes_avisos_minimizada), ImVec2(x, y), minimizada)) {
+      fijar(Ajuste::avisos_minimizada, minimizada ? 0 : 1);
+    }
+    y += px(40);
+    const std::array<std::pair<Ajuste, Clave>, 4> que_avisa = {{{Ajuste::avisos_de_texto, Clave::ajustes_avisos_texto},
+                                                                {Ajuste::avisos_de_voz, Clave::ajustes_avisos_voz},
+                                                                {Ajuste::avisos_de_conexion, Clave::ajustes_avisos_conexion},
+                                                                {Ajuste::avisos_privados, Clave::ajustes_avisos_privados}}};
+    for (std::size_t i = 0; i < que_avisa.size(); ++i) {
+      const auto& [ajuste, clave] = que_avisa[i];
       const bool prendido = valor(ajuste, ajuste == Ajuste::avisos_privados ? 0 : 1) == 1;
-      if (casilla(t(clave), ImVec2(x, y), prendido)) {
+      ImGui::PushID(static_cast<int>(clave));
+      if (casilla("", ImVec2(i % 2 == 0 ? x : derecha, y + px(i < 2 ? 0.0f : 40.0f)), prendido)) {
         fijar(ajuste, prendido ? 0 : 1);
       }
-      y += px(40);
+      ImGui::PopID();
+      escribir_en((i % 2 == 0 ? x : derecha) + px(26), y + px(i < 2 ? 9.0f : 49.0f), t(clave), color::texto, Letra::normal,
+                  medida::letra, mitad - px(26));
     }
-    y += px(10);
+    y += px(90);
+    silenciados(ImVec2(x, y), interior);
+    y += px(82);
+    paquete(ImVec2(x, y), interior);
+    y += px(98);
+    if (!pantalla_.aviso_de_sonidos.empty()) {
+      escribir_en(x, y + px(9), pantalla_.aviso_de_sonidos, pantalla_.aviso_es_error ? color::rojo : color::verde,
+                  Letra::normal, medida::letra_chica, interior);
+      y += px(28);
+    }
+    escribir(ImVec2(x, y), t(Clave::ajustes_cada_aviso), color::texto2, Letra::normal, medida::letra_chica);
+    y += px(28);
+    const std::array<std::string, 4> nombres = {
+        con_datos(t(Clave::ajustes_grupo_voz), {std::to_string(kGruposDeSonidos[0].cuantos)}),
+        con_datos(t(Clave::ajustes_grupo_chat), {std::to_string(kGruposDeSonidos[1].cuantos)}),
+        con_datos(t(Clave::ajustes_grupo_llamadas), {std::to_string(kGruposDeSonidos[2].cuantos)}),
+        con_datos(t(Clave::ajustes_grupo_servidor), {std::to_string(kGruposDeSonidos[3].cuantos)})};
+    ImGui::SetCursorScreenPos(ImVec2(x, y));
+    const int tocado = selector_opciones("##grupo_de_sonidos", {nombres[0], nombres[1], nombres[2], nombres[3]},
+                                         static_cast<int>(grupo), ImVec2(interior, px(38)), -1, {});
+    if (tocado >= 0) {
+      pantalla_.grupo_de_sonidos = static_cast<std::size_t>(tocado);
+    }
+    y += px(52);
+    if (llamadas) {
+      ImGui::GetWindowDrawList()->AddRect(ImVec2(x, y), ImVec2(x + interior, y + px(37)), tono(color::linea));
+      escribir_en(x + px(12), y + px(18), t(Clave::ajustes_llamadas_en_desarrollo), color::apagado, Letra::normal,
+                  medida::letra_chica);
+      y += px(36);
+    }
+    for (std::size_t i = 0; i < elegido.cuantos; ++i) {
+      const float columna = i % 2 == 0 ? x : x + interior / 2;
+      sonido(ImVec2(columna, y + fila * static_cast<float>(i / 2)), interior / 2, elegido.primero + i, llamadas);
+    }
+    y += filas + px(12);
+    escribir_envuelto(ImVec2(x, y), t(Clave::ajustes_sonidos_nota), color::apagado, interior, medida::letra_chica);
+    return desde.y + alto;
+  }
+
+  void silenciados(ImVec2 desde, float interior) {
+    const float x = desde.x;
+    const float y = desde.y;
     const float alto_caja = px(70);
     ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, y), ImVec2(x + interior, y + alto_caja), tono(color::pozo));
     ImGui::GetWindowDrawList()->AddRect(ImVec2(x, y), ImVec2(x + interior, y + alto_caja), tono(color::linea));
@@ -803,7 +931,88 @@ class Dibujo {
       }
       ImGui::EndPopup();
     }
-    return desde.y + alto;
+  }
+
+  void paquete(ImVec2 desde, float interior) {
+    const float x = desde.x;
+    const float y = desde.y;
+    ImGui::GetWindowDrawList()->AddRect(ImVec2(x, y), ImVec2(x + interior, y + px(84)), tono(color::linea));
+    escribir(ImVec2(x + px(12), y + px(12)), t(Clave::ajustes_paquete), color::apagado, Letra::normal,
+             medida::letra_chica);
+    std::size_t propios = 0;
+    for (std::size_t sonido = 0; sonido < cliente::kSonidos; ++sonido) {
+      propios += cliente::ajuste_texto(actuales(), cliente::ajuste_de_propio(sonido)).empty() ? 0 : 1;
+    }
+    const std::array<std::pair<Clave, const char*>, 3> botones = {{{Clave::ajustes_importar, "##importar_sonidos"},
+                                                                   {Clave::ajustes_exportar, "##exportar_sonidos"},
+                                                                   {Clave::ajustes_predeterminados, "##sonidos_de_fabrica"}}};
+    float derecha = x + interior - px(12);
+    for (auto cual = botones.rbegin(); cual != botones.rend(); ++cual) {
+      const std::string_view texto_boton = t(cual->first);
+      const Estilo estilo = cual->first == Clave::ajustes_predeterminados ? Estilo::esquineros : Estilo::contorneado;
+      const float ancho_del_boton = ancho_boton(texto_boton, estilo);
+      derecha -= ancho_del_boton;
+      ImGui::SetCursorScreenPos(ImVec2(derecha, y + px(34)));
+      ImGui::BeginDisabled(cual->first != Clave::ajustes_importar && propios == 0);
+      if (boton(cual->second, texto_boton, estilo, ImVec2(ancho_del_boton, px(36)))) {
+        (cual->first == Clave::ajustes_importar   ? pedido_.importar_sonidos
+         : cual->first == Clave::ajustes_exportar ? pedido_.exportar_sonidos
+                                                  : pedido_.sonidos_de_fabrica) = true;
+      }
+      ImGui::EndDisabled();
+      derecha -= px(8);
+    }
+    const std::string vista = propios == 0 ? s(Clave::ajustes_paquete_fabrica)
+                                           : con_datos(t(Clave::ajustes_paquete_mio), {std::to_string(propios)});
+    desplegable("##paquete", ImVec2(x + px(12), y + px(37)), derecha - x - px(12), {vista}, 0);
+  }
+
+  void sonido(ImVec2 desde, float ancho, std::size_t cual, bool en_desarrollo) {
+    const float alto = px(47);
+    const float medio = desde.y + alto / 2;
+    ImGui::GetWindowDrawList()->AddRect(desde, ImVec2(desde.x + ancho, desde.y + alto + 1), tono(color::linea));
+    ImGui::PushID(static_cast<int>(cual));
+    const bool pronto = en_desarrollo || std::find(kSuenanYa.begin(), kSuenanYa.end(), cual) == kSuenanYa.end();
+    const bool prendido = cliente::sonido_prendido(actuales(), cual);
+    ImGui::BeginDisabled(pronto);
+    if (casilla("", ImVec2(desde.x + px(12), medio - px(9)), prendido)) {
+      fijar(cliente::ajuste_de_sonido(cual), prendido ? 0 : 1);
+    }
+    const float ancho_lista = std::min(px(170), ancho * 0.36f);
+    const float lista_x = desde.x + ancho - px(12) - ancho_lista;
+    const float probar_x = lista_x - px(8) - px(32);
+    const float texto_x = desde.x + px(42);
+    const ItemDeSonido& item = kItemsDeSonido[cual];
+    const float texto_y = item.nota == kSinGrupo ? medio : medio - px(7);
+    const float fin = escribir_en(texto_x, texto_y, t(item.nombre), color::texto, Letra::normal, medida::letra,
+                                  probar_x - texto_x - px(8));
+    if (item.nota != kSinGrupo) {
+      escribir_en(texto_x, medio + px(10), t(item.nota), color::apagado, Letra::normal, medida::letra_chica,
+                  probar_x - texto_x - px(8));
+    }
+    ImGui::SetCursorScreenPos(ImVec2(probar_x, medio - px(16)));
+    if (boton("##probar_sonido", "", Estilo::contorneado, ImVec2(px(32), px(32)), Icono::reproducir)) {
+      pedido_.probar_sonido = cual;
+    }
+    const std::string propio = cliente::ajuste_texto(actuales(), cliente::ajuste_de_propio(cual));
+    std::vector<std::string> opciones = {s(Clave::ajustes_sonido_fabrica)};
+    if (!propio.empty()) {
+      opciones.push_back(con_datos(t(Clave::ajustes_sonido_propio), {propio}));
+    }
+    opciones.push_back(s(Clave::ajustes_sonido_elegir));
+    if (const auto nuevo = desplegable("##origen_del_sonido", ImVec2(lista_x, medio - px(15)), ancho_lista, opciones,
+                                       propio.empty() ? 0 : 1)) {
+      if (static_cast<std::size_t>(*nuevo) + 1 == opciones.size()) {
+        pedido_.elegir_sonido = cual;
+      } else if (*nuevo == 0 && !propio.empty()) {
+        pedido_.sonido_de_fabrica = cual;
+      }
+    }
+    ImGui::EndDisabled();
+    if (pronto && !en_desarrollo && fin + px(8) + ancho_chip(t(Clave::servidor_chip_pronto)) < probar_x) {
+      chip(ImVec2(fin + px(8), texto_y - px(8)), t(Clave::servidor_chip_pronto));
+    }
+    ImGui::PopID();
   }
 
   void avisos() {

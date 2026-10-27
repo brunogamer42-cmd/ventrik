@@ -309,7 +309,9 @@ Diseño del dueño del 2026-10-26. No es para la etapa en curso: va con las noti
     - alerta de seguridad (admins);
     - alguien comparte pantalla en tu canal, "PRONTO" hasta la etapa 12;
     - no se pudo (error).
-- **Los sonidos de fábrica** los produce el autor en WAV. Van en assets/sonidos/, numerados en el orden de la lista (01_entrar_canal.wav … 27_error.wav), y el programa los lleva en OGG.
+- **Los sonidos de fábrica** los produce el autor en WAV. Van en assets/sonidos/, numerados en el orden de la lista (01_entrar_canal.wav … 27_error.wav).
+  - **El programa los lleva en Opus, no en OGG** (decisión del dueño del 2026-10-27): `tools/sonidos.cpp` los pasa una vez a 48 kHz mono, les saca el silencio del principio y del final (menos a los dos de llamada, que se repiten cada 4 s) y los guarda en el formato propio VKSN, en recursos/sonidos/. Los 27 pesan unos 250 KB y van dentro del .exe. Los WAV originales (37 MB) no entran a git.
+  - **VKSN:** "VKSN", versión 1, la cantidad de muestras (u32), la cantidad de paquetes (u16) y cada paquete de 20 ms de Opus a 48 kbps con su largo (u16). Se lee con el lector único y se rechaza si algo no cierra.
 - **Reglas al sonar:**
   - "Mensaje nuevo" suena solo si ese canal no está a la vista.
   - Los de llamada son bucles de 4 s hasta atender o rechazar.
@@ -330,6 +332,11 @@ Diseño del dueño del 2026-10-26. No es para la etapa en curso: va con las noti
   - **Volumen:** no se nivela ni se limita, porque lo escucha solo el usuario. Solo aplica el volumen general de los avisos.
   - **Son locales:** nunca se mandan a otros ni a los servidores.
 - **Paquete .vksonidos:** un zip con los audios y un JSON que dice a qué aviso va cada uno. Al importarlo se valida cada archivo con las mismas reglas, y se ignora cualquier archivo que no sea audio.
+  - **El índice** se llama `paquete.json`: `{"version":1,"sonidos":{"mencion":"16_mencion.wav", …}}`. Los nombres de los avisos son los de los WAV de fábrica sin el número (entrar_canal, mencion, error…).
+  - **Topes al importar:** el paquete hasta 30 MB y 40 archivos; cada archivo hasta 1 MB ya descomprimido (contra las bombas de zip); el índice hasta 64 KB. Un nombre con carpeta, ruta, "..", dos puntos o barra hace rechazar todo el paquete.
+  - **Exportar** arma lo mismo con los sonidos propios, en WAV de 48 kHz mono, que cualquier programa abre.
+- **Lo que suena desde el paso 3.7:** 1 a 10 (respetando "Sonidos de la voz de este servidor"), el 12 (susurro), el 13 (se cortó la conexión), el 15 (mensaje nuevo, solo si ese canal no está a la vista o la ventana no está al frente), el 16 (mención, también con el canal a la vista) y el 27 (no se pudo, cuando el servidor rechaza algo que pediste: entrar a un canal, escribir, crear, cambiar o borrar uno). Los demás están en la lista apagados, con PRONTO o "en desarrollo", hasta su etapa.
+- **No molestar** viene en "Mientras juego en pantalla completa", como en la captura. En "Siempre" no suena nada.
 
 ### Hostear: asistente por pasos
 

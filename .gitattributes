@@ -18,3 +18,9 @@ third_party/integracion/** text=auto
 
 # Las semillas del fuzzing son bytes exactos.
 fuzz/semillas/** binary
+
+# Los sonidos de fábrica ya convertidos son bytes exactos.
+recursos/** binary
+
+# Los audios de prueba son bytes exactos.
+tests/datos/** binary

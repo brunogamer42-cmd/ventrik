@@ -25,10 +25,10 @@ struct PaqueteVoz {
   std::array<std::uint8_t, protocolo::kMaximoOpus> opus{};
 };
 
-template <std::size_t N>
+template <std::size_t N, typename Elemento = PaqueteVoz>
 class ColaVoz {
  public:
-  bool poner(const PaqueteVoz& paquete) {
+  bool poner(const Elemento& paquete) {
     const std::size_t fin = fin_.load(std::memory_order_relaxed);
     const std::size_t siguiente = (fin + 1) % N;
     if (siguiente == inicio_.load(std::memory_order_acquire)) {
@@ -39,7 +39,7 @@ class ColaVoz {
     return true;
   }
 
-  bool sacar(PaqueteVoz& paquete) {
+  bool sacar(Elemento& paquete) {
     const std::size_t inicio = inicio_.load(std::memory_order_relaxed);
     if (inicio == fin_.load(std::memory_order_acquire)) {
       return false;
@@ -50,7 +50,7 @@ class ColaVoz {
   }
 
  private:
-  std::array<PaqueteVoz, N> lugares_{};
+  std::array<Elemento, N> lugares_{};
   std::atomic<std::size_t> inicio_{0};
   std::atomic<std::size_t> fin_{0};
 };

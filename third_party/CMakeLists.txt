@@ -185,6 +185,20 @@ target_include_directories(stb_vorbis PUBLIC stb)
 target_compile_definitions(stb_vorbis PUBLIC STB_VORBIS_NO_STDIO STB_VORBIS_NO_PUSHDATA_API)
 target_link_libraries(stb_vorbis PRIVATE ventrik_opciones_terceros)
 
+# --- miniz: los paquetes de sonidos (.vksonidos) son zip ---
+add_library(miniz STATIC miniz/miniz.c)
+target_include_directories(miniz PUBLIC miniz)
+# Solo zip en memoria: sin abrir archivos, sin la hora y sin los nombres de zlib.
+target_compile_definitions(miniz PUBLIC MINIZ_NO_STDIO MINIZ_NO_TIME MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
+target_link_libraries(miniz PRIVATE ventrik_opciones_terceros)
+
+# --- jsmn: el índice JSON de los paquetes de sonidos ---
+add_library(jsmn STATIC "${INTEGRACION}/jsmn/jsmn.c")
+target_include_directories(jsmn PUBLIC jsmn)
+# Estricto: solo JSON válido (claves entre comillas, sin valores sueltos).
+target_compile_definitions(jsmn PUBLIC JSMN_STRICT)
+target_link_libraries(jsmn PRIVATE ventrik_opciones_terceros)
+
 # --- libwebp: WebP del modo Visual (con animaciones y codificador) ---
 file(GLOB LIBWEBP_FUENTES CONFIGURE_DEPENDS
   libwebp/src/dec/*.c libwebp/src/demux/*.c libwebp/src/dsp/*.c
