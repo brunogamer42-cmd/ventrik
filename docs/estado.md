@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-27, con el paso 3.3b (las pantallas de silenciar avisos).
+Última actualización: 2026-10-27, con el cierre de la etapa 3.
 
 ## Dónde estamos
 
@@ -545,7 +545,13 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - el volumen automático usa el control de SpeexDSP como medidor. Le llegan solo los bloques con voz, en una copia, y la ganancia que da se aplica en rampa a todo. Es voz lo que está 10 dB sobre el piso del micrófono antes de limpiar (el piso baja al instante y sube 4,3 dB por segundo) y, con RNNoise, lo que RNNoise también toma por voz. Se mira antes de limpiar porque lo que dejan los filtros fluctúa y engañaba al umbral (probado: el ventilador volvía a subir 12 dB). Medido: el ventilador sin voz no sube; una voz baja en una pieza tranquila sube 13 a 18 dB; en 2 minutos de charla la ganancia se mantiene. Una voz más baja que el ventilador ya no se sube (subirla subía el ventilador igual);
     - **costo:** ruido Media a 48 kHz pasa de 248 a unos 300 µs cada 10 ms (3 % de un núcleo) en la PC de prueba; en la clásica, 836 µs (8,4 %), que solo se usa en PCs de varios núcleos. A 16 kHz no cambia: ahí ya era solo SpeexDSP.
   - **Pruebas nuevas:** un ventilador con zumbido (grave, armónicos y soplido) baja 20 dB o más en Media y Alta, 12 en Media a 16 kHz y 10 en Baja; el volumen automático no sube ese ventilador cuando nadie habla, a 48 y a 16 kHz, con y sin quitar ruido; ese ventilador no abre "por voz" con la limpieza. Con el código anterior fallan seis de estas comprobaciones.
-- **Lo que sigue:** la prueba a mano del ventilador, en la PC y en la HP.
+- **Prueba a mano del arreglo (2026-10-27, en la HP):**
+  - **el volumen automático ya no sube nada;**
+  - **"Quitar ruido" se lleva el ruido de fondo propio del micrófono;**
+  - **un soplido directo al micrófono pasa igual.** A 16 kHz solo trabaja SpeexDSP, que saca ruido parejo, y un soplido viene en ráfagas. RNNoise no entra en una PC de un núcleo. Un filtro propio contra soplidos (ráfagas graves sin tono de voz) no está en el diseño. **Decisión del dueño: dejarlo así;**
+  - **cortar el servidor de golpe con la HP dentro de un canal de voz:** se desconecta normal. Una vez, al apagar la PC del servidor, la ventana de la HP quedó gris. No se repitió, ni ahí ni en esta PC: se probó con la clásica, el puente WinMM forzado, un solo núcleo, matando y suspendiendo el servidor. El dueño pidió no seguir buscando. Si vuelve: preguntar si el título dice "No responde" y si vuelve sola.
+- **Etapa 3: cerrada (2026-10-27).** La prueba a mano de la etapa se hizo con dos equipos (la PC y la HP), no con tres personas.
+- **Lo que sigue:** etapa 4, identidad y seguridad (delicada), en una sesión nueva: dividirla en pasos chicos con su plan.
 
 ## Ramas y repositorio
 
