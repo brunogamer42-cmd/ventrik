@@ -848,6 +848,10 @@ TEST_CASE("El ▾ del servidor lo silencia por 1 hora y la cabecera lo dice; el 
   cuadro(en_menu(2));
   cuadro(en_menu(2));
   tocar(en_menu(1));
+  const auto guarda = [&] {
+    return std::any_of(pedidos.begin(), pedidos.end(), [](const ui::PedidoServidor& pedido) { return pedido.guardar; });
+  };
+  CHECK(guarda());
   REQUIRE(aplicar());
   const std::uint64_t hasta = pantalla.avisos.servidor.silenciado_hasta;
   CHECK(hasta >= antes + 3600000);
@@ -868,18 +872,28 @@ TEST_CASE("El ▾ del servidor lo silencia por 1 hora y la cabecera lo dice; el 
   tocar(en_menu(1));
   cuadro(ImVec2(5, 5));
   REQUIRE(hay_ventana_emergente());
+  pedidos.clear();
   tocar(en_dialogo(110, 177));
+  CHECK_FALSE(guarda());
   REQUIRE(aplicar());
   CHECK(pantalla.avisos.servidor.avisar == Avisar::todos);
   CHECK(pantalla.avisos.canales.size() == 1);
   tocar(en_dialogo(582, 354));
+  CHECK_FALSE(guarda());
   REQUIRE(aplicar());
   CHECK(pantalla.avisos.canales.empty());
   CHECK(pantalla.avisos.servidor.silenciado_hasta == hasta);
+  cuadro(ImVec2(5, 5));
+  tocar(en_dialogo(40, 233));
+  CHECK_FALSE(guarda());
+  REQUIRE(aplicar());
+  CHECK(pantalla.avisos.contar_todos);
   sin_pantalla.apretar(ImGuiKey_Escape);
   cuadro(ImVec2(5, 5));
   cuadro(ImVec2(5, 5));
   CHECK_FALSE(hay_ventana_emergente());
+  CHECK(guarda());
+  pedidos.clear();
 
   tocar(nombre);
   tocar(ImVec2(100, 221));
@@ -1190,10 +1204,13 @@ TEST_CASE("Listo cierra el diálogo de avisos, con canales propios o sin ninguno
       const ImGuiWindow& dialogo = *ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
       CHECK(dialogo.Pos.y + dialogo.Size.y <= tamano.y);
       const ImVec2 listo = en_dialogo(dialogo.Size.x - 40, dialogo.Size.y - 39);
-      sin_pantalla.cuadro(pantalla, sala, listo);
-      sin_pantalla.cuadro(pantalla, sala, listo, true);
-      sin_pantalla.cuadro(pantalla, sala, listo);
+      bool guarda = false;
+      for (const bool clic : {false, true, false}) {
+        guarda = sin_pantalla.cuadro(pantalla, sala, listo, clic).guardar || guarda;
+      }
       CHECK_FALSE(hay_ventana_emergente());
+      CHECK(guarda);
     }
   }
 }
+

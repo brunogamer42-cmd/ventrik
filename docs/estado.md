@@ -352,6 +352,11 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - **la "transición":** ImGui oscurece el fondo de los cuadros modales de a poco (`DimBgRatio`). Como Ventrik dibuja solo cuando pasa algo, el oscurecido avanzaba a saltos con cada movimiento del mouse y obligaba a redibujar la pantalla entera: se veía como animación y como demora. Ahora sale entero desde el primer cuadro (`pantalla_completa` lo deja en 1), en todos los cuadros modales. En Rendimiento no hay animaciones (docs/diseno.md);
     - **el color del oscurecido** nunca se había puesto: ImGui usaba su gris claro translúcido. Ahora es negro al 40 %, como en la captura;
     - **el cuadro elegido en "Avisarme de"** se dibujaba un cuadro tarde (con lo de antes del clic): ahora se atienden los tres clics primero y se dibuja con lo nuevo en el mismo cuadro.
+  - **Segunda prueba del dueño (2026-10-27):**
+    - **seguía viendo el velo blanco que aparecía de a poco.** Medido en el programa de verdad (la misma versión clásica que tenía abierta, otra copia con su carpeta, conectada al servidor de prueba, con clics mandados con `PostMessage` y fotos con `PrintWindow` cada 40 a 80 ms): el fondo pasa de (42,50,53) a (26,30,32) de una vez, sin pasos, y el velo es oscuro. El blanco con transición era lo de antes del arreglo: hay que confirmar en qué PC lo vio y con qué copia;
+    - **los clics del diálogo se sentían lentos:** a pedido del dueño, los cambios del diálogo se aplican al momento pero se guardan en programa.dat recién al cerrarlo (Listo o Escape). Los menús (▾, clic derecho y la tarjeta de Inicio) guardan en el acto, porque son un solo clic. Si se cierra Ventrik o se cambia de servidor con algo sin guardar, se guarda igual (`sin_guardar_` en Programa);
+    - **las casillas y el desplegable** no se parecían a la captura (sin cuadradito, tilde azul, flecha en un cuadrado azul): ahora la casilla es un cuadrado dibujado (claro con tilde oscuro si está marcada) y el desplegable tiene fondo y borde, sin el cuadrado azul;
+    - para mandar clics a la ventana de verdad sin mover el mouse del dueño, `PostMessage` no es confiable: la ventana recibe enseguida "el mouse salió" y a veces le gana al clic.
 - **Lo que sigue:** la prueba a mano de las notificaciones, del paso 3.2 y del 3.3 juntas, en la PC y en la XP.
 
 ## Ramas y repositorio

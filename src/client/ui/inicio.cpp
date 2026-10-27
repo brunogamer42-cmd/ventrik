@@ -248,6 +248,7 @@ class Dibujo {
       if (eleccion.avisos) {
         pedido_.avisos = eleccion.avisos;
         pedido_.cual = cual;
+        pedido_.guardar = true;
       }
       if (eleccion.abrir_avisos) {
         pantalla_.avisos_de = servidor.direccion;
@@ -265,11 +266,13 @@ class Dibujo {
     if (guardado == servidores.end()) {
       return;
     }
-    if (auto cambiados = dialogo_avisos(pantalla_.idioma, red::a_texto(guardado->direccion), guardado->avisos, nullptr,
-                                        ahora_, pantalla_.abrir_avisos)) {
-      pedido_.avisos = std::move(cambiados);
+    EleccionDeAvisos eleccion = dialogo_avisos(pantalla_.idioma, red::a_texto(guardado->direccion), guardado->avisos,
+                                               nullptr, ahora_, pantalla_.abrir_avisos);
+    if (eleccion.avisos) {
+      pedido_.avisos = std::move(eleccion.avisos);
       pedido_.cual = static_cast<std::size_t>(guardado - servidores.begin());
     }
+    pedido_.guardar = pedido_.guardar || eleccion.cerrado;
   }
 
   template <typename Contenido>

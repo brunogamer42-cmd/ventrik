@@ -82,10 +82,23 @@ bool menu_con_valor(const std::string& etiqueta, std::string_view valor) {
 }
 
 bool casilla(Idioma idioma, Clave clave, ImVec2 donde, bool valor) {
+  const std::string_view etiqueta = texto(idioma, clave);
+  const float lado = px(18);
   ImGui::SetCursorScreenPos(donde);
-  bool nuevo = valor;
-  ImGui::Checkbox(s(idioma, clave).c_str(), &nuevo);
-  return nuevo != valor;
+  ImGui::PushID(static_cast<int>(clave));
+  const bool tocada = ImGui::InvisibleButton(
+      "##casilla", ImVec2(lado + px(8) + medir(etiqueta, Letra::normal, medida::letra).x, lado));
+  ImGui::PopID();
+  const bool marcada = valor != tocada;
+  ImDrawList& dibujo = *ImGui::GetWindowDrawList();
+  const ImVec2 hasta(donde.x + lado, donde.y + lado);
+  dibujo.AddRectFilled(donde, hasta, tono(marcada ? color::claro : color::pozo), px(2));
+  dibujo.AddRect(donde, hasta, tono(marcada ? color::claro : color::linea2), px(2));
+  if (marcada) {
+    ImGui::RenderCheckMark(&dibujo, ImVec2(donde.x + px(4), donde.y + px(4)), tono(color::tinta), lado - px(8));
+  }
+  escribir_en(donde.x + lado + px(8), donde.y + lado / 2, etiqueta, color::texto);
+  return tocada;
 }
 
 }
@@ -198,16 +211,14 @@ std::optional<AvisosDelServidor> menu_de_canal(Idioma idioma, const AvisosDelSer
   return nuevos;
 }
 
-std::optional<AvisosDelServidor> dialogo_avisos(Idioma idioma, std::string_view servidor,
-                                                const AvisosDelServidor& avisos,
-                                                const std::vector<protocolo::CanalInfo>* canales, std::uint64_t ahora,
-                                                bool& abrir) {
+EleccionDeAvisos dialogo_avisos(Idioma idioma, std::string_view servidor, const AvisosDelServidor& avisos,
+                                const std::vector<protocolo::CanalInfo>* canales, std::uint64_t ahora, bool& abrir) {
   if (abrir) {
     ImGui::OpenPopup("##avisos");
     abrir = false;
   }
   if (!ImGui::IsPopupOpen("##avisos")) {
-    return std::nullopt;
+    return {};
   }
   const float ancho = px(640);
   const float interior = ancho - px(40);
@@ -225,7 +236,7 @@ std::optional<AvisosDelServidor> dialogo_avisos(Idioma idioma, std::string_view 
   if (!ImGui::BeginPopupModal("##avisos", nullptr,
                               ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                                   ImGuiWindowFlags_NoScrollbar)) {
-    return std::nullopt;
+    return {};
   }
   std::optional<AvisosDelServidor> nuevo;
   const auto cambiar = [&nuevo, &avisos](auto&& tocar) {
@@ -245,11 +256,22 @@ std::optional<AvisosDelServidor> dialogo_avisos(Idioma idioma, std::string_view 
   escribir(ImVec2(x, y), texto(idioma, Clave::avisos_silenciar_el_servidor), color::texto2, Letra::normal,
            medida::letra_chica);
   y += px(20);
-  ImGui::SetCursorScreenPos(ImVec2(x, y));
+  ImGui::SetCursorScreenPos(ImVec2(x, y - px(4)));
   ImGui::SetNextItemWidth(px(300));
   const bool callado = cliente::silenciado(avisos.servidor, ahora);
   const std::string vista = callado ? estado_de_silencio(idioma, avisos.servidor) : s(idioma, Clave::avisos_no);
-  if (ImGui::BeginCombo("##silenciar", vista.c_str())) {
+  for (const auto& [cual, valor] : {std::make_pair(ImGuiCol_FrameBg, color::pozo),
+                                    std::make_pair(ImGuiCol_FrameBgHovered, color::pozo),
+                                    std::make_pair(ImGuiCol_Border, color::linea2), std::make_pair(ImGuiCol_Button, 0u),
+                                    std::make_pair(ImGuiCol_ButtonHovered, 0u)}) {
+    ImGui::PushStyleColor(cual, valor);
+  }
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, px(1));
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(px(10), px(6)));
+  const bool desplegado = ImGui::BeginCombo("##silenciar", vista.c_str());
+  ImGui::PopStyleVar(2);
+  ImGui::PopStyleColor(5);
+  if (desplegado) {
     if (ImGui::Selectable(s(idioma, Clave::avisos_no).c_str(), !callado)) {
       cambiar([](AvisosDelServidor& a) { a.servidor.silenciado_hasta = 0; });
     }
@@ -380,12 +402,13 @@ std::optional<AvisosDelServidor> dialogo_avisos(Idioma idioma, std::string_view 
   const std::string_view listo = texto(idioma, Clave::avisos_listo);
   const float ancho_listo = ancho_boton(listo, Estilo::principal);
   ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_listo, y));
-  if (boton("##listo", listo, Estilo::principal, ImVec2(ancho_listo, px(medida::alto_principal))) ||
-      ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+  const bool cerrado = boton("##listo", listo, Estilo::principal, ImVec2(ancho_listo, px(medida::alto_principal))) ||
+                       ImGui::IsKeyPressed(ImGuiKey_Escape);
+  if (cerrado) {
     ImGui::CloseCurrentPopup();
   }
   ImGui::EndPopup();
-  return nuevo;
+  return {std::move(nuevo), cerrado};
 }
 
 }

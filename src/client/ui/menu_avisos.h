@@ -18,6 +18,11 @@ struct EleccionDeServidor {
   bool desconectar = false;
 };
 
+struct EleccionDeAvisos {
+  std::optional<cliente::AvisosDelServidor> avisos;
+  bool cerrado = false;
+};
+
 std::string estado_de_silencio(Idioma idioma, const cliente::AjusteDeAvisos& ajuste);
 std::optional<cliente::AjusteDeAvisos> menu_silenciar(Idioma idioma, Clave etiqueta,
                                                       const cliente::AjusteDeAvisos& actual, std::uint64_t ahora);
@@ -28,9 +33,7 @@ EleccionDeServidor menu_servidor(Idioma idioma, const cliente::AvisosDelServidor
                                  std::uint64_t ahora);
 std::optional<cliente::AvisosDelServidor> menu_de_canal(Idioma idioma, const cliente::AvisosDelServidor& avisos,
                                                         const protocolo::CanalInfo& canal, std::uint64_t ahora);
-std::optional<cliente::AvisosDelServidor> dialogo_avisos(Idioma idioma, std::string_view servidor,
-                                                         const cliente::AvisosDelServidor& avisos,
-                                                         const std::vector<protocolo::CanalInfo>* canales,
-                                                         std::uint64_t ahora, bool& abrir);
+EleccionDeAvisos dialogo_avisos(Idioma idioma, std::string_view servidor, const cliente::AvisosDelServidor& avisos,
+                                const std::vector<protocolo::CanalInfo>* canales, std::uint64_t ahora, bool& abrir);
 
 }

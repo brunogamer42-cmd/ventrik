@@ -118,10 +118,12 @@ class Dibujo {
     chat();
     estado();
     dialogo();
-    if (auto avisos = dialogo_avisos(pantalla_.idioma, pantalla_.direccion, pantalla_.avisos, &sala_.canales(), ahora_,
-                                     pantalla_.abrir_avisos)) {
-      pedido_.avisos = std::move(avisos);
+    EleccionDeAvisos eleccion = dialogo_avisos(pantalla_.idioma, pantalla_.direccion, pantalla_.avisos,
+                                               &sala_.canales(), ahora_, pantalla_.abrir_avisos);
+    if (eleccion.avisos) {
+      pedido_.avisos = std::move(eleccion.avisos);
     }
+    pedido_.guardar = pedido_.guardar || eleccion.cerrado;
     return std::move(pedido_);
   }
 
@@ -197,6 +199,7 @@ class Dibujo {
     }
     if (auto avisos = ui::menu_de_canal(pantalla_.idioma, pantalla_.avisos, canal, ahora_)) {
       pedido_.avisos = std::move(avisos);
+      pedido_.guardar = true;
     }
     if (voz) {
       nota_de_menu(t(Clave::avisos_nota_chat));
@@ -362,6 +365,7 @@ class Dibujo {
     const EleccionDeServidor eleccion = menu_servidor(pantalla_.idioma, pantalla_.avisos, true, sala_.dueno(), ahora_);
     if (eleccion.avisos) {
       pedido_.avisos = eleccion.avisos;
+      pedido_.guardar = true;
     }
     pantalla_.abrir_avisos = pantalla_.abrir_avisos || eleccion.abrir_avisos;
     if (eleccion.marcar_todo) {

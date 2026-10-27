@@ -47,6 +47,7 @@ struct Pedido {
   Accion accion = Accion::ninguna;
   std::size_t cual = 0;
   std::optional<cliente::AvisosDelServidor> avisos;
+  bool guardar = false;
 };
 
 Pedido dibujar_inicio(PantallaInicio& pantalla, const cliente::Guardados& guardados);

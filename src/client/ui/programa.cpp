@@ -111,6 +111,9 @@ class Programa {
       }
       guardar();
     }
+    if (sin_guardar_) {
+      guardar();
+    }
     sesion_.reset();
     sala_.reset();
     avisos_.desconectado();
@@ -284,6 +287,9 @@ class Programa {
     if (pedido.avisos) {
       cambiar_avisos(guardados_.servidores[pedido.cual].direccion, std::move(*pedido.avisos));
     }
+    if (pedido.guardar) {
+      guardar();
+    }
     switch (pedido.accion) {
       case Accion::entrar_con_formulario:
         entrar_con_formulario();
@@ -319,7 +325,7 @@ class Programa {
     cliente::normalizar(avisos, cliente::ahora_ms());
     if (auto* guardado = cliente::buscar_guardado(guardados_, direccion)) {
       guardado->avisos = avisos;
-      guardar();
+      sin_guardar_ = true;
     }
     if (sala_ && direccion == pendiente_.direccion) {
       avisos_.ajustes(avisos);
@@ -645,6 +651,7 @@ class Programa {
   }
 
   void guardar() {
+    sin_guardar_ = false;
     if (se_puede_guardar_) {
       pantalla_.aviso = cliente::guardar_guardados(guardados_, carpeta_)
                             ? std::string()
@@ -667,6 +674,7 @@ class Programa {
   PantallaServidor servidor_;
   cliente::Guardados guardados_;
   bool se_puede_guardar_ = false;
+  bool sin_guardar_ = false;
   cliente::ServidorGuardado pendiente_;
   std::uint64_t perdidos_ = 0;
   std::uint64_t recibidos_ = 0;
