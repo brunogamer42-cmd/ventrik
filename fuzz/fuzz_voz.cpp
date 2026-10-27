@@ -55,8 +55,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   std::array<std::int16_t, 480> salida{};
   while (entrada.size() >= 5) {
     PaqueteVoz paquete;
-    paquete.hablante = entrada[0] & 3u;
+    paquete.hablante = entrada[0] & 7u;
     paquete.numero = static_cast<std::uint16_t>(entrada[1] | (entrada[2] << 8));
+    paquete.tiempo = static_cast<std::uint16_t>(paquete.numero * 20 + entrada[0]);
+    paquete.nivel = static_cast<std::uint8_t>(entrada[3] % (ventrik::protocolo::kNivelMaximo + 1));
     const std::size_t cuanto = std::min<std::size_t>(entrada[3], entrada.size() - 5);
     paquete.largo = static_cast<std::uint16_t>(cuanto);
     const auto opus = entrada.subspan(5, cuanto);
@@ -77,9 +79,15 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
                      sonido.begin(), [](std::uint8_t valor) { return static_cast<std::int16_t>(valor << 7); });
       motor.procesar(sonido, salida);
       exigir(!sin_microfono || !motor.transmitiendo());
+      auto ids = puente.quienes();
+      std::sort(ids.begin(), ids.end());
+      exigir(std::adjacent_find(ids.begin(), ids.end(), [](std::uint32_t uno, std::uint32_t otro) {
+               return uno != 0 && uno == otro;
+             }) == ids.end());
       PaqueteVoz salido;
       while (puente.subida.sacar(salido)) {
-        exigir(!solo && !sin_microfono && salido.largo > 2 && salido.largo <= salido.opus.size());
+        exigir(!solo && !sin_microfono && salido.largo > 2 && salido.largo <= salido.opus.size() &&
+               salido.nivel <= ventrik::protocolo::kNivelMaximo);
       }
     } else {
       if (hay_ultimo && static_cast<std::int16_t>(static_cast<std::uint16_t>(paquete.numero - ultimo)) <= -64) {

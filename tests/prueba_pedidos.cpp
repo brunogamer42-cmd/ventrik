@@ -240,33 +240,36 @@ TEST_CASE("Los paquetes de medios llevan el tipo y el número de flujo, con byte
   ClaveVoz clave;
   clave.identidad.fill(1);
   CHECK(en_bytes(clave) == Bytes(16, 1));
-  CHECK(en_bytes(MedioSubida{{TipoFlujo::voz, 0, 0x0102, {9, 8, 7}}}) == Bytes{1, 0, 2, 1, 3, 0, 9, 8, 7});
-  CHECK(en_bytes(MedioBajada{5, {TipoFlujo::voz, 0, 0x0102, {9}}}) == Bytes{5, 0, 0, 0, 1, 0, 2, 1, 1, 0, 9});
+  CHECK(en_bytes(MedioSubida{{TipoFlujo::voz, 0, 0x0102, {9, 8, 7}, 0x0304, 90}}) ==
+        Bytes{1, 0, 2, 1, 4, 3, 90, 3, 0, 9, 8, 7});
+  CHECK(en_bytes(MedioBajada{5, {TipoFlujo::voz, 0, 0x0102, {9}}}) == Bytes{5, 0, 0, 0, 1, 0, 2, 1, 0, 0, 0, 1, 0, 9});
   ida_y_vuelta(clave);
-  ida_y_vuelta(MedioSubida{{TipoFlujo::voz, 0, 7, std::vector<std::uint8_t>(kMaximoOpus, 0xAA)}});
-  ida_y_vuelta(MedioBajada{3, {TipoFlujo::voz, 0, 65535, {1}}});
+  ida_y_vuelta(MedioSubida{{TipoFlujo::voz, 0, 7, std::vector<std::uint8_t>(kMaximoOpus, 0xAA), 65535, kNivelMaximo}});
+  ida_y_vuelta(MedioBajada{3, {TipoFlujo::voz, 0, 65535, {1}, 20, 0}});
 }
 
-TEST_CASE("Un medio de tipo o flujo desconocido, vacío o más largo que el tope no se escribe ni se lee") {
+TEST_CASE("Un medio de tipo o flujo desconocido, vacío, más largo que el tope o con nivel de más no se escribe ni se lee") {
   CHECK_FALSE(se_escribe(MedioSubida{{TipoFlujo::voz, 0, 1, {}}}));
   CHECK_FALSE(se_escribe(MedioBajada{1, {TipoFlujo::voz, 0, 1, std::vector<std::uint8_t>(kMaximoOpus + 1, 1)}}));
   CHECK_FALSE(se_escribe(MedioSubida{{static_cast<TipoFlujo>(2), 0, 1, {5}}}));
   CHECK_FALSE(se_escribe(MedioSubida{{TipoFlujo::voz, 1, 1, {5}}}));
-  CHECK(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 1, 0, 5}));
-  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{0, 0, 1, 0, 1, 0, 5}));
-  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{2, 0, 1, 0, 1, 0, 5}));
-  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 1, 1, 0, 1, 0, 5}));
-  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 0, 0}));
-  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 1, 0, 5, 6}));
-  Bytes largo{1, 0, 1, 0, 0x91, 0x01};
-  largo.resize(6 + kMaximoOpus + 1, 0);
+  CHECK_FALSE(se_escribe(MedioSubida{{TipoFlujo::voz, 0, 1, {5}, 0, kNivelMaximo + 1}}));
+  CHECK(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 0, 0, 127, 1, 0, 5}));
+  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 0, 0, 128, 1, 0, 5}));
+  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{0, 0, 1, 0, 0, 0, 0, 1, 0, 5}));
+  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{2, 0, 1, 0, 0, 0, 0, 1, 0, 5}));
+  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 1, 1, 0, 0, 0, 0, 1, 0, 5}));
+  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 0, 0, 0, 0, 0}));
+  CHECK_FALSE(leer_mensaje<MedioSubida>(Bytes{1, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6}));
+  Bytes largo{1, 0, 1, 0, 0, 0, 0, 0x91, 0x01};
+  largo.resize(9 + kMaximoOpus + 1, 0);
   CHECK_FALSE(leer_mensaje<MedioSubida>(largo));
 }
 
 TEST_CASE("Un datagrama lleva el tipo adelante y nada más") {
   Bytes datagrama;
   REQUIRE(armar_datagrama(MedioSubida{{TipoFlujo::voz, 0, 1, {5}}}, datagrama));
-  CHECK(datagrama == Bytes{50, 0, 1, 0, 1, 0, 1, 0, 5});
+  CHECK(datagrama == Bytes{50, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 5});
   const auto marco = separar_datagrama(datagrama);
   REQUIRE(marco);
   CHECK(marco->tipo == 50);

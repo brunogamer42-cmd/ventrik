@@ -233,11 +233,15 @@ struct ClaveVoz {
 
 enum class TipoFlujo : std::uint8_t { voz = 1 };
 
+constexpr std::uint8_t kNivelMaximo = 127;
+
 struct Medio {
   TipoFlujo tipo = TipoFlujo::voz;
   std::uint8_t flujo = 0;
   std::uint16_t numero = 0;
   std::vector<std::uint8_t> datos;
+  std::uint16_t tiempo = 0;
+  std::uint8_t nivel = 0;
 };
 
 struct MedioSubida {

@@ -120,18 +120,20 @@ void leer_usuario(Lector& lector, UsuarioInfo& usuario) {
   usuario.silencio = leer_silencio(lector);
 }
 
-bool medio_valido(TipoFlujo tipo, std::uint8_t flujo, std::size_t largo) {
-  return tipo == TipoFlujo::voz && flujo == 0 && largo > 0 && largo <= kMaximoOpus;
+bool medio_valido(TipoFlujo tipo, std::uint8_t flujo, std::uint8_t nivel, std::size_t largo) {
+  return tipo == TipoFlujo::voz && flujo == 0 && nivel <= kNivelMaximo && largo > 0 && largo <= kMaximoOpus;
 }
 
 void escribir_medio(Escritor& escritor, const Medio& medio) {
-  if (!medio_valido(medio.tipo, medio.flujo, medio.datos.size())) {
+  if (!medio_valido(medio.tipo, medio.flujo, medio.nivel, medio.datos.size())) {
     escritor.marcar_error();
     return;
   }
   escritor.escribir_u8(static_cast<std::uint8_t>(medio.tipo));
   escritor.escribir_u8(medio.flujo);
   escritor.escribir_u16(medio.numero);
+  escritor.escribir_u16(medio.tiempo);
+  escritor.escribir_u8(medio.nivel);
   escritor.escribir_u16(static_cast<std::uint16_t>(medio.datos.size()));
   escritor.escribir_bytes(medio.datos);
 }
@@ -140,8 +142,10 @@ void leer_medio(Lector& lector, Medio& medio) {
   medio.tipo = static_cast<TipoFlujo>(lector.leer_u8());
   medio.flujo = lector.leer_u8();
   medio.numero = lector.leer_u16();
+  medio.tiempo = lector.leer_u16();
+  medio.nivel = lector.leer_u8();
   const std::size_t largo = lector.leer_u16();
-  if (!medio_valido(medio.tipo, medio.flujo, largo)) {
+  if (!medio_valido(medio.tipo, medio.flujo, medio.nivel, largo)) {
     lector.marcar_error();
     return;
   }

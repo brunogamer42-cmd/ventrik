@@ -95,7 +95,7 @@ class Programa {
               << "ms,ping_ms,ping_voz_ms,cpu_total,cpu_ventana,cpu_sistema,ocupado_ms,pasada_max_ms,imgui_ms,"
                  "direct3d_ms,presentados,vertices_max,cuadros,colchon_ms,recortes_total,perdidos,recibidos,salida_ms,"
                  "salida_max_ms,descartes_salida_total,descartes_con_voz_total,vacios_salida_total,"
-                 "vaciados_colchon_total,faltas_colchon_total,transmitiendo,hablando,voz_lista,avisos,mensajes,"
+                 "vaciados_colchon_total,faltas_colchon_total,transmitiendo,voces,voz_lista,avisos,mensajes,"
                  "mensaje_comun,ram_mb,despertares_ventana,despertares_audio,despertares_red,tcp_sube,tcp_baja,"
                  "udp_sube,udp_baja,memoria_propia_kb,fallas_por_segundo,arranque_ms,pixeles,foco,juego,"
                  "bloqueada,ahorro,atlas_kb,silencio,notificaciones"
@@ -472,7 +472,7 @@ class Programa {
     }
     const auto antes = std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
     servidor_.transmitiendo = motor_ && motor_->transmitiendo();
-    servidor_.hablando = puente_ ? puente_->hablando.load() : 0;
+    servidor_.hablando = puente_ ? puente_->quienes() : cliente::Hablando{};
     servidor_.nivel = vigia_ ? vigia_->nivel() : 0;
     const Situacion& situacion = ventana_.situacion();
     if (const bool medir = vigia_ && servidor_.por_voz && servidor_.ajustando && situacion.con_foco && situacion.dibuja();
@@ -545,7 +545,10 @@ class Programa {
              datos.colchon_ms, datos.recortes, muestra.perdidos, muestra.recibidos, datos.salida_ms,
              voz ? audio_->tomar_espera_maxima_ms() : 0, voz ? audio_->descartados() : 0,
              voz ? audio_->descartados_con_voz() : 0, voz ? audio_->vacios() : 0, voz ? motor_->vaciados() : 0,
-             voz ? motor_->faltas() : 0, servidor_.transmitiendo, servidor_.hablando, datos.voz_lista, avisos, otros,
+             voz ? motor_->faltas() : 0, servidor_.transmitiendo,
+             std::count_if(servidor_.hablando.begin(), servidor_.hablando.end(),
+                           [](std::uint32_t id) { return id != 0; }),
+             datos.voz_lista, avisos, otros,
              comun.first, medicion.ram_bytes / (1024 * 1024), uso.despertares,
              voz ? audio_->despertares() - std::exchange(despertares_audio_, audio_->despertares()) : 0,
              sesion_->despertares() - std::exchange(despertares_red_, sesion_->despertares()),

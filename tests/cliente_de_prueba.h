@@ -81,6 +81,8 @@ inline std::uint16_t hablar(ventrik::cliente::PuenteVoz& puente) {
   static std::uint16_t numero = 7;
   ventrik::cliente::PaqueteVoz paquete;
   paquete.numero = numero++;
+  paquete.tiempo = static_cast<std::uint16_t>(paquete.numero * 20);
+  paquete.nivel = 90;
   paquete.largo = 3;
   paquete.opus[0] = 1;
   paquete.opus[1] = 2;

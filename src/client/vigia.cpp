@@ -115,7 +115,7 @@ std::optional<std::uint8_t> Vigia::tomar_elegida() {
 void Vigia::correr() {
   const HWND oyente = crear_oyente();
   auto proximo_nivel = Reloj::now();
-  std::uint32_t hablando = puente_.hablando;
+  Hablando hablando = puente_.quienes();
   EstadoVoz estado = puente_.estado;
   Teclas antes;
   bool empezando = true;
@@ -176,9 +176,9 @@ void Vigia::correr() {
       empezando = true;
     }
     const bool transmite = motor_.transmitiendo();
-    if (transmite != transmitia || puente_.hablando != hablando || puente_.estado != estado) {
+    if (transmite != transmitia || puente_.quienes() != hablando || puente_.estado != estado) {
       transmitia = transmite;
-      hablando = puente_.hablando;
+      hablando = puente_.quienes();
       estado = puente_.estado;
       cambio = true;
     }

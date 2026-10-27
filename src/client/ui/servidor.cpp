@@ -710,7 +710,9 @@ class Dibujo {
     }
     ImDrawList& dibujo = *ImGui::GetWindowDrawList();
     const bool yo = usuario.id == sala_.tu_id();
-    const bool habla = yo ? pantalla_.transmitiendo : pantalla_.hablando == usuario.id;
+    const bool habla = yo ? pantalla_.transmitiendo
+                          : std::find(pantalla_.hablando.begin(), pantalla_.hablando.end(), usuario.id) !=
+                                pantalla_.hablando.end();
     const ImU32 color_voz = yo ? color::naranja : color::celeste;
     const float medio = y + alto / 2;
     const Cara& su_cara = cara(usuario.nombre);

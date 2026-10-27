@@ -210,7 +210,29 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - si las builds de Windows 10 anteriores a 1809 aceptan la registración por registro;
     - el Asistente de concentración de Windows 10;
     - si wpndatabase.db queda sin cifrar.
-- **Lo que sigue:** la prueba a mano del dueño (HP con la notificación de Windows y XP con la ventanita); después, el resto de la etapa 3.
+- **Etapa 3, paso 3.2a: varias voces a la vez (hecho, 2026-10-27).** El programa mezcla hasta 4 voces (`kVoces`, puente_voz.h), las más fuertes.
+  - **Protocolo:** `Medio` suma `u16 tiempo` (milisegundos del reloj de audio del que habla: cuenta todo lo que entra del micrófono, también sin transmitir, para que en el paso 3.2c una pausa no parezca una traba de la red) y `u8 nivel` (dB sobre −127 dBov, de 0 a 127; el lector rechaza más). Cambia en el lugar, protocolo 2, como `Silenciar`.
+  - **Lugares:** cada voz tiene su decodificador (los 4 en un solo bloque con `opus_decoder_init`, para fijarlo en RAM de una vez), su colchón y su PCM.
+    - Un paquete va al lugar de quien habla. Si no tiene, toma uno libre o uno quieto hace 200 ms con el colchón vacío. Si no hay, saca al más bajito si llega 6 dB más fuerte (el nivel de cada lugar baja 1 dB por paquete). Si no, se descarta y se cuenta (`sin_lugar`).
+    - El origen 0 se descarta (marca un lugar libre; el servidor nunca lo usa).
+    - Al tomar un lugar se reinicia su colchón y su decodificador (`OPUS_RESET_STATE`).
+  - **Mezcla sin saturar:**
+    - suma en `float` por pedazos de hasta 960 muestras;
+    - `limitar` baja todo el pedazo parejo lo justo para no pasar de 32767, y vuelve de a 1/16 por pedazo;
+    - `con_ganancia` queda solo para el micrófono;
+    - los sonidos de los avisos van a sumar en la misma mezcla.
+  - **Quién habla:** `PuenteVoz::hablando` pasa a 4 lugares (`quienes()`). La columna `hablando` del registro pasa a `voces` (cuántas suenan).
+  - **Topes:** 4 voces, colchón de 64 lugares por voz. Memoria fija medida: 320 KB (antes 144). Sin hilos ni despertares nuevos.
+  - **Pruebas:**
+    - dos a la vez en 440 y 660 Hz se oyen las dos (Goertzel);
+    - de cinco suenan cuatro, y uno 18 dB más fuerte se hace lugar;
+    - el limitador baja el pedazo parejo y vuelve arriba de 0,95 en 1 s;
+    - el nivel en dB;
+    - bytes del medio nuevo;
+    - en las 4 combinaciones, Ana oye a Beto y a Carla a la vez;
+    - `fuzz_voz` con 8 que hablan y sin ids repetidos en `hablando`, y las semillas regeneradas al formato nuevo.
+  - **Riesgo:** 4 decodificadores a 16 kHz en la netbook (unos 3,7 % cada uno, diseno.md). Se mide en la prueba a mano del final del paso 3.2; si no da, 3 voces en la calidad baja.
+- **Lo que sigue:** pasos 3.2b (volumen por persona y "Silenciar para mí") y 3.2c (colchón que se ajusta solo); la prueba a mano de las notificaciones (3.1b) y la del paso 3.2 van juntas al final.
 
 ## Ramas y repositorio
 
@@ -403,7 +425,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - programa: `abrir_voz` (puente, motor, audio, vigía) y `cerrar_voz` según `Sala::tu_canal()`, mirado en cada `atender`. Cerrar es inmediato; abrir, como mucho una vez por segundo, así un servidor que alterna "con voz" y "sin voz" no hace abrir y cerrar el dispositivo de audio sin parar. Sin voz, la pantalla, el diagnóstico y el registro no tocan nada de la voz (el registro anota 0; los contadores de pérdida vuelven a 0 al salir, si no el gráfico mostraba una pérdida falsa);
     - sala: `revisar()` elige el chat de texto cuando no hay voz ni chat (al conectar, al salir de la voz mirando el chat de voz, o si borran el canal que mirabas). Mientras espera la respuesta a un `EntrarACanal` no elige nada (`entrando_`): si no, al tocar un canal de voz desde un chat de texto volvía a pedir ese chat antes de que llegara la respuesta y la voz quedaba mostrando el texto (lo encontró la revisión). Si el servidor niega `mirar_canal`, espera 1 s (`historial_despues_`) antes de volver a probar, así no insiste sin parar. Sin canales de texto no hace nada en cada despertar;
     - lo guardado en la PC, sin versión nueva: `ServidorGuardado.canal`, que se escribía y nunca se leía, pasó a ser `texto`, el último canal de texto mirado; `nombre_canal` es el último canal de voz ("Tu último canal" en Inicio y "Volver a <canal>", que lo busca por nombre). Un archivo viejo trae ahí el id de General, que es de voz: se ignora y se va a #general;
-  - audio: miniaudio desde Vista y el puente WinMM en XP (10 ms, 8 de entrada, 3 adelantados, sin corregir desfase); Opus VOIP de 20 ms; calidad automática: Alto (48 kHz, complejidad 10, 24 kbps) o Bajo (16 kHz, complejidad 0, 20 kbps) en PCs de un núcleo físico (`GetLogicalProcessorInformation` por `GetProcAddress`: los de un núcleo con HyperThreading cuentan como uno); el puente WinMM borra `WHDR_DONE` antes de devolver cada pedazo del micrófono (si no, con el micrófono desenchufado giraba sin pausa en "tiempo crítico"); una sola voz por vez (la primera hasta 1 s de silencio) y espera fija de 40 ms hasta la etapa 3. Si el colchón de la voz pasa de 120 ms (una traba del WiFi que después llega toda junta, o placas de sonido con relojes un poco distintos), se tiran los pedazos más viejos y vuelve a 40 ms: sin eso el retraso crecía con cada traba y no bajaba nunca (oído en la PC y en la HP, y medido con una prueba que simula trabas: 580 ms que no se iban). El diagnóstico (tocar el gráfico de la barra de estado) muestra cuánta voz espera en el colchón y cuántas veces se recortó.
+  - audio: miniaudio desde Vista y el puente WinMM en XP (10 ms, 8 de entrada, 3 adelantados, sin corregir desfase); Opus VOIP de 20 ms; calidad automática: Alto (48 kHz, complejidad 10, 24 kbps) o Bajo (16 kHz, complejidad 0, 20 kbps) en PCs de un núcleo físico (`GetLogicalProcessorInformation` por `GetProcAddress`: los de un núcleo con HyperThreading cuentan como uno); el puente WinMM borra `WHDR_DONE` antes de devolver cada pedazo del micrófono (si no, con el micrófono desenchufado giraba sin pausa en "tiempo crítico"); desde el paso 3.2a, hasta 4 voces a la vez (ver ese paso); espera fija de 40 ms hasta el paso 3.2c. Si el colchón de la voz pasa de 120 ms (una traba del WiFi que después llega toda junta, o placas de sonido con relojes un poco distintos), se tiran los pedazos más viejos y vuelve a 40 ms: sin eso el retraso crecía con cada traba y no bajaba nunca (oído en la PC y en la HP, y medido con una prueba que simula trabas: 580 ms que no se iban). El diagnóstico (tocar el gráfico de la barra de estado) muestra cuánta voz espera en el colchón y cuántas veces se recortó.
 - **Reglas de texto (src/common/texto.cpp):** nombres de 1 a 32 caracteres (64 bytes) sin controles, invisibles ni marcas de dirección; chat hasta 4000 bytes con saltos de línea y U+200D; los nombres se comparan con `LCMapStringW(LOCALE_INVARIANT, LCMAP_UPPERCASE)`. Los mensajes del protocolo las aplican al leer y al escribir.
 - **doctest:** en la clásica va sin su informe de cierres inesperados, que usa SetThreadStackGuarantee.
 - **Al arrancar:**
@@ -423,7 +445,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - en TLS, cada mensaje va en un marco: largo del cuerpo (u32) + tipo (u16), cuerpo de 64 KiB como máximo (64 bytes hasta el saludo); el `Ensamblador` guarda un solo marco por vez;
   - el saludo (`Hola`, `Bienvenida`, `Rechazo`) no cambia nunca de formato; lo nuevo va en mensajes posteriores, cuando los dos ya saben qué versión hablan;
   - las funciones son bits de un u64. El bit 0 (`kFuncionPantalla`) está reservado para compartir pantalla y nadie lo anuncia todavía;
-  - los medios por DTLS (`MedioSubida`, `MedioBajada`) llevan `u8 tipo de flujo · u8 flujo · u16 número · u16 largo · datos`, y la bajada empieza con `u32 origen`. Hoy solo existe la voz (tipo 1, flujo 0, Opus de 1 a 400 bytes); el `Lector` marca error con cualquier otro tipo o flujo, así se descartan sin ramas que nunca se usan. "La voz sale primero" se cumple porque el servidor atiende la voz antes que el chat; la cola con prioridades llega en la etapa 8;
+  - los medios por DTLS (`MedioSubida`, `MedioBajada`) llevan `u8 tipo de flujo · u8 flujo · u16 número · u16 tiempo · u8 nivel · u16 largo · datos` (tiempo y nivel desde el paso 3.2a), y la bajada empieza con `u32 origen`. Hoy solo existe la voz (tipo 1, flujo 0, Opus de 1 a 400 bytes); el `Lector` marca error con cualquier otro tipo o flujo, así se descartan sin ramas que nunca se usan. "La voz sale primero" se cumple porque el servidor atiende la voz antes que el chat; la cola con prioridades llega en la etapa 8;
   - la versión de Ventrik y el rango del protocolo están en src/common/version.h. Al subir `kProtocoloMaximo` hay que sumar en `kPrimeraVersionDelProtocolo` la primera versión que lo habla (no compila si falta): es la que se le pide al programa que no llega;
   - el rechazo tiene una sola forma válida: la versión va solo en `programa_viejo`. El programa revisa con `aceptar_bienvenida` y `aceptar_rechazo` lo que contesta el servidor;
   - `Ensamblador::siguiente` entrega un marco por vez; con error consume todo, y `Lector::restante()` da 0, para que ningún bucle quede trabado. Para aceptar un mensaje, `terminado()`, nunca `restante() == 0`.
@@ -453,7 +475,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - clásica: pedazos de audio de 20 ms (WinMM en XP y miniaudio de Vista a 8.1), la mitad de despertares; moderna, 10 ms (decisión del dueño: medir antes de cambiar). Los topes del puente WinMM van en milisegundos: entrada 80, adelanto 30, salida 640, tirar lo callado desde 120 y todo desde 250;
     - hilos de audio y red sin freno de energía (`SetThreadInformation` con `ThreadPowerThrottling`, por `GetProcAddress`); MMCSS "Pro Audio" con `wasapi.usage` de miniaudio. miniaudio carga avrt.dll, mmdevapi.dll y dsound.dll por nombre (en Vista y 7 sin KB2533623 se buscarían primero al lado del .exe): se cargan antes desde system32. Medido: "Pro Audio" no cambia el reloj del proceso;
     - el conteo de voz perdida guarda el último número por hablante con techo de 1024 hablantes (`kMaximoUsuariosEnLista`): un servidor que mandara un origen nuevo en cada paquete hacía crecer la memoria sin fin (ya pasaba antes; lo encontró la revisión);
-    - la voz nunca va al disco: `MemoriaFija` (`VirtualLock`) fija 144 KB del motor, el puente y Opus, más los búferes de audio, y sube el mínimo de memoria del proceso lo justo (lo devuelve al soltar). Si falla, sigue igual;
+    - la voz nunca va al disco: `MemoriaFija` (`VirtualLock`) fija 320 KB del motor (con las 4 voces del paso 3.2a; antes 144 KB), el puente y Opus, más los búferes de audio, y sube el mínimo de memoria del proceso lo justo (lo devuelve al soltar). Si falla, sigue igual;
     - ningún hilo nuevo. El evento `PuenteVoz::cambio` despierta a la vigía solo cuando cambia quién habla o el estado de la voz.
   - **Memoria:** `queda_poca_memoria()` (proceso.h) es el aviso de poca memoria física de Windows, creado una sola vez y consultado en el tic de cada segundo; sin hilos ni despertares.
   - **Compilación:** `/GL` y `/LTCG` en las dos versiones, no en el fuzzing. Medido en la PC: el banco baja 5 a 6 %, la voz igual, ventrik.exe 1 a 2 % más chico y el arranque igual. `/O1` en la clásica, descartado: banco +15 a 18 % y Opus un 67 % más lento. Las letras Barlow pesan 420 KiB (13 % de ventrik.exe) y el ícono 258 KiB; se leen del .exe sin copiar.
@@ -497,7 +519,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - Windows 11.
 - De las revisiones del 2.1 y 2.2: validar la configuración del servidor cuando se cargue de un archivo (rango del protocolo derecho y sin pasar de `kProtocoloMaximo`; las pruebas usan protocolos 2 a 5).
 - Nombres "parecidos" con letras de otro alfabeto: etapa 9.
-- Voz, etapa 3: buffer que se ajusta solo (hoy 40 ms fijos, unas 110 ms de punta a punta en la red de casa), mezcla de varias voces, silenciar y ensordecer.
+- Voz, etapa 3: buffer que se ajusta solo (hoy 40 ms fijos, unas 110 ms de punta a punta en la red de casa), en el paso 3.2c.
 - Voz, etapa 6: la regla "el UDP viene de la misma IP que el TCP" deja sin voz a casas con dos salidas a internet, algunos CGNAT y servidores con varias placas; revisarla con el relay.
 - Voz, etapa 8: un hilo por núcleo en el servidor (en la netbook, un saludo TLS en el mismo hilo puede meter un corte corto en la voz), tope de voces, corrección de errores de Opus cuando hay pérdida.
 - Voz: al rotar la clave cada hora, el programa corta la sesión vieja antes de tener la nueva (unos milisegundos de voz perdida que Opus disimula); se puede pasar a "armar la nueva antes de soltar la vieja".

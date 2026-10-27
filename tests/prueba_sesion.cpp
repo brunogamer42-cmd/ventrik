@@ -462,6 +462,8 @@ TEST_CASE("La voz va por UDP solo a los del mismo canal, y sigue andando al rota
   REQUIRE(en_beto);
   CHECK(en_beto->hablante == ana_id);
   CHECK(en_beto->numero == enviado);
+  CHECK(en_beto->tiempo == static_cast<std::uint16_t>(enviado * 20));
+  CHECK(en_beto->nivel == 90);
   CHECK(en_beto->largo == 3);
   CHECK(en_beto->opus[2] == 3);
   CHECK_FALSE(escuchar(*pc, 300ms));

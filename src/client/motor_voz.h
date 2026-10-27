@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include <gsl/gsl>
 
@@ -28,6 +29,8 @@ constexpr int kPedazosTrasCallarse = 20;
 
 int umbral_de(int por_ciento);
 std::int16_t con_ganancia(std::int16_t muestra, int por_ciento);
+std::uint8_t nivel_de(gsl::span<const std::int16_t> pedazo);
+void limitar(gsl::span<const float> mezcla, gsl::span<std::int16_t> salida, float& limite);
 
 class MotorVoz {
  public:
@@ -35,7 +38,7 @@ class MotorVoz {
   MotorVoz(const MotorVoz&) = delete;
   MotorVoz& operator=(const MotorVoz&) = delete;
 
-  bool ok() const { return codificador_ && decodificador_; }
+  bool ok() const { return codificador_ && !decodificadores_.empty(); }
   unsigned frecuencia() const { return calidad_.frecuencia; }
   void transmitir(bool si) { transmitiendo_ = si && !sin_microfono_; }
   bool transmitiendo() const { return transmitiendo_; }
@@ -58,6 +61,7 @@ class MotorVoz {
   std::uint32_t recortes() const { return recortes_.load(std::memory_order_relaxed); }
   std::uint32_t vaciados() const { return vaciados_.load(std::memory_order_relaxed); }
   std::uint32_t faltas() const { return faltas_.load(std::memory_order_relaxed); }
+  std::uint32_t sin_lugar() const { return sin_lugar_.load(std::memory_order_relaxed); }
 
   void procesar(gsl::span<const std::int16_t> entrada, gsl::span<std::int16_t> salida) noexcept;
   static void procesar_audio(void* motor, gsl::span<const std::int16_t> entrada,
@@ -68,32 +72,44 @@ class MotorVoz {
  private:
   struct Borrar {
     void operator()(OpusEncoder* codificador) const;
-    void operator()(OpusDecoder* decodificador) const;
+  };
+
+  struct Voz {
+    OpusDecoder* decodificador = nullptr;
+    BufferVoz buffer;
+    std::array<std::int16_t, 5760> pcm{};
+    std::size_t cuantas = 0;
+    std::size_t leidas = 0;
+    std::uint32_t hablante = 0;
+    int nivel = 0;
+    unsigned quietos = 0;
   };
 
   using Pedazo = std::array<std::int16_t, 960>;
 
   void pedazo_completo(bool por_voz);
-  void codificar(const Pedazo& pedazo);
-  void decodificar();
+  void codificar(const Pedazo& pedazo, std::uint16_t tiempo);
+  void recibir();
+  Voz* lugar_para(const PaqueteVoz& paquete);
+  void sumar(std::size_t cual, gsl::span<float> mezcla, float ganancia);
+  void decodificar(std::size_t cual);
+  void contar();
 
   PuenteVoz& puente_;
   Calidad calidad_;
   std::size_t por_paquete_;
   std::unique_ptr<OpusEncoder, Borrar> codificador_;
-  std::unique_ptr<OpusDecoder, Borrar> decodificador_;
+  std::vector<std::uint64_t> decodificadores_;
   Pedazo capturado_{};
   Pedazo anterior_{};
   std::size_t capturadas_ = 0;
+  std::uint64_t capturadas_total_ = 0;
   bool hay_anterior_ = false;
   bool abierto_ = false;
   int restante_ = 0;
-  std::array<std::int16_t, 5760> reproducir_{};
-  std::size_t por_reproducir_ = 0;
-  std::size_t reproducidas_ = 0;
-  BufferVoz buffer_;
-  std::uint32_t hablante_ = 0;
-  unsigned quietos_ = 0;
+  std::array<Voz, kVoces> voces_;
+  std::array<float, 960> mezcla_{};
+  float limite_ = 1;
   std::uint16_t numero_ = 0;
   std::atomic<bool> transmitiendo_{false};
   std::atomic<bool> solo_{false};
@@ -108,6 +124,7 @@ class MotorVoz {
   std::atomic<std::uint32_t> recortes_{0};
   std::atomic<std::uint32_t> vaciados_{0};
   std::atomic<std::uint32_t> faltas_{0};
+  std::atomic<std::uint32_t> sin_lugar_{0};
   MemoriaFija fija_;
 };
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -11,9 +12,14 @@
 #include "common/red/red.h"
 
 namespace ventrik::cliente {
+constexpr std::size_t kVoces = 4;
+using Hablando = std::array<std::uint32_t, kVoces>;
+
 struct PaqueteVoz {
   std::uint32_t hablante = 0;
   std::uint16_t numero = 0;
+  std::uint16_t tiempo = 0;
+  std::uint8_t nivel = 0;
   std::uint16_t largo = 0;
   std::array<std::uint8_t, protocolo::kMaximoOpus> opus{};
 };
@@ -76,12 +82,19 @@ struct PuenteVoz {
     }
   }
 
+  Hablando quienes() const {
+    Hablando ids{};
+    std::transform(hablando.begin(), hablando.end(), ids.begin(),
+                   [](const std::atomic<std::uint32_t>& id) { return id.load(); });
+    return ids;
+  }
+
   ColaVoz<8> subida;
   ColaVoz<64> bajada;
   red::Despertador despertador;
   Aviso cambio;
   std::atomic<EstadoVoz> estado{EstadoVoz::sin_clave};
-  std::atomic<std::uint32_t> hablando{0};
+  std::array<std::atomic<std::uint32_t>, kVoces> hablando{};
   std::atomic<std::uint32_t> recibidos{0};
   std::atomic<std::uint32_t> perdidos{0};
   std::atomic<std::uint32_t> ping_ms{0};

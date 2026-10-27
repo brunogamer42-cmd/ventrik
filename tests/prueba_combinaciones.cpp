@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -29,7 +30,8 @@ struct Voz {
   std::shared_ptr<PuenteVoz> puente = std::make_shared<PuenteVoz>();
   MotorVoz motor{*puente, {}};
   std::vector<std::int16_t> escuchado;
-  std::uint32_t hablando = 0;
+  std::set<std::uint32_t> hablaron;
+  std::ptrdiff_t a_la_vez = 0;
 };
 
 void hablar_un_rato(const std::vector<Voz*>& voces, std::chrono::milliseconds cuanto) {
@@ -42,7 +44,12 @@ void hablar_un_rato(const std::vector<Voz*>& voces, std::chrono::milliseconds cu
     for (Voz* voz : voces) {
       voz->motor.procesar(sonido, salida);
       voz->escuchado.insert(voz->escuchado.end(), salida.begin(), salida.end());
-      voz->hablando = std::max(voz->hablando, voz->puente->hablando.load());
+      const auto ids = voz->puente->quienes();
+      voz->hablaron.insert(ids.begin(), ids.end());
+      voz->hablaron.erase(0);
+      voz->a_la_vez = std::max(voz->a_la_vez, std::count_if(ids.begin(), ids.end(), [](std::uint32_t id) {
+                                 return id != 0;
+                               }));
     }
     std::this_thread::sleep_for(10ms);
   }
@@ -74,8 +81,10 @@ TEST_CASE("combinaciones: servidor y programa de verdad, de la misma versión o 
 
   Cliente ana(servidor.direccion(), servidor.huella(), "Ana", servidor.codigo());
   Cliente beto(servidor.direccion(), servidor.huella(), "Beto");
+  Cliente carla(servidor.direccion(), servidor.huella(), "Carla");
   const auto ana_id = ana.entrar().tu_id;
   const auto beto_id = beto.entrar().tu_id;
+  const auto carla_id = carla.entrar().tu_id;
 
   ana.ordenar(CrearCanal{"charla", TipoCanal::texto, false});
   const auto charla = beto.esperar<CanalCreado>();
@@ -96,30 +105,43 @@ TEST_CASE("combinaciones: servidor y programa de verdad, de la misma versión o 
   REQUIRE(historial);
   CHECK(historial->mensajes.size() == 2);
 
-  for (Cliente* cliente : {&ana, &beto}) {
+  for (Cliente* cliente : {&ana, &beto, &carla}) {
     cliente->ordenar(EntrarACanal{kCanalGeneral});
   }
-  for (Cliente* cliente : {&ana, &beto}) {
+  for (Cliente* cliente : {&ana, &beto, &carla}) {
     ver_en(*cliente, ana_id, kCanalGeneral);
     ver_en(*cliente, beto_id, kCanalGeneral);
+    ver_en(*cliente, carla_id, kCanalGeneral);
   }
   {
     Voz de_ana;
     Voz de_beto;
+    Voz de_carla;
     REQUIRE(de_ana.motor.ok());
     REQUIRE(de_beto.motor.ok());
+    REQUIRE(de_carla.motor.ok());
     ana.voz(de_ana.puente);
     beto.voz(de_beto.puente);
+    carla.voz(de_carla.puente);
     REQUIRE(esperar_que(
-        [&] { return de_ana.puente->estado == EstadoVoz::lista && de_beto.puente->estado == EstadoVoz::lista; },
+        [&] {
+          return de_ana.puente->estado == EstadoVoz::lista && de_beto.puente->estado == EstadoVoz::lista &&
+                 de_carla.puente->estado == EstadoVoz::lista;
+        },
         10s));
     de_ana.motor.transmitir(true);
     de_beto.motor.transmitir(true);
-    hablar_un_rato({&de_ana, &de_beto}, 2s);
+    de_carla.motor.transmitir(true);
+    hablar_un_rato({&de_ana, &de_beto, &de_carla}, 2s);
     CHECK(energia(de_ana.escuchado, de_ana.escuchado.size() / 2) > 1e6);
     CHECK(energia(de_beto.escuchado, de_beto.escuchado.size() / 2) > 1e6);
-    CHECK(de_ana.hablando == beto_id);
-    CHECK(de_beto.hablando == ana_id);
+    CHECK(de_ana.hablaron == std::set<std::uint32_t>{beto_id, carla_id});
+    CHECK(de_beto.hablaron == std::set<std::uint32_t>{ana_id, carla_id});
+    CHECK(de_ana.a_la_vez == 2);
+    de_carla.motor.transmitir(false);
+    carla.ordenar(EntrarACanal{0});
+    carla.voz(nullptr);
+    ver_en(ana, carla_id, 0);
 
     beto.ordenar(Silenciar{1});
     REQUIRE(ana.esperar<UsuarioSilencio>([&](const UsuarioSilencio& s) { return s.id == beto_id && s.silencio == 1; }));

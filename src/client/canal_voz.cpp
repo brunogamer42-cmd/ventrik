@@ -88,6 +88,8 @@ void CanalVoz::atender(Reloj::time_point ahora) {
   leer(ahora);
   while (lista_ && puente_.subida.sacar(paquete)) {
     subida_.medio.numero = paquete.numero;
+    subida_.medio.tiempo = paquete.tiempo;
+    subida_.medio.nivel = paquete.nivel;
     subida_.medio.datos.assign(paquete.opus.begin(), paquete.opus.begin() + paquete.largo);
     enviar(subida_);
   }
@@ -160,6 +162,8 @@ void CanalVoz::recibir(gsl::span<const std::uint8_t> registro, Reloj::time_point
         PaqueteVoz paquete;
         paquete.hablante = bajada->origen;
         paquete.numero = bajada->medio.numero;
+        paquete.tiempo = bajada->medio.tiempo;
+        paquete.nivel = bajada->medio.nivel;
         paquete.largo = static_cast<std::uint16_t>(bajada->medio.datos.size());
         std::copy(bajada->medio.datos.begin(), bajada->medio.datos.end(), paquete.opus.begin());
         puente_.bajada.poner(paquete);

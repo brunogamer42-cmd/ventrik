@@ -227,7 +227,7 @@ ventrik::cliente::Sala sala_llena(bool dueno, std::size_t canales, std::size_t p
 ui::PantallaServidor pantalla_servidor() {
   ui::PantallaServidor pantalla;
   pantalla.direccion = "203.0.113.20:7700";
-  pantalla.hablando = 2;
+  pantalla.hablando = {2};
   pantalla.transmitiendo = true;
   pantalla.nivel = 7;
   for (std::uint32_t i = 0; i < ui::kMuestrasDelGrafico; ++i) {

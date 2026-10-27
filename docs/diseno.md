@@ -250,7 +250,7 @@ Recorrido de la voz:
 4. Opus comprime la voz en pedazos de 20 milésimas de segundo, a 24 kbps.
 5. La voz se cifra y viaja al servidor.
 6. El servidor la reenvía a los demás del canal tal como llegó: no la decodifica ni la mezcla.
-7. Cada programa espera unas milésimas para ordenar los pedazos que llegan desordenados, los decodifica y mezcla las voces.
+7. Cada programa espera unas milésimas para ordenar los pedazos que llegan desordenados, los decodifica y mezcla las voces: como mucho las 4 más fuertes (por el nivel que trae cada paquete), sin saturar nunca.
 
 Ahorros automáticos:
 
@@ -545,7 +545,7 @@ El mínimo del programa es TLS 1.3 o DTLS 1.2, con AES-GCM o ChaCha20. Sin ese m
 - **Se ata a la conexión:** el servidor sabe de quién es cada sesión de voz por la clave, y además exige que el UDP llegue desde la misma IP que la conexión TCP. Así decide quién habla según la conexión, y el paquete no dice quién es.
 - **Se renueva cada hora:** el servidor manda una identificación nueva; la vieja deja de servir para conectar.
 - **Antes de gastar nada:** el servidor solo atiende UDP de una IP que tiene una conexión presentada, pide una cookie antes del saludo (así nadie lo usa para atacar a otros), tiene tope de saludos a medio hacer por IP y en total, tope de paquetes por persona y descarta los repetidos.
-- **Formato de los medios, dentro de DTLS:** `u16 tipo` y el cuerpo. Los paquetes de medios llevan el tipo de flujo (1 = voz; el 2 queda reservado para compartir pantalla) y el número de flujo (la voz va en el 0). El servidor reenvía según el tipo, descarta los tipos y flujos que no conoce sin cortar la sesión, y manda primero la voz. El programa manda `MedioSubida` (tipo, flujo, número de paquete de 16 bits y hasta 400 bytes de Opus); el servidor reenvía `MedioBajada` (quién habla, que lo pone el servidor, y el mismo medio) a los demás del mismo canal. `Ping` y `Pong` cada 5 segundos (cada 15 en ahorro: ventana minimizada, juego en pantalla completa o PC bloqueada) mantienen abierto el camino (NAT) y miden la conexión.
+- **Formato de los medios, dentro de DTLS:** `u16 tipo` y el cuerpo. Los paquetes de medios llevan el tipo de flujo (1 = voz; el 2 queda reservado para compartir pantalla) y el número de flujo (la voz va en el 0). El servidor reenvía según el tipo, descarta los tipos y flujos que no conoce sin cortar la sesión, y manda primero la voz. El programa manda `MedioSubida` (tipo, flujo, número de paquete de 16 bits, tiempo en milisegundos del reloj de audio del que habla, de 16 bits y con vuelta, nivel del paquete de 0 a 127 en dB sobre −127 dBov, y hasta 400 bytes de Opus); el servidor reenvía `MedioBajada` (quién habla, que lo pone el servidor, y el mismo medio) a los demás del mismo canal. `Ping` y `Pong` cada 5 segundos (cada 15 en ahorro: ventana minimizada, juego en pantalla completa o PC bloqueada) mantienen abierto el camino (NAT) y miden la conexión.
 - **Límites conocidos de la regla de la IP:** casas con dos salidas a internet, algunos CGNAT y servidores con varias placas de red pueden quedarse sin voz. Se revisan con el relay (etapa 6).
 
 La invitación lleva la huella del servidor. Si al conectar no coincide, el programa avisa y no se conecta; conviene pasar la huella por otro medio, como WhatsApp o en persona.

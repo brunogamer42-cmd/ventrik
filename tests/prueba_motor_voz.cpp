@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <set>
+#include <utility>
 #include <vector>
 
 #include <windows.h>
@@ -15,6 +17,7 @@
 #include <doctest/doctest.h>
 
 using prueba::energia;
+using prueba::potencia_en;
 using prueba::tono;
 using ventrik::cliente::BufferVoz;
 using ventrik::cliente::Calidad;
@@ -82,10 +85,58 @@ std::vector<std::int16_t> hablar_y_escuchar(const Calidad& habla, const Calidad&
     }
     receptor.procesar(silencio, salida);
     escuchado.insert(escuchado.end(), salida.begin(), salida.end());
-    hablando = std::max(hablando, de_vuelta.hablando.load());
+    const auto ids = de_vuelta.quienes();
+    hablando = std::max(hablando, *std::max_element(ids.begin(), ids.end()));
   }
   CHECK(esperado == 50);
   return escuchado;
+}
+
+struct Escucha {
+  std::vector<std::int16_t> salida;
+  std::set<std::uint32_t> hablaron;
+  std::ptrdiff_t a_la_vez = 0;
+  std::uint32_t sin_lugar = 0;
+};
+
+Escucha varios_hablan(const std::vector<std::pair<double, double>>& tonos) {
+  PuenteVoz de_vuelta;
+  MotorVoz receptor(de_vuelta, Calidad{});
+  REQUIRE(receptor.ok());
+  std::vector<std::unique_ptr<PuenteVoz>> puentes;
+  std::vector<std::unique_ptr<MotorVoz>> emisores;
+  for (std::size_t i = 0; i < tonos.size(); ++i) {
+    puentes.push_back(std::make_unique<PuenteVoz>());
+    emisores.push_back(std::make_unique<MotorVoz>(*puentes.back(), Calidad{}));
+    REQUIRE(emisores.back()->ok());
+    emisores.back()->transmitir(true);
+  }
+  std::vector<std::int16_t> sonido(480);
+  std::vector<std::int16_t> descarte(480);
+  std::vector<std::int16_t> salida(480);
+  std::vector<std::size_t> muestras(tonos.size());
+  Escucha escucha;
+  for (int tanda = 0; tanda < 100; ++tanda) {
+    for (std::size_t i = 0; i < tonos.size(); ++i) {
+      tono(sonido, muestras[i], 48000, tonos[i].first, tonos[i].second);
+      emisores[i]->procesar(sonido, descarte);
+      PaqueteVoz paquete_voz;
+      while (puentes[i]->subida.sacar(paquete_voz)) {
+        paquete_voz.hablante = static_cast<std::uint32_t>(i + 1);
+        REQUIRE(de_vuelta.bajada.poner(paquete_voz));
+      }
+    }
+    receptor.procesar(descarte, salida);
+    escucha.salida.insert(escucha.salida.end(), salida.begin(), salida.end());
+    const auto ids = de_vuelta.quienes();
+    escucha.hablaron.insert(ids.begin(), ids.end());
+    escucha.a_la_vez = std::max(escucha.a_la_vez, std::count_if(ids.begin(), ids.end(), [](std::uint32_t id) {
+                                  return id != 0;
+                                }));
+  }
+  escucha.hablaron.erase(0);
+  escucha.sin_lugar = receptor.sin_lugar();
+  return escucha;
 }
 
 }
@@ -247,7 +298,83 @@ TEST_CASE("Con el micrófono silenciado no se comprime ni se manda nada, aunque 
   CHECK(puente.subida.sacar(sacado));
 }
 
-TEST_CASE("Sin transmitir no sale nada, y un segundo hablante espera su turno") {
+TEST_CASE("Dos que hablan a la vez se oyen los dos") {
+  const Escucha escucha = varios_hablan({{440, 8000}, {660, 8000}});
+  const auto mitad = escucha.salida.size() / 2;
+  const double ruido = potencia_en(escucha.salida, mitad, 1000, 48000);
+  CHECK(potencia_en(escucha.salida, mitad, 440, 48000) > 100 * ruido);
+  CHECK(potencia_en(escucha.salida, mitad, 660, 48000) > 100 * ruido);
+  CHECK(escucha.hablaron == std::set<std::uint32_t>{1, 2});
+  CHECK(escucha.a_la_vez == 2);
+  CHECK(escucha.sin_lugar == 0);
+}
+
+TEST_CASE("De cinco que hablan suenan cuatro, y uno más fuerte se hace lugar") {
+  const Escucha bajito = varios_hablan({{440, 8000}, {550, 8000}, {660, 8000}, {770, 8000}, {880, 300}});
+  CHECK(bajito.hablaron == std::set<std::uint32_t>{1, 2, 3, 4});
+  CHECK(bajito.a_la_vez == 4);
+  CHECK(bajito.sin_lugar > 0);
+  const Escucha fuerte = varios_hablan({{440, 1000}, {550, 1000}, {660, 1000}, {770, 1000}, {880, 8000}});
+  CHECK(fuerte.hablaron.count(5) == 1);
+  CHECK(fuerte.a_la_vez == 4);
+  CHECK(fuerte.sin_lugar > 0);
+  const auto mitad = fuerte.salida.size() / 2;
+  CHECK(potencia_en(fuerte.salida, mitad, 880, 48000) > 100 * potencia_en(fuerte.salida, mitad, 1000, 48000));
+}
+
+TEST_CASE("La mezcla nunca recorta: baja todo el pedazo parejo y vuelve de a poco") {
+  using ventrik::cliente::limitar;
+  std::vector<float> mezcla(480);
+  std::vector<std::int16_t> salida(480);
+  for (std::size_t i = 0; i < mezcla.size(); ++i) {
+    mezcla[i] = static_cast<float>(4 * 2 * 32767 * std::sin(2 * 3.14159265 * 440 * static_cast<double>(i) / 48000));
+  }
+  float limite = 1;
+  limitar(mezcla, salida, limite);
+  float pico = 0;
+  for (const float valor : mezcla) {
+    pico = std::max(pico, std::abs(valor));
+  }
+  const float ganancia = 32767 / pico;
+  for (std::size_t i = 0; i < mezcla.size(); ++i) {
+    CHECK(std::abs(salida[i] - mezcla[i] * ganancia) < 1.5f);
+  }
+  CHECK(limite < 0.2f);
+  std::fill(mezcla.begin(), mezcla.end(), 1000.0f);
+  for (int tanda = 0; tanda < 100; ++tanda) {
+    limitar(mezcla, salida, limite);
+  }
+  CHECK(salida[0] > 950);
+  CHECK(limite > 0.95f);
+}
+
+TEST_CASE("El nivel de cada paquete va en dB sobre -127, de 0 a 127") {
+  using ventrik::cliente::nivel_de;
+  CHECK(nivel_de(std::vector<std::int16_t>(960, 0)) == 0);
+  CHECK(nivel_de(std::vector<std::int16_t>(960, 32767)) == 127);
+  std::vector<std::int16_t> seno(960);
+  std::size_t muestra = 0;
+  for (auto& valor : seno) {
+    valor = static_cast<std::int16_t>(3277 * std::sin(2 * 3.14159265 * 1000 * static_cast<double>(muestra++) / 48000));
+  }
+  CHECK(nivel_de(seno) == 104);
+}
+
+TEST_CASE("Un paquete sin origen se descarta y no ocupa lugar") {
+  PuenteVoz puente;
+  MotorVoz motor(puente, Calidad{});
+  REQUIRE(motor.ok());
+  std::vector<std::int16_t> entrada(480);
+  std::vector<std::int16_t> salida(480);
+  for (std::uint16_t numero = 0; numero < 4; ++numero) {
+    REQUIRE(puente.bajada.poner(paquete(numero, 0)));
+  }
+  motor.procesar(entrada, salida);
+  CHECK(motor.sin_lugar() == 4);
+  CHECK(motor.espera_ms() == 0);
+}
+
+TEST_CASE("Sin transmitir no sale nada, y dos que hablan entran los dos") {
   PuenteVoz puente;
   MotorVoz motor(puente, Calidad{});
   REQUIRE(motor.ok());
@@ -266,7 +393,9 @@ TEST_CASE("Sin transmitir no sale nada, y un segundo hablante espera su turno") 
   for (int i = 0; i < 6; ++i) {
     motor.procesar(entrada, salida);
   }
-  CHECK(puente.hablando == 5);
+  const auto ids = puente.quienes();
+  CHECK(std::count(ids.begin(), ids.end(), 5u) == 1);
+  CHECK(std::count(ids.begin(), ids.end(), 6u) == 1);
   CHECK(avisado(puente));
   CHECK_FALSE(avisado(puente));
 }
@@ -275,9 +404,9 @@ TEST_CASE("El puente avisa solo cuando cambia quién habla o el estado de la voz
   PuenteVoz puente;
   REQUIRE(puente.cambio.evento() != nullptr);
   CHECK_FALSE(avisado(puente));
-  puente.cambiar(puente.hablando, 5u);
+  puente.cambiar(puente.hablando[0], 5u);
   CHECK(avisado(puente));
-  puente.cambiar(puente.hablando, 5u);
+  puente.cambiar(puente.hablando[0], 5u);
   CHECK_FALSE(avisado(puente));
   puente.cambiar(puente.estado, EstadoVoz::lista);
   puente.cambiar(puente.estado, EstadoVoz::lista);

@@ -12,6 +12,7 @@
 
 #include <imgui.h>
 
+#include "client/puente_voz.h"
 #include "client/sala.h"
 #include "client/ui/piezas.h"
 #include "common/texto.h"
@@ -97,7 +98,7 @@ struct PantallaServidor {
   int volumen_microfono = 100;
   int volumen_salida = 100;
   bool transmitiendo = false;
-  std::uint32_t hablando = 0;
+  cliente::Hablando hablando{};
   int nivel = 0;
   std::deque<Muestra> grafico;
   Campo buscar{};

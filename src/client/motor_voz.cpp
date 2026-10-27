@@ -9,18 +9,41 @@
 
 #include <opus.h>
 
-#include "common/pendiente.h"
-
-VENTRIK_PENDIENTE("una sola voz por vez y espera fija de 40 ms: mezcla y buffer que se ajusta solo en la etapa 3")
-
 namespace ventrik::cliente {
 namespace {
 constexpr unsigned kQuietosParaCambiar = 50;
+constexpr unsigned kQuietosParaPrestar = 10;
+constexpr int kVentajaParaEntrar = 6;
 constexpr opus_int32 kSoloCabecera = 2;
 }
 
 std::int16_t con_ganancia(std::int16_t muestra, int por_ciento) {
   return static_cast<std::int16_t>(std::clamp(muestra * por_ciento / 100, -32768, 32767));
+}
+
+std::uint8_t nivel_de(gsl::span<const std::int16_t> pedazo) {
+  double suma = 0;
+  for (const std::int16_t muestra : pedazo) {
+    suma += static_cast<double>(muestra) * muestra;
+  }
+  if (suma <= 0) {
+    return 0;
+  }
+  const double decibeles = 10 * std::log10(suma / static_cast<double>(pedazo.size()) / (32768.0 * 32768.0));
+  return static_cast<std::uint8_t>(std::clamp<long>(std::lround(protocolo::kNivelMaximo + decibeles), 0,
+                                                    protocolo::kNivelMaximo));
+}
+
+void limitar(gsl::span<const float> mezcla, gsl::span<std::int16_t> salida, float& limite) {
+  float pico = 0;
+  for (const float valor : mezcla) {
+    pico = std::max(pico, std::abs(valor));
+  }
+  const float ganancia = pico * limite > 32767 ? 32767 / pico : limite;
+  std::transform(mezcla.begin(), mezcla.end(), salida.begin(), [ganancia](float valor) {
+    return static_cast<std::int16_t>(std::clamp(valor * ganancia, -32768.0f, 32767.0f));
+  });
+  limite = ganancia + (1 - ganancia) / 16;
 }
 
 Calidad calidad_automatica() {
@@ -47,10 +70,6 @@ void MotorVoz::Borrar::operator()(OpusEncoder* codificador) const {
   opus_encoder_destroy(codificador);
 }
 
-void MotorVoz::Borrar::operator()(OpusDecoder* decodificador) const {
-  opus_decoder_destroy(decodificador);
-}
-
 MotorVoz::MotorVoz(PuenteVoz& puente, const Calidad& calidad)
     : puente_(puente),
       calidad_(calidad),
@@ -66,15 +85,19 @@ MotorVoz::MotorVoz(PuenteVoz& puente, const Calidad& calidad)
   opus_encoder_ctl(codificador_.get(), OPUS_SET_COMPLEXITY(calidad_.complejidad));
   opus_encoder_ctl(codificador_.get(), OPUS_SET_VBR_CONSTRAINT(1));
   opus_encoder_ctl(codificador_.get(), OPUS_SET_DTX(1));
-  decodificador_.reset(opus_decoder_create(static_cast<opus_int32>(calidad_.frecuencia), 1, &error));
-  if (error != OPUS_OK) {
-    decodificador_.reset();
-    return;
+  const std::size_t paso = (static_cast<std::size_t>(opus_decoder_get_size(1)) + 15) / 16 * 2;
+  std::vector<std::uint64_t> bloque(paso * kVoces);
+  for (std::size_t cual = 0; cual < kVoces; ++cual) {
+    voces_[cual].decodificador = reinterpret_cast<OpusDecoder*>(bloque.data() + cual * paso);
+    if (opus_decoder_init(voces_[cual].decodificador, static_cast<opus_int32>(calidad_.frecuencia), 1) != OPUS_OK) {
+      return;
+    }
   }
+  decodificadores_ = std::move(bloque);
   fija_.fijar({{this, sizeof(*this)},
                {&puente_, sizeof(puente_)},
                {codificador_.get(), static_cast<std::size_t>(opus_encoder_get_size(1))},
-               {decodificador_.get(), static_cast<std::size_t>(opus_decoder_get_size(1))}});
+               {decodificadores_.data(), decodificadores_.size() * sizeof(std::uint64_t)}});
 }
 
 void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
@@ -97,6 +120,7 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
   }
   if (!escuchar || (solo_ && !por_voz)) {
     capturadas_ = 0;
+    capturadas_total_ += entrada.size();
     entrada = {};
   }
   while (!entrada.empty()) {
@@ -104,19 +128,26 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     std::transform(parte.begin(), parte.end(), capturado_.begin() + static_cast<std::ptrdiff_t>(capturadas_),
                    [ganancia](std::int16_t muestra) { return con_ganancia(muestra, ganancia); });
     capturadas_ += parte.size();
+    capturadas_total_ += parte.size();
     entrada = entrada.subspan(parte.size());
     if (capturadas_ == por_paquete_) {
       pedazo_completo(por_voz);
       capturadas_ = 0;
     }
   }
-  const int volumen = sin_audio_ ? 0 : ganancia_salida_.load();
-  for (std::int16_t& muestra : salida) {
-    if (reproducidas_ == por_reproducir_) {
-      decodificar();
+  const float volumen = sin_audio_ ? 0.0f : static_cast<float>(ganancia_salida_.load()) / 100;
+  while (!salida.empty()) {
+    const auto parte = salida.first(std::min(salida.size(), mezcla_.size()));
+    const auto mezcla = gsl::make_span(mezcla_).first(parte.size());
+    recibir();
+    std::fill(mezcla.begin(), mezcla.end(), 0.0f);
+    for (std::size_t cual = 0; cual < kVoces; ++cual) {
+      sumar(cual, mezcla, volumen);
     }
-    muestra = con_ganancia(reproducir_[reproducidas_++], volumen);
+    limitar(mezcla, parte, limite_);
+    salida = salida.subspan(parte.size());
   }
+  contar();
 }
 
 int MotorVoz::nivel(int segmentos) const {
@@ -134,8 +165,9 @@ int umbral_de(int por_ciento) {
 }
 
 void MotorVoz::pedazo_completo(bool por_voz) {
+  const auto tiempo = static_cast<std::uint16_t>(capturadas_total_ * 1000 / calidad_.frecuencia);
   if (!por_voz) {
-    codificar(capturado_);
+    codificar(capturado_, tiempo);
     return;
   }
   const int umbral = umbral_;
@@ -145,9 +177,9 @@ void MotorVoz::pedazo_completo(bool por_voz) {
   restante_ = pasa ? kPedazosTrasCallarse : std::max(restante_ - 1, 0);
   if (abrir && !solo_) {
     if (!abierto_ && hay_anterior_) {
-      codificar(anterior_);
+      codificar(anterior_, static_cast<std::uint16_t>(tiempo - por_paquete_ * 1000 / calidad_.frecuencia));
     }
-    codificar(capturado_);
+    codificar(capturado_, tiempo);
   }
   if (!abrir) {
     anterior_ = capturado_;
@@ -159,7 +191,7 @@ void MotorVoz::pedazo_completo(bool por_voz) {
   }
 }
 
-void MotorVoz::codificar(const Pedazo& pedazo) {
+void MotorVoz::codificar(const Pedazo& pedazo, std::uint16_t tiempo) {
   PaqueteVoz paquete;
   const opus_int32 largo =
       opus_encode(codificador_.get(), pedazo.data(), static_cast<int>(por_paquete_),
@@ -170,50 +202,109 @@ void MotorVoz::codificar(const Pedazo& pedazo) {
     return;
   }
   paquete.numero = numero_++;
+  paquete.tiempo = tiempo;
+  paquete.nivel = nivel_de(gsl::make_span(pedazo).first(por_paquete_));
   paquete.largo = static_cast<std::uint16_t>(largo);
   if (puente_.subida.poner(paquete)) {
     puente_.despertador.despertar();
   }
 }
 
-void MotorVoz::decodificar() {
+void MotorVoz::recibir() {
   PaqueteVoz llegado;
   while (puente_.bajada.sacar(llegado)) {
-    if (hablante_ == 0) {
-      hablante_ = llegado.hablante;
-      buffer_.reiniciar();
-      opus_decoder_ctl(decodificador_.get(), OPUS_RESET_STATE);
-    }
-    if (llegado.hablante == hablante_) {
-      buffer_.llegar(llegado);
+    if (Voz* voz = lugar_para(llegado)) {
+      voz->buffer.llegar(llegado);
+      voz->nivel = std::max<int>(voz->nivel, llegado.nivel);
+    } else {
+      sin_lugar_.fetch_add(1, std::memory_order_relaxed);
     }
   }
+}
+
+MotorVoz::Voz* MotorVoz::lugar_para(const PaqueteVoz& paquete) {
+  const auto buscar = [this](auto condicion) {
+    const auto encontrada = std::find_if(voces_.begin(), voces_.end(), condicion);
+    return encontrada == voces_.end() ? nullptr : &*encontrada;
+  };
+  if (paquete.hablante == 0) {
+    return nullptr;
+  }
+  if (Voz* suya = buscar([&paquete](const Voz& voz) { return voz.hablante == paquete.hablante; })) {
+    return suya;
+  }
+  Voz* libre = buscar([](const Voz& voz) {
+    return voz.hablante == 0 || (voz.quietos >= kQuietosParaPrestar && voz.buffer.cantidad() == 0);
+  });
+  Voz& debil = *std::min_element(voces_.begin(), voces_.end(),
+                                 [](const Voz& una, const Voz& otra) { return una.nivel < otra.nivel; });
+  Voz* elegida = libre != nullptr ? libre : paquete.nivel >= debil.nivel + kVentajaParaEntrar ? &debil : nullptr;
+  if (elegida != nullptr) {
+    elegida->hablante = paquete.hablante;
+    elegida->buffer.reiniciar();
+    opus_decoder_ctl(elegida->decodificador, OPUS_RESET_STATE);
+    elegida->cuantas = elegida->leidas = 0;
+    elegida->nivel = 0;
+    elegida->quietos = 0;
+  }
+  return elegida;
+}
+
+void MotorVoz::sumar(std::size_t cual, gsl::span<float> mezcla, float ganancia) {
+  Voz& voz = voces_[cual];
+  for (auto hueco = mezcla; voz.hablante != 0 && !hueco.empty();) {
+    if (voz.leidas == voz.cuantas) {
+      decodificar(cual);
+    }
+    const std::size_t tramo = std::min(hueco.size(), voz.cuantas - voz.leidas);
+    const auto desde = voz.pcm.begin() + static_cast<std::ptrdiff_t>(voz.leidas);
+    std::transform(desde, desde + static_cast<std::ptrdiff_t>(tramo), hueco.begin(), hueco.begin(),
+                   [ganancia](std::int16_t muestra, float suma) { return suma + muestra * ganancia; });
+    voz.leidas += tramo;
+    hueco = hueco.subspan(tramo);
+  }
+}
+
+void MotorVoz::decodificar(std::size_t cual) {
+  Voz& voz = voces_[cual];
   PaqueteVoz paquete;
-  const auto salida = buffer_.sacar(paquete);
-  espera_ms_.store(static_cast<std::uint32_t>(buffer_.cantidad() * 20), std::memory_order_relaxed);
-  recortes_.store(static_cast<std::uint32_t>(buffer_.recortes()), std::memory_order_relaxed);
-  vaciados_.store(static_cast<std::uint32_t>(buffer_.vaciados()), std::memory_order_relaxed);
-  faltas_.store(static_cast<std::uint32_t>(buffer_.faltas()), std::memory_order_relaxed);
+  const auto salida = voz.buffer.sacar(paquete);
   const int muestras =
       salida == BufferVoz::Salida::paquete
-          ? opus_decode(decodificador_.get(), paquete.opus.data(), paquete.largo,
-                        reproducir_.data(), static_cast<int>(reproducir_.size()), 0)
+          ? opus_decode(voz.decodificador, paquete.opus.data(), paquete.largo, voz.pcm.data(),
+                        static_cast<int>(voz.pcm.size()), 0)
       : salida == BufferVoz::Salida::perdido
-          ? opus_decode(decodificador_.get(), nullptr, 0, reproducir_.data(),
-                        static_cast<int>(por_paquete_), 0)
+          ? opus_decode(voz.decodificador, nullptr, 0, voz.pcm.data(), static_cast<int>(por_paquete_), 0)
           : 0;
-  reproducidas_ = 0;
-  por_reproducir_ = muestras > 0 ? static_cast<std::size_t>(muestras) : por_paquete_;
+  voz.leidas = 0;
+  voz.cuantas = muestras > 0 ? static_cast<std::size_t>(muestras) : por_paquete_;
   if (muestras <= 0) {
-    std::fill(reproducir_.begin(), reproducir_.begin() + static_cast<std::ptrdiff_t>(por_paquete_),
-              std::int16_t{0});
+    std::fill(voz.pcm.begin(), voz.pcm.begin() + static_cast<std::ptrdiff_t>(por_paquete_), std::int16_t{0});
   }
-  quietos_ = salida == BufferVoz::Salida::nada ? quietos_ + 1 : 0;
-  if (quietos_ > kQuietosParaCambiar) {
-    hablante_ = 0;
-    quietos_ = 0;
+  voz.nivel = std::max(voz.nivel - 1, 0);
+  voz.quietos = salida == BufferVoz::Salida::nada ? voz.quietos + 1 : 0;
+  if (voz.quietos > kQuietosParaCambiar) {
+    voz.hablante = 0;
+    voz.quietos = 0;
   }
-  puente_.cambiar(puente_.hablando, salida == BufferVoz::Salida::nada ? std::uint32_t{0} : hablante_);
+  puente_.cambiar(puente_.hablando[cual], salida == BufferVoz::Salida::nada ? std::uint32_t{0} : voz.hablante);
+}
+
+void MotorVoz::contar() {
+  std::size_t espera = 0;
+  std::size_t recortes = 0;
+  std::size_t vaciados = 0;
+  std::size_t faltas = 0;
+  for (const Voz& voz : voces_) {
+    espera = std::max(espera, voz.buffer.cantidad());
+    recortes += voz.buffer.recortes();
+    vaciados += voz.buffer.vaciados();
+    faltas += voz.buffer.faltas();
+  }
+  espera_ms_.store(static_cast<std::uint32_t>(espera * 20), std::memory_order_relaxed);
+  recortes_.store(static_cast<std::uint32_t>(recortes), std::memory_order_relaxed);
+  vaciados_.store(static_cast<std::uint32_t>(vaciados), std::memory_order_relaxed);
+  faltas_.store(static_cast<std::uint32_t>(faltas), std::memory_order_relaxed);
 }
 
 }
