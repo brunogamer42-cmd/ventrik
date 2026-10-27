@@ -109,7 +109,7 @@ El programa abre en **Inicio**. Ventrik se organiza por servidores; desde la eta
 
 Avisan de lo que pasa mientras Ventrik no está al frente o está minimizado. Nunca avisan de tus propios mensajes, y tocarlas abre Ventrik en ese canal.
 
-- **De qué avisan:** mensajes nuevos en canales de texto, mensajes del chat de tu canal de voz y conexión cortada (el servidor se cortó o dejó de responder). Los mensajes avisan según "Avisarme de" de cada servidor y canal: por defecto, solo las menciones (decisión del dueño, 2026-10-27; ver "Silenciar avisos por servidor y por canal"). En Ajustes → Avisos se apagan todas juntas o cada tipo por separado. No molestar las silencia.
+- **De qué avisan:** mensajes nuevos en canales de texto, mensajes del chat de tu canal de voz y conexión cortada (el servidor se cortó o dejó de responder). Los mensajes avisan según "Avisarme de" de cada servidor y canal: por defecto, solo las menciones (decisión del dueño, 2026-10-26; ver "Silenciar avisos por servidor y por canal"). En Ajustes → Avisos se apagan todas juntas o cada tipo por separado. No molestar las silencia.
 - **Qué dicen:** si hay un solo mensaje, quién lo escribió y el texto ("Tano en #general: ¿Arrancamos la segunda?"). Si hay varios, se amontonan en una sola notificación por canal, que se va actualizando: "3 mensajes en #general de Tano", o "de Tano, Sofi y 2 más".
 - **De dónde sale el texto:** de los canales de texto que no estás mirando, el servidor solo avisa el contador (ver "Canales de voz y de texto"). Cuando va a mostrar una notificación, el programa le pide esos mensajes nuevos al servidor como cualquier historial, con sus permisos y topes.
 - **Windows 10 y 11 (versión moderna):** las notificaciones del sistema, las que salen abajo a la derecha y quedan en el Centro de actividades, con el nombre y el ícono de Ventrik. Se cargan con GetProcAddress; si no están, se usa la ventana propia.
@@ -123,7 +123,7 @@ Avisan de lo que pasa mientras Ventrik no está al frente o está minimizado. Nu
 
 ### Silenciar avisos por servidor y por canal
 
-Diseño del dueño del 2026-10-27. Capturas: docs/pantallas/Rendimiento-silenciar-servidor.png, -silenciar-canal.png, -silenciar-chat-voz.png, -avisos-servidor.png y -silenciados.png. Va con los avisos, en la etapa 3.
+Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Rendimiento-silenciar-servidor.png, -silenciar-canal.png, -silenciar-chat-voz.png, -avisos-servidor.png y -silenciados.png. Va con los avisos, en la etapa 3.
 
 - **Tres niveles:**
   - **Servidor:** su nombre, con ▾, abre el menú:
@@ -140,7 +140,7 @@ Diseño del dueño del 2026-10-27. Capturas: docs/pantallas/Rendimiento-silencia
 - **Silenciar ▸:**
   - por 15 minutos, 1 hora, 3 horas, 8 horas o 24 horas, o "Hasta que lo vuelva a activar";
   - una casilla "Avisarme igual si me mencionan", tildada por defecto.
-- **Avisarme de ▸:** Igual que el servidor (lo que viene en los canales), Todos los mensajes, Solo menciones o Nada. En el servidor, "Solo menciones" viene elegido (decisión del dueño, 2026-10-27): un mensaje común solo sube el contador.
+- **Avisarme de ▸:** Igual que el servidor (lo que viene en los canales), Todos los mensajes, Solo menciones o Nada. En el servidor, "Solo menciones" viene elegido (decisión del dueño, 2026-10-26): un mensaje común solo sube el contador.
 - **Menciones:** llegan con este paso (hoy el chat no las tiene): tu nombre con @ adelante, y @todos y @aquí, salvo que el servidor tenga tildado "No contar @todos ni @aquí como mención".
 - **Silenciado:**
   - sin sonido ni aviso de Windows;

@@ -210,7 +210,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - si las builds de Windows 10 anteriores a 1809 aceptan la registración por registro;
     - el Asistente de concentración de Windows 10;
     - si wpndatabase.db queda sin cifrar.
-- **Etapa 3, paso 3.2a: varias voces a la vez (hecho, 2026-10-27).** El programa mezcla hasta 4 voces (`kVoces`, puente_voz.h), las más fuertes.
+- **Etapa 3, paso 3.2a: varias voces a la vez (hecho, 2026-10-26).** El programa mezcla hasta 4 voces (`kVoces`, puente_voz.h), las más fuertes.
   - **Protocolo:** `Medio` suma `u16 tiempo` (milisegundos del reloj de audio del que habla: cuenta todo lo que entra del micrófono, también sin transmitir, para que en el paso 3.2c una pausa no parezca una traba de la red) y `u8 nivel` (dB sobre −127 dBov, de 0 a 127; el lector rechaza más). Cambia en el lugar, protocolo 2, como `Silenciar`.
   - **Lugares:** cada voz tiene su decodificador (los 4 en un solo bloque con `opus_decoder_init`, para fijarlo en RAM de una vez), su colchón y su PCM.
     - Un paquete va al lugar de quien habla. Si no tiene, toma uno libre o uno quieto hace 200 ms con el colchón vacío. Si no hay, saca al más bajito si llega 6 dB más fuerte (el nivel de cada lugar baja 1 dB por paquete). Si no, se descarta y se cuenta (`sin_lugar`).
@@ -232,7 +232,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - en las 4 combinaciones, Ana oye a Beto y a Carla a la vez;
     - `fuzz_voz` con 8 que hablan y sin ids repetidos en `hablando`, y las semillas regeneradas al formato nuevo.
   - **Riesgo:** 4 decodificadores a 16 kHz en la netbook (unos 3,7 % cada uno, diseno.md). Se mide en la prueba a mano del final del paso 3.2; si no da, 3 voces en la calidad baja.
-- **Etapa 3, paso 3.2b: volumen por persona y "Silenciar para mí" (hecho, 2026-10-27).** Tocar el nombre de otra persona abre su tarjeta, al lado de la lista, como en las capturas Rendimiento*.png: avatar, nombre, "En <canal>", "Volumen de <nombre> para vos" y "Silenciar para mí" / "Volver a escuchar" (diseno.md, "Panel de audio" → "Por persona").
+- **Etapa 3, paso 3.2b: volumen por persona y "Silenciar para mí" (hecho, 2026-10-26).** Tocar el nombre de otra persona abre su tarjeta, al lado de la lista, como en las capturas Rendimiento*.png: avatar, nombre, "En <canal>", "Volumen de <nombre> para vos" y "Silenciar para mí" / "Volver a escuchar" (diseno.md, "Panel de audio" → "Por persona").
   - **Protocolo:** `SilenciarPersonas` (tipo 20) lleva la lista entera de ids silenciados y reemplaza la anterior: así no hay ráfagas contra el límite de pedidos y los ids viejos se van solos. Tope 32, ordenada, sin repetidos ni el 0 (el lector rechaza lo demás).
   - **Servidor:** la lista vive con la conexión (sobrevive a cambiar de canal y a salir y volver a la voz; se copia a la voz después de cada `alta`) y se va al desconectar. `reenviar` salta al oyente si el que habla está en su lista (`binary_search`, como mucho 32).
   - **Programa:**
@@ -252,13 +252,13 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - en las 4 combinaciones, Ana silencia a Carla y deja de recibirla mientras Beto la sigue oyendo;
     - el banco sin ventana dibuja filas con el parlante tachado;
     - `fuzz_voz_servidor` cambia la lista al azar y `fuzz_protocolo` lee el mensaje nuevo.
-- **Diseño actualizado (2026-10-27): silenciar avisos por servidor y por canal.** En docs/diseno.md, "Silenciar avisos por servidor y por canal".
+- **Diseño actualizado (2026-10-26): silenciar avisos por servidor y por canal.** En docs/diseno.md, "Silenciar avisos por servidor y por canal".
   - **Qué es:** tres niveles (servidor, canal de texto y chat de un canal de voz), "Silenciar ▸" con plazos y "Avisarme de ▸", el diálogo "Avisos de <servidor>", el menú ▾ del nombre del servidor (y el mismo menú con clic derecho en Inicio) y la línea "Servidores y canales silenciados" en Ajustes → Avisos y sonidos.
   - **Decisión del dueño:** por defecto, "Solo menciones": un mensaje común solo sube el contador. Las menciones (@nombre, @todos, @aquí) llegan con este paso.
   - **Capturas:** se reemplazaron las 13 Rendimiento*.png y Ajustes-avisos*.png, y entraron 5 nuevas: Rendimiento-silenciar-servidor, -silenciar-canal, -silenciar-chat-voz, -avisos-servidor y -silenciados.
   - **La tarjeta de una persona** aparece en todas con "Volumen de <nombre> para vos" y "Silenciar para mí": el panel del paso 3.2b se hace como esa tarjeta. La descripción, las insignias y el "ausente" se suman cuando llegan sus etapas.
   - **Cuándo:** es un paso propio de la etapa 3, después del 3.2: el menú ▾ del servidor, el clic derecho en los canales, las menciones, el diálogo y las reglas, guardado en programa.dat (la copia de Drive llega en la etapa 14).
-- **Etapa 3, paso 3.2c: el colchón de la voz se ajusta solo (hecho, 2026-10-27).** En vez de 40 ms fijos y tirar pedazos de golpe pasando 120 ms, cada voz se acelera o se estira de a poquito sin cambiar el tono, como NetEQ de WebRTC.
+- **Etapa 3, paso 3.2c: el colchón de la voz se ajusta solo (hecho, 2026-10-26).** En vez de 40 ms fijos y tirar pedazos de golpe pasando 120 ms, cada voz se acelera o se estira de a poquito sin cambiar el tono, como NetEQ de WebRTC.
   - **Reloj:** las muestras que ya sonaron, en el motor; cada paquete se marca al sacarlo del puente. Un solo reloj: pruebas deterministas, incluye la deriva de la placa de sonido y ningún tiempo cruza hilos.
   - **Atraso de cada paquete** (por voz):
     - `llegada − tiempo` del que habla;
@@ -280,6 +280,8 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - **SpeexDSP `jitter.c` no se usó:** pide memoria por paquete, ajusta tirando o metiendo pedazos enteros y además necesita los tiempos igual.
   - **Registro:** columnas nuevas `objetivo_ms`, `acelerado_ms`, `estirado_ms` y `tardes`. `recortes` tiene que quedar en 0.
   - **Topes:** el objetivo entre 40 y 200 ms; una corrección por paquete. Sin hilos ni despertares nuevos. Memoria fija medida: 316 KB.
+  - **Medido en la HP con XP** (registro del dueño, 76 s escuchando a la PC por WiFi, 16 kHz): 0 recortes; unos 10 paquetes perdidos por el WiFi, disimulados; una traba con el ping de la voz en 104 ms subió el objetivo de 40 a 197 ms y hubo 4 tardes en todo el registro; hacia los parlantes, 19 pedazos tirados por el puente WinMM, todos de silencio; procesador de 0 a 4 %.
+    - **Arreglo que salió de esa medición:** después de una pausa de más de 1 s, el lugar de la voz se soltaba y al volver arrancaba de cero (objetivo en 40, en el registro a los 78 s). Ahora un lugar no se suelta por quedarse callado: lo conserva quien hablaba, con lo aprendido, hasta que otro lo necesite (un lugar quieto hace 200 ms se presta, como en el 3.2a). Prueba: una traba de 150 ms, 2 s de pausa y el objetivo sigue en 142 ms.
   - **Lo que acepta del que habla:** `tiempo` y `nivel` los pone el que habla. Con datos falsos solo puede subir la demora de su propia voz hasta 200 ms o ganarse un lugar entre las 4 (lo mismo que hablar fuerte).
   - **Pruebas** (red simulada, 30 a 60 s de voz de verdad por Opus):
     - atrasos al azar de 0 a 60 ms: objetivo final 76 ms y ninguna tarde;
@@ -563,7 +565,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **VS 2017 (clásica):** una lambda sin captura no ve una `constexpr` local (error C3493): usar `static constexpr`.
 - **`/GL` y compilaciones cortadas:** si una compilación se corta o se queda sin memoria (por ejemplo, compilando con los 20 fuzzers corriendo), los archivos del enlace incremental (`*.iobj`, `*.ipdb`) quedan dañados y el enlace falla con errores internos (C1001, LNK1000, LNK2016) en archivos que no cambiaron. Se arregla borrándolos de `build\<versión>`. No compilar mientras corre el fuzzing largo.
 - **Corpus que crece:** libFuzzer ejecuta todo el corpus antes de empezar y `-max_total_time` no corta esa parte. El de `fuzz_voz` llegó a 7.646 casos (Opus con AddressSanitizer en 32 bits va a unos 60 a 100 casos por segundo) y solo cargarlo pasaba el límite de check.ps1 ("No terminó a tiempo"). Se compacta con `-merge=1` (quedaron 2.560 con la misma cobertura). `-merge=1` se vuelve a llamar a sí mismo con la ruta sin comillas: con los espacios de la carpeta del proyecto falla, así que se copian el .exe, sus DLL y los corpus a una carpeta sin espacios. Volvió a pasar después de una corrida de 10 minutos (el de 64 bits llegó a 2.953 casos y compactado seguía en 2.875, casi todos con algo propio): desde entonces, en la corrida corta de check.ps1 cada fuzzer carga solo su carpeta y las semillas; en la larga (300 s o más) también la del otro. El 2026-10-26 el de 64 bits llegó a 3.212 casos, a unos 35 por segundo con los 20 fuzzers a la vez: dos corridas de check.ps1 pasaron justo (3.222 casos en total, o sea casi solo la carga) y la tercera no terminó a tiempo. Desde entonces la corrida corta arranca de las semillas en una carpeta vacía (`build\fuzzing\corto`, se borra cada vez) y no toca el corpus guardado; la larga lo sigue cargando entero y es la que lo hace crecer.
-- **Compilador:** si aparecen de golpe `C1001` (error interno), `LNK1000` o `LNK2016` con `@comp.id`, se dañaron los archivos incrementales del enlace optimizado (`*.iobj`, `*.ipdb`): se borran junto con el .exe y se vuelve a compilar. Pasó el 2026-10-27 con las pruebas de la moderna; con el disco con lugar de sobra.
+- **Compilador:** si aparecen de golpe `C1001` (error interno), `LNK1000` o `LNK2016` con `@comp.id`, se dañaron los archivos incrementales del enlace optimizado (`*.iobj`, `*.ipdb`): se borran junto con el .exe y se vuelve a compilar. Pasó el 2026-10-26 con las pruebas de la moderna; con el disco con lugar de sobra.
 - **PowerShell y funciones de Windows:** `$null` pasado a un parámetro `string` de `Add-Type` llega como `""`, no como nulo (`FindWindowW(clase, $null)` no encuentra nada). Para la ventana del programa, usar `$proceso.MainWindowHandle`.
 
 ## Pendientes (además de los VENTRIK_PENDIENTE)

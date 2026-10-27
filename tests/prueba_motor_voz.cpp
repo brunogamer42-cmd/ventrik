@@ -144,6 +144,7 @@ Escucha varios_hablan(const std::vector<std::pair<double, double>>& tonos) {
 struct Red {
   int segundos = 30;
   std::function<int(int tanda)> demora = [](int) { return 0; };
+  std::function<bool(int tanda)> habla = [](int) { return true; };
   int perder_cada = 0;
   std::size_t muestras_del_que_habla = 480;
 };
@@ -179,6 +180,7 @@ Llegada por_la_red(const Red& red) {
   Llegada llegada;
   for (int tanda = 0; tanda < red.segundos * 100; ++tanda) {
     tono(sonido, muestra, 48000);
+    emisor.transmitir(red.habla(tanda));
     emisor.procesar(sonido, descarte);
     PaqueteVoz paquete_voz;
     while (de_ida.subida.sacar(paquete_voz)) {
@@ -357,6 +359,17 @@ TEST_CASE("El colchón se ajusta solo: si la red pasa a tardar medio segundo má
   CHECK(llegada.tardes <= 2);
   CHECK(llegada.acelerado < 500);
   CHECK(llegada.objetivo_final < 200);
+  CHECK(llegada.recortes == 0);
+}
+
+TEST_CASE("El colchón se ajusta solo: una pausa larga del que habla no le hace olvidar lo aprendido") {
+  Red red;
+  red.segundos = 13;
+  red.demora = [](int tanda) { return tanda >= 500 && tanda < 515 ? 150 - (tanda - 500) * 10 : 0; };
+  red.habla = [](int tanda) { return tanda < 1000 || tanda >= 1200; };
+  const Llegada llegada = por_la_red(red);
+  CHECK(llegada.objetivo_mayor >= 150);
+  CHECK(llegada.objetivo_final >= 120);
   CHECK(llegada.recortes == 0);
 }
 

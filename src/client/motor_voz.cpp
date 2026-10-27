@@ -11,7 +11,6 @@
 
 namespace ventrik::cliente {
 namespace {
-constexpr unsigned kQuietosParaCambiar = 50;
 constexpr unsigned kQuietosParaPrestar = 10;
 constexpr int kVentajaParaEntrar = 6;
 constexpr opus_int32 kSoloCabecera = 2;
@@ -420,11 +419,7 @@ void MotorVoz::decodificar(std::size_t cual, std::uint64_t muestra) {
     ajustar(voz, paquete.tiempo, muestra);
   }
   voz.nivel = std::max(voz.nivel - 1, 0);
-  voz.quietos = salida == BufferVoz::Salida::nada ? voz.quietos + 1 : 0;
-  if (voz.quietos > kQuietosParaCambiar) {
-    voz.hablante = 0;
-    voz.quietos = 0;
-  }
+  voz.quietos = salida == BufferVoz::Salida::nada ? std::min(voz.quietos + 1, kQuietosParaPrestar) : 0;
   puente_.cambiar(puente_.hablando[cual], salida == BufferVoz::Salida::nada ? std::uint32_t{0} : voz.hablante);
 }
 
