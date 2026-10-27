@@ -79,6 +79,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
                      sonido.begin(), [](std::uint8_t valor) { return static_cast<std::int16_t>(valor << 7); });
       motor.procesar(sonido, salida);
       exigir(!sin_microfono || !motor.transmitiendo());
+      exigir(motor.objetivo_ms() >= 40 && motor.objetivo_ms() <= 200);
       auto ids = puente.quienes();
       std::sort(ids.begin(), ids.end());
       exigir(std::adjacent_find(ids.begin(), ids.end(), [](std::uint32_t uno, std::uint32_t otro) {
@@ -93,6 +94,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       if (hay_ultimo && static_cast<std::int16_t>(static_cast<std::uint16_t>(paquete.numero - ultimo)) <= -64) {
         hay_anterior = false;
       }
+      buffer.esperar(entrada[0] % 12u);
       if ((entrada[4] & 8) == 0) {
         buffer.llegar(paquete);
       }
@@ -113,7 +115,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
         hay_anterior = true;
         anterior = sacado.numero;
       }
-      exigir(buffer.cantidad() <= 6);
+      exigir(buffer.cantidad() <= BufferVoz::kTope);
       exigir(!seguidos || (buffer.faltas() == 0 && buffer.recortes() == 0));
       if ((entrada[4] & 2) != 0) {
         buffer.reiniciar();

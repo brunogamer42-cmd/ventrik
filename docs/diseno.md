@@ -290,7 +290,7 @@ Recorrido de la voz:
 4. Opus comprime la voz en pedazos de 20 milésimas de segundo, a 24 kbps.
 5. La voz se cifra y viaja al servidor.
 6. El servidor la reenvía a los demás del canal tal como llegó: no la decodifica ni la mezcla.
-7. Cada programa espera unas milésimas para ordenar los pedazos que llegan desordenados, los decodifica y mezcla las voces: como mucho las 4 más fuertes (por el nivel que trae cada paquete), sin saturar nunca.
+7. Cada programa espera unas milésimas para ordenar los pedazos que llegan desordenados, los decodifica y mezcla las voces: como mucho las 4 más fuertes (por el nivel que trae cada paquete), sin saturar nunca. La espera se ajusta sola entre 40 y 200 ms según cuánto varía la red: sube enseguida con una traba y baja de a poco, acelerando o estirando la voz sin cambiar el tono, nunca tirando pedazos.
 
 Ahorros automáticos:
 

@@ -22,15 +22,15 @@ void BufferVoz::reiniciar() {
   hay_ultimo_ = false;
 }
 
-void BufferVoz::llegar(const PaqueteVoz& paquete) {
+bool BufferVoz::llegar(const PaqueteVoz& paquete) {
   constexpr auto kVentana = static_cast<std::int16_t>(kLugares);
   if (paquete.largo == 0 || paquete.largo > paquete.opus.size()) {
-    return;
+    return false;
   }
   if (hay_ultimo_) {
     const std::int16_t desde_ultimo = distancia(ultimo_, paquete.numero);
     if (desde_ultimo <= 0 && desde_ultimo > -kVentana) {
-      return;
+      return false;
     }
     if (desde_ultimo <= 0) {
       reiniciar();
@@ -42,7 +42,7 @@ void BufferVoz::llegar(const PaqueteVoz& paquete) {
   }
   const std::int16_t adelanto = distancia(siguiente_, paquete.numero);
   if (adelanto < 0) {
-    return;
+    return false;
   }
   if (adelanto >= kVentana) {
     vaciar();
@@ -51,11 +51,12 @@ void BufferVoz::llegar(const PaqueteVoz& paquete) {
   }
   Lugar& lugar = lugares_[paquete.numero % kLugares];
   if (lugar.ocupado && lugar.paquete.numero == paquete.numero) {
-    return;
+    return false;
   }
   cantidad_ += lugar.ocupado ? 0 : 1;
   lugar.ocupado = true;
   lugar.paquete = paquete;
+  return true;
 }
 
 BufferVoz::Salida BufferVoz::sacar(PaqueteVoz& paquete) {
@@ -68,7 +69,7 @@ BufferVoz::Salida BufferVoz::sacar(PaqueteVoz& paquete) {
     vaciar();
     return Salida::nada;
   }
-  if (cantidad_ > espera_ + kMargen) {
+  if (cantidad_ > kTope) {
     ++recortes_;
     for (std::size_t i = 0; i < kLugares && cantidad_ > espera_; ++i, ++siguiente_) {
       Lugar& viejo = lugares_[siguiente_ % kLugares];

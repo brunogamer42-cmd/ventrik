@@ -33,6 +33,9 @@ int umbral_de(int por_ciento);
 std::int16_t con_ganancia(std::int16_t muestra, int por_ciento);
 std::uint8_t nivel_de(gsl::span<const std::int16_t> pedazo);
 void limitar(gsl::span<const float> mezcla, gsl::span<std::int16_t> salida, float& limite);
+std::size_t periodo(gsl::span<const std::int16_t> pcm, unsigned frecuencia);
+std::size_t acortar(gsl::span<std::int16_t> pcm, unsigned frecuencia);
+std::size_t estirar(gsl::span<std::int16_t> pcm, std::size_t largo, unsigned frecuencia);
 
 class MotorVoz {
  public:
@@ -65,6 +68,10 @@ class MotorVoz {
   std::uint32_t vaciados() const { return vaciados_.load(std::memory_order_relaxed); }
   std::uint32_t faltas() const { return faltas_.load(std::memory_order_relaxed); }
   std::uint32_t sin_lugar() const { return sin_lugar_.load(std::memory_order_relaxed); }
+  std::uint32_t objetivo_ms() const { return objetivo_ms_.load(std::memory_order_relaxed); }
+  std::uint32_t acelerado_ms() const { return acelerado_ms_.load(std::memory_order_relaxed); }
+  std::uint32_t estirado_ms() const { return estirado_ms_.load(std::memory_order_relaxed); }
+  std::uint32_t tardes() const { return tardes_.load(std::memory_order_relaxed); }
 
   void procesar(gsl::span<const std::int16_t> entrada, gsl::span<std::int16_t> salida) noexcept;
   static void procesar_audio(void* motor, gsl::span<const std::int16_t> entrada,
@@ -86,6 +93,12 @@ class MotorVoz {
     std::uint32_t hablante = 0;
     int nivel = 0;
     unsigned quietos = 0;
+    int disimulos = 0;
+    float objetivo = 40;
+    bool con_base = false;
+    std::uint16_t base = 0;
+    float resto = 0;
+    std::uint64_t ultima_llegada = 0;
   };
 
   using Pedazo = std::array<std::int16_t, 960>;
@@ -94,8 +107,11 @@ class MotorVoz {
   void codificar(const Pedazo& pedazo, std::uint16_t tiempo);
   void recibir();
   Voz* lugar_para(const PaqueteVoz& paquete);
+  void medir(Voz& voz, std::uint16_t tiempo);
   void sumar(std::size_t cual, gsl::span<float> mezcla, float ganancia);
-  void decodificar(std::size_t cual);
+  void decodificar(std::size_t cual, std::uint64_t muestra);
+  void ajustar(Voz& voz, std::uint16_t tiempo, std::uint64_t muestra);
+  std::uint64_t en_ms(std::uint64_t muestras) const { return muestras * 1000 / calidad_.frecuencia; }
   void contar();
   int por_ciento_de(std::uint32_t hablante) const;
 
@@ -114,6 +130,9 @@ class MotorVoz {
   std::array<Voz, kVoces> voces_;
   std::array<float, 960> mezcla_{};
   float limite_ = 1;
+  std::uint64_t reproducidas_total_ = 0;
+  std::uint64_t acelerado_ = 0;
+  std::uint64_t estirado_ = 0;
   std::uint16_t numero_ = 0;
   std::atomic<bool> transmitiendo_{false};
   std::atomic<bool> solo_{false};
@@ -129,6 +148,10 @@ class MotorVoz {
   std::atomic<std::uint32_t> vaciados_{0};
   std::atomic<std::uint32_t> faltas_{0};
   std::atomic<std::uint32_t> sin_lugar_{0};
+  std::atomic<std::uint32_t> objetivo_ms_{40};
+  std::atomic<std::uint32_t> acelerado_ms_{0};
+  std::atomic<std::uint32_t> estirado_ms_{0};
+  std::atomic<std::uint32_t> tardes_{0};
   std::array<std::atomic<std::uint64_t>, kMaximoPersonasConVolumen> personas_{};
   MemoriaFija fija_;
 };

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <memory>
 #include <set>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -209,12 +210,21 @@ TEST_CASE("combinaciones: servidor y programa de verdad, de la misma versión o 
       10s));
 
   const auto notificaciones = [&] {
-    std::string anotado = leer_todo(registro);
-    while (!anotado.empty() && (anotado.back() == '\n' || anotado.back() == '\r')) {
-      anotado.pop_back();
+    std::istringstream anotado(leer_todo(registro));
+    std::string linea;
+    std::string titulos;
+    std::string ultima;
+    while (std::getline(anotado, linea)) {
+      titulos = linea.rfind("ms,", 0) == 0 ? linea : titulos;
+      ultima = linea.empty() ? ultima : linea;
     }
-    const std::string linea = anotado.substr(anotado.find_last_of('\n') + 1);
-    return std::strtoul(linea.c_str() + linea.find_last_of(',') + 1, nullptr, 10);
+    const auto antes = titulos.substr(0, titulos.find(",notificaciones,"));
+    std::istringstream valores(ultima);
+    std::string valor;
+    for (auto coma = std::count(antes.begin(), antes.end(), ',') + 1; coma >= 0 && std::getline(valores, valor, ',');
+         --coma) {
+    }
+    return std::strtoul(valor.c_str(), nullptr, 10);
   };
   PostMessageW(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
   REQUIRE(esperar_que([&] { return IsIconic(hwnd) != FALSE; }));

@@ -1,6 +1,8 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <set>
@@ -139,6 +141,80 @@ Escucha varios_hablan(const std::vector<std::pair<double, double>>& tonos) {
   return escucha;
 }
 
+struct Red {
+  int segundos = 30;
+  std::function<int(int tanda)> demora = [](int) { return 0; };
+  int perder_cada = 0;
+  std::size_t muestras_del_que_habla = 480;
+};
+
+struct Llegada {
+  std::uint32_t tardes = 0;
+  std::uint32_t tardes_al_arrancar = 0;
+  std::uint32_t objetivo_mayor = 0;
+  std::uint32_t objetivo_final = 0;
+  std::uint32_t espera_mayor = 0;
+  std::uint32_t acelerado = 0;
+  std::uint32_t estirado = 0;
+  std::uint32_t faltas = 0;
+  std::uint32_t recortes = 0;
+  int perdidos = 0;
+};
+
+Llegada por_la_red(const Red& red) {
+  PuenteVoz de_ida;
+  PuenteVoz de_vuelta;
+  MotorVoz emisor(de_ida, Calidad{});
+  MotorVoz receptor(de_vuelta, Calidad{});
+  REQUIRE(emisor.ok());
+  REQUIRE(receptor.ok());
+  emisor.transmitir(true);
+  std::vector<std::int16_t> sonido(red.muestras_del_que_habla);
+  std::vector<std::int16_t> descarte(red.muestras_del_que_habla);
+  const std::vector<std::int16_t> mudo(480);
+  std::vector<std::int16_t> salida(480);
+  std::deque<std::pair<int, PaqueteVoz>> en_camino;
+  std::size_t muestra = 0;
+  int enviados = 0;
+  Llegada llegada;
+  for (int tanda = 0; tanda < red.segundos * 100; ++tanda) {
+    tono(sonido, muestra, 48000);
+    emisor.procesar(sonido, descarte);
+    PaqueteVoz paquete_voz;
+    while (de_ida.subida.sacar(paquete_voz)) {
+      paquete_voz.hablante = 9;
+      if (red.perder_cada > 0 && ++enviados % red.perder_cada == 0) {
+        ++llegada.perdidos;
+        continue;
+      }
+      en_camino.emplace_back(tanda * 10 + red.demora(tanda), paquete_voz);
+    }
+    for (auto viaje = en_camino.begin(); viaje != en_camino.end();) {
+      if (viaje->first <= tanda * 10) {
+        REQUIRE(de_vuelta.bajada.poner(viaje->second));
+        viaje = en_camino.erase(viaje);
+      } else {
+        ++viaje;
+      }
+    }
+    receptor.procesar(mudo, salida);
+    llegada.tardes_al_arrancar = tanda == 500 ? receptor.tardes() : llegada.tardes_al_arrancar;
+    llegada.objetivo_mayor = std::max(llegada.objetivo_mayor, receptor.objetivo_ms());
+    llegada.espera_mayor = std::max(llegada.espera_mayor, receptor.espera_ms());
+  }
+  llegada.tardes = receptor.tardes();
+  llegada.objetivo_final = receptor.objetivo_ms();
+  llegada.acelerado = receptor.acelerado_ms();
+  llegada.estirado = receptor.estirado_ms();
+  llegada.faltas = receptor.faltas();
+  llegada.recortes = receptor.recortes();
+  MESSAGE("tardes " << llegada.tardes << " (al arrancar " << llegada.tardes_al_arrancar << "), objetivo mayor "
+                    << llegada.objetivo_mayor << " ms y final " << llegada.objetivo_final << " ms, espera mayor "
+                    << llegada.espera_mayor << " ms, acelerado " << llegada.acelerado << " ms, estirado "
+                    << llegada.estirado << " ms, faltas " << llegada.faltas << ", perdidos " << llegada.perdidos);
+  return llegada;
+}
+
 }
 
 TEST_CASE("BufferVoz espera dos paquetes y los da en orden") {
@@ -177,35 +253,131 @@ TEST_CASE("BufferVoz sigue la vuelta del número y se reinicia del todo") {
   CHECK(sacar_todo(buffer, 2) == std::vector<int>{0, 1});
 }
 
-TEST_CASE("BufferVoz no junta retraso con las trabas de la red ni con relojes distintos") {
+TEST_CASE("BufferVoz espera lo que le piden y recorta solo pasado el tope") {
   BufferVoz buffer;
-  std::uint16_t numero = 0;
-  const auto paso = [&](int llegan) {
-    for (int i = 0; i < llegan; ++i) {
-      buffer.llegar(paquete(numero++));
+  buffer.esperar(5);
+  for (std::uint16_t numero = 0; numero < 4; ++numero) {
+    buffer.llegar(paquete(numero));
+  }
+  CHECK(sacar_todo(buffer, 1) == std::vector<int>{-2});
+  buffer.llegar(paquete(4));
+  CHECK(sacar_todo(buffer, 1) == std::vector<int>{0});
+  for (std::uint16_t numero = 5; numero <= 5 + BufferVoz::kTope; ++numero) {
+    buffer.llegar(paquete(numero));
+  }
+  CHECK(buffer.recortes() == 0);
+  PaqueteVoz sacado;
+  buffer.sacar(sacado);
+  CHECK(buffer.recortes() == 1);
+  CHECK(buffer.cantidad() == 4);
+  buffer.esperar(0);
+  buffer.esperar(1000);
+  CHECK(sacar_todo(buffer, 1).size() == 1);
+}
+
+TEST_CASE("Acortar y estirar la voz no le cambia el tono ni mete saltos") {
+  const auto cruces = [](const std::vector<std::int16_t>& muestras) {
+    int cuantos = 0;
+    for (std::size_t i = 1; i < muestras.size(); ++i) {
+      cuantos += (muestras[i - 1] < 0) != (muestras[i] < 0) ? 1 : 0;
     }
-    PaqueteVoz sacado;
-    return buffer.sacar(sacado);
+    return static_cast<double>(cuantos) / 2 / (static_cast<double>(muestras.size()) / 48000);
   };
-  std::size_t mayor = 0;
-  for (int traba = 1; traba <= 10; ++traba) {
-    for (int i = 0; i < 50; ++i) {
-      paso(1);
+  const auto mayor_salto = [](const std::vector<std::int16_t>& muestras) {
+    int mayor = 0;
+    for (std::size_t i = 1; i < muestras.size(); ++i) {
+      mayor = std::max(mayor, std::abs(muestras[i] - muestras[i - 1]));
     }
-    for (int i = 0; i < traba * 3; ++i) {
-      paso(0);
+    return mayor;
+  };
+  std::vector<std::int16_t> original;
+  std::size_t muestra = 0;
+  std::vector<std::int16_t> pedazo(960);
+  for (int paquete_voz = 0; paquete_voz < 100; ++paquete_voz) {
+    tono(pedazo, muestra, 48000, 200, 8000);
+    original.insert(original.end(), pedazo.begin(), pedazo.end());
+  }
+  for (const bool alargar : {false, true}) {
+    std::vector<std::int16_t> salida;
+    std::array<std::int16_t, 5760> pcm{};
+    for (std::size_t desde = 0; desde < original.size(); desde += 960) {
+      std::copy(original.begin() + static_cast<std::ptrdiff_t>(desde),
+                original.begin() + static_cast<std::ptrdiff_t>(desde + 960), pcm.begin());
+      std::size_t largo = 960;
+      if (desde % 1920 == 0) {
+        largo = alargar ? ventrik::cliente::estirar(pcm, 960, 48000)
+                        : ventrik::cliente::acortar(gsl::make_span(pcm).first(960), 48000);
+      }
+      salida.insert(salida.end(), pcm.begin(), pcm.begin() + static_cast<std::ptrdiff_t>(largo));
     }
-    paso(traba * 3);
-    mayor = std::max(mayor, buffer.cantidad());
+    INFO("alargar: " << alargar);
+    CHECK((alargar ? salida.size() > original.size() + 5000 : salida.size() + 5000 < original.size()));
+    CHECK(std::abs(cruces(salida) - cruces(original)) < cruces(original) / 100);
+    CHECK(mayor_salto(salida) <= mayor_salto(original) * 3 / 2);
   }
-  CHECK(mayor <= 6);
-  CHECK(buffer.recortes() > 0);
-  int sonaron = 0;
-  for (int i = 1; i <= 10000; ++i) {
-    sonaron += paso(i % 100 == 0 ? 2 : 1) == Salida::paquete ? 1 : 0;
+  std::vector<std::int16_t> ruido(960);
+  std::uint32_t azar = 1;
+  for (auto& valor : ruido) {
+    azar = azar * 1103515245u + 12345u;
+    valor = static_cast<std::int16_t>(static_cast<int>((azar >> 16) & 0x3FFF) - 0x2000);
   }
-  CHECK(buffer.cantidad() <= 6);
-  CHECK(sonaron >= 9900);
+  CHECK(ventrik::cliente::periodo(ruido, 48000) == 0);
+  CHECK(ventrik::cliente::acortar(ruido, 48000) == 960);
+}
+
+TEST_CASE("El colchón se ajusta solo: con atrasos al azar sube lo justo y después no llega nada tarde") {
+  std::uint32_t azar = 7;
+  Red red;
+  red.demora = [&azar](int) {
+    azar = azar * 1103515245u + 12345u;
+    return static_cast<int>((azar >> 16) % 61);
+  };
+  const Llegada llegada = por_la_red(red);
+  CHECK(llegada.tardes == llegada.tardes_al_arrancar);
+  CHECK(llegada.objetivo_final >= 60);
+  CHECK(llegada.objetivo_final <= 100);
+  CHECK(llegada.recortes == 0);
+}
+
+TEST_CASE("El colchón se ajusta solo: una traba de 150 ms sube el objetivo, que después baja acelerando") {
+  Red red;
+  red.demora = [](int tanda) { return tanda % 1000 < 15 ? 150 - (tanda % 1000) * 10 : 0; };
+  const Llegada llegada = por_la_red(red);
+  CHECK(llegada.tardes <= 3);
+  CHECK(llegada.objetivo_mayor >= 150);
+  CHECK(llegada.objetivo_final < llegada.objetivo_mayor);
+  CHECK(llegada.acelerado > 0);
+  CHECK(llegada.recortes == 0);
+}
+
+TEST_CASE("El colchón se ajusta solo: si la red pasa a tardar medio segundo más, no acelera sin parar") {
+  Red red;
+  red.demora = [](int tanda) { return tanda >= 1000 ? 500 : 0; };
+  const Llegada llegada = por_la_red(red);
+  CHECK(llegada.tardes <= 2);
+  CHECK(llegada.acelerado < 500);
+  CHECK(llegada.objetivo_final < 200);
+  CHECK(llegada.recortes == 0);
+}
+
+TEST_CASE("El colchón se ajusta solo: lo perdido se disimula y no corre el objetivo") {
+  Red red;
+  red.perder_cada = 20;
+  const Llegada llegada = por_la_red(red);
+  CHECK(llegada.faltas >= static_cast<std::uint32_t>(llegada.perdidos) * 9 / 10);
+  CHECK(llegada.faltas <= static_cast<std::uint32_t>(llegada.perdidos) * 11 / 10);
+  CHECK(llegada.objetivo_mayor <= 60);
+  CHECK(llegada.recortes == 0);
+}
+
+TEST_CASE("El colchón se ajusta solo: con el reloj del que habla 0,7 % rápido no crece") {
+  Red red;
+  red.segundos = 60;
+  red.muestras_del_que_habla = 483;
+  const Llegada llegada = por_la_red(red);
+  CHECK(llegada.espera_mayor <= 160);
+  CHECK(llegada.acelerado > 0);
+  CHECK(llegada.recortes == 0);
 }
 
 TEST_CASE("La voz comprimida se escucha del otro lado, también con otra calidad") {

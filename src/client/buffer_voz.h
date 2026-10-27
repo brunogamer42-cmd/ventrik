@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -11,9 +12,13 @@ class BufferVoz {
  public:
   enum class Salida { paquete, perdido, nada };
 
-  explicit BufferVoz(std::size_t espera = 2) : espera_(espera == 0 ? 1 : espera) {}
+  static constexpr std::size_t kLugares = 64;
+  static constexpr std::size_t kTope = kLugares / 2;
 
-  void llegar(const PaqueteVoz& paquete);
+  explicit BufferVoz(std::size_t espera = 2) { esperar(espera); }
+
+  void esperar(std::size_t paquetes) { espera_ = std::clamp<std::size_t>(paquetes, 1, kTope); }
+  bool llegar(const PaqueteVoz& paquete);
   Salida sacar(PaqueteVoz& paquete);
   void reiniciar();
   std::size_t cantidad() const { return cantidad_; }
@@ -22,9 +27,6 @@ class BufferVoz {
   std::size_t faltas() const { return faltas_; }
 
  private:
-  static constexpr std::size_t kLugares = 64;
-  static constexpr std::size_t kMargen = 4;
-
   struct Lugar {
     bool ocupado = false;
     PaqueteVoz paquete;
@@ -32,7 +34,7 @@ class BufferVoz {
 
   void vaciar();
 
-  std::size_t espera_;
+  std::size_t espera_ = 2;
   std::array<Lugar, kLugares> lugares_{};
   bool sincronizado_ = false;
   bool llenando_ = true;

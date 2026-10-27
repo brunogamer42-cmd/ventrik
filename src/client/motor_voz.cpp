@@ -15,6 +15,85 @@ constexpr unsigned kQuietosParaCambiar = 50;
 constexpr unsigned kQuietosParaPrestar = 10;
 constexpr int kVentajaParaEntrar = 6;
 constexpr opus_int32 kSoloCabecera = 2;
+constexpr float kObjetivoMinimo = 40;
+constexpr float kObjetivoMaximo = 200;
+constexpr float kMargenDelObjetivo = 20;
+constexpr float kHolgura = 20;
+constexpr float kBajadaDelObjetivo = 0.002f;
+constexpr float kSubidaDeLaBase = 0.01f;
+constexpr int kRetrasoImposible = 1000;
+constexpr int kCasiCallado = 300;
+constexpr double kParecido = 0.8;
+constexpr int kNivelFuerte = 77;
+constexpr int kDisimulosAlVaciarse = 3;
+
+void fundir(gsl::span<const std::int16_t> desde, gsl::span<const std::int16_t> hacia,
+            gsl::span<std::int16_t> salida) {
+  const auto largo = static_cast<float>(salida.size());
+  for (std::size_t i = 0; i < salida.size(); ++i) {
+    const float peso = static_cast<float>(i) / largo;
+    salida[i] = static_cast<std::int16_t>(desde[i] + (hacia[i] - desde[i]) * peso);
+  }
+}
+}
+
+std::size_t periodo(gsl::span<const std::int16_t> pcm, unsigned frecuencia) {
+  const std::size_t minimo = frecuencia / 400;
+  const std::size_t maximo = std::min<std::size_t>(frecuencia / 100, pcm.size() / 2);
+  int pico = 0;
+  for (const std::int16_t muestra : pcm) {
+    pico = std::max(pico, std::abs(static_cast<int>(muestra)));
+  }
+  if (maximo <= minimo) {
+    return 0;
+  }
+  if (pico < kCasiCallado) {
+    return pcm.size() / 2;
+  }
+  const std::size_t paso = std::max(1u, frecuencia / 16000);
+  double mejor = kParecido;
+  std::size_t elegido = 0;
+  for (std::size_t corrimiento = minimo; corrimiento <= maximo; corrimiento += paso) {
+    std::int64_t cruzada = 0;
+    std::int64_t uno = 0;
+    std::int64_t otro = 0;
+    for (std::size_t i = 0; i + maximo < pcm.size(); i += paso) {
+      const std::int64_t a = pcm[i];
+      const std::int64_t b = pcm[i + corrimiento];
+      cruzada += a * b;
+      uno += a * a;
+      otro += b * b;
+    }
+    const double parecido = static_cast<double>(cruzada) / std::sqrt(static_cast<double>(uno) * otro + 1);
+    if (parecido > mejor) {
+      mejor = parecido;
+      elegido = corrimiento;
+    }
+  }
+  return elegido;
+}
+
+std::size_t acortar(gsl::span<std::int16_t> pcm, unsigned frecuencia) {
+  const std::size_t corrimiento = periodo(pcm, frecuencia);
+  if (corrimiento == 0) {
+    return pcm.size();
+  }
+  fundir(pcm.first(corrimiento), pcm.subspan(corrimiento, corrimiento), pcm.first(corrimiento));
+  std::copy(pcm.begin() + static_cast<std::ptrdiff_t>(2 * corrimiento), pcm.end(),
+            pcm.begin() + static_cast<std::ptrdiff_t>(corrimiento));
+  return pcm.size() - corrimiento;
+}
+
+std::size_t estirar(gsl::span<std::int16_t> pcm, std::size_t largo, unsigned frecuencia) {
+  const std::size_t corrimiento = periodo(pcm.first(largo), frecuencia);
+  if (corrimiento == 0 || largo + corrimiento > pcm.size()) {
+    return largo;
+  }
+  std::copy_backward(pcm.begin() + static_cast<std::ptrdiff_t>(corrimiento),
+                     pcm.begin() + static_cast<std::ptrdiff_t>(largo),
+                     pcm.begin() + static_cast<std::ptrdiff_t>(largo + corrimiento));
+  fundir(pcm.subspan(2 * corrimiento, corrimiento), pcm.first(corrimiento), pcm.subspan(corrimiento, corrimiento));
+  return largo + corrimiento;
 }
 
 std::int16_t con_ganancia(std::int16_t muestra, int por_ciento) {
@@ -145,6 +224,10 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
       sumar(cual, mezcla, volumen);
     }
     limitar(mezcla, parte, limite_);
+    reproducidas_total_ += parte.size();
+    for (Voz& voz : voces_) {
+      voz.objetivo = std::max(kObjetivoMinimo, voz.objetivo - static_cast<float>(en_ms(parte.size())) * kBajadaDelObjetivo);
+    }
     salida = salida.subspan(parte.size());
   }
   contar();
@@ -214,8 +297,10 @@ void MotorVoz::recibir() {
   PaqueteVoz llegado;
   while (puente_.bajada.sacar(llegado)) {
     if (Voz* voz = lugar_para(llegado)) {
-      voz->buffer.llegar(llegado);
       voz->nivel = std::max<int>(voz->nivel, llegado.nivel);
+      if (voz->buffer.llegar(llegado)) {
+        medir(*voz, llegado.tiempo);
+      }
     } else {
       sin_lugar_.fetch_add(1, std::memory_order_relaxed);
     }
@@ -246,8 +331,31 @@ MotorVoz::Voz* MotorVoz::lugar_para(const PaqueteVoz& paquete) {
     elegida->cuantas = elegida->leidas = 0;
     elegida->nivel = 0;
     elegida->quietos = 0;
+    elegida->disimulos = 0;
+    elegida->objetivo = kObjetivoMinimo;
+    elegida->con_base = false;
   }
   return elegida;
+}
+
+void MotorVoz::medir(Voz& voz, std::uint16_t tiempo) {
+  const std::uint64_t ahora = en_ms(reproducidas_total_);
+  const auto llegada = static_cast<std::uint16_t>(static_cast<std::uint16_t>(ahora) - tiempo);
+  voz.resto += static_cast<float>(ahora - voz.ultima_llegada) * kSubidaDeLaBase;
+  voz.ultima_llegada = ahora;
+  voz.base = static_cast<std::uint16_t>(voz.base + static_cast<int>(voz.resto));
+  voz.resto -= std::floor(voz.resto);
+  const auto retraso = static_cast<std::int16_t>(static_cast<std::uint16_t>(llegada - voz.base));
+  if (voz.con_base && retraso > voz.objetivo) {
+    tardes_.fetch_add(1, std::memory_order_relaxed);
+  }
+  if (voz.con_base && retraso >= 0) {
+    voz.objetivo = std::min(std::max(voz.objetivo, retraso + kMargenDelObjetivo), kObjetivoMaximo);
+  }
+  if (!voz.con_base || retraso < 0 || retraso > kObjetivoMaximo) {
+    voz.con_base = true;
+    voz.base = llegada;
+  }
 }
 
 void MotorVoz::personas(gsl::span<const std::pair<std::uint32_t, std::uint8_t>> volumenes) {
@@ -277,7 +385,7 @@ void MotorVoz::sumar(std::size_t cual, gsl::span<float> mezcla, float ganancia) 
   ganancia = ganancia * static_cast<float>(por_ciento) / 100;
   for (auto hueco = mezcla; voz.hablante != 0 && !hueco.empty();) {
     if (voz.leidas == voz.cuantas) {
-      decodificar(cual);
+      decodificar(cual, reproducidas_total_ + (mezcla.size() - hueco.size()));
     }
     const std::size_t tramo = std::min(hueco.size(), voz.cuantas - voz.leidas);
     const auto desde = voz.pcm.begin() + static_cast<std::ptrdiff_t>(voz.leidas);
@@ -288,21 +396,28 @@ void MotorVoz::sumar(std::size_t cual, gsl::span<float> mezcla, float ganancia) 
   }
 }
 
-void MotorVoz::decodificar(std::size_t cual) {
+void MotorVoz::decodificar(std::size_t cual, std::uint64_t muestra) {
   Voz& voz = voces_[cual];
+  voz.buffer.esperar(static_cast<std::size_t>(std::lround(voz.objetivo / static_cast<float>(en_ms(por_paquete_)))));
   PaqueteVoz paquete;
   const auto salida = voz.buffer.sacar(paquete);
+  const bool disimular = salida == BufferVoz::Salida::perdido || (salida == BufferVoz::Salida::nada && voz.disimulos > 0);
   const int muestras =
       salida == BufferVoz::Salida::paquete
           ? opus_decode(voz.decodificador, paquete.opus.data(), paquete.largo, voz.pcm.data(),
                         static_cast<int>(voz.pcm.size()), 0)
-      : salida == BufferVoz::Salida::perdido
-          ? opus_decode(voz.decodificador, nullptr, 0, voz.pcm.data(), static_cast<int>(por_paquete_), 0)
-          : 0;
+      : disimular ? opus_decode(voz.decodificador, nullptr, 0, voz.pcm.data(), static_cast<int>(por_paquete_), 0)
+                  : 0;
+  voz.disimulos = salida == BufferVoz::Salida::paquete ? (paquete.nivel >= kNivelFuerte ? kDisimulosAlVaciarse : 0)
+                  : salida == BufferVoz::Salida::nada ? std::max(voz.disimulos - 1, 0)
+                                                      : voz.disimulos;
   voz.leidas = 0;
   voz.cuantas = muestras > 0 ? static_cast<std::size_t>(muestras) : por_paquete_;
   if (muestras <= 0) {
     std::fill(voz.pcm.begin(), voz.pcm.begin() + static_cast<std::ptrdiff_t>(por_paquete_), std::int16_t{0});
+  }
+  if (salida == BufferVoz::Salida::paquete && muestras > 0) {
+    ajustar(voz, paquete.tiempo, muestra);
   }
   voz.nivel = std::max(voz.nivel - 1, 0);
   voz.quietos = salida == BufferVoz::Salida::nada ? voz.quietos + 1 : 0;
@@ -313,7 +428,26 @@ void MotorVoz::decodificar(std::size_t cual) {
   puente_.cambiar(puente_.hablando[cual], salida == BufferVoz::Salida::nada ? std::uint32_t{0} : voz.hablante);
 }
 
+void MotorVoz::ajustar(Voz& voz, std::uint16_t tiempo, std::uint64_t muestra) {
+  const auto demora = static_cast<std::int16_t>(
+      static_cast<std::uint16_t>(static_cast<std::uint16_t>(en_ms(muestra)) - tiempo - voz.base));
+  const std::size_t antes = voz.cuantas;
+  if (demora > voz.objetivo + kHolgura && demora < kRetrasoImposible) {
+    voz.cuantas = acortar(gsl::make_span(voz.pcm).first(voz.cuantas), calidad_.frecuencia);
+    acelerado_ += antes - voz.cuantas;
+  } else if (demora < voz.objetivo - kHolgura && demora > -kRetrasoImposible) {
+    voz.cuantas = estirar(voz.pcm, voz.cuantas, calidad_.frecuencia);
+    estirado_ += voz.cuantas - antes;
+  }
+}
+
 void MotorVoz::contar() {
+  const auto mayor = std::max_element(voces_.begin(), voces_.end(), [](const Voz& una, const Voz& otra) {
+    return una.objetivo < otra.objetivo;
+  });
+  objetivo_ms_.store(static_cast<std::uint32_t>(mayor->objetivo), std::memory_order_relaxed);
+  acelerado_ms_.store(static_cast<std::uint32_t>(en_ms(acelerado_)), std::memory_order_relaxed);
+  estirado_ms_.store(static_cast<std::uint32_t>(en_ms(estirado_)), std::memory_order_relaxed);
   std::size_t espera = 0;
   std::size_t recortes = 0;
   std::size_t vaciados = 0;

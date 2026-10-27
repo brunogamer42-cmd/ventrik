@@ -98,7 +98,7 @@ class Programa {
                  "vaciados_colchon_total,faltas_colchon_total,transmitiendo,voces,voz_lista,avisos,mensajes,"
                  "mensaje_comun,ram_mb,despertares_ventana,despertares_audio,despertares_red,tcp_sube,tcp_baja,"
                  "udp_sube,udp_baja,memoria_propia_kb,fallas_por_segundo,arranque_ms,pixeles,foco,juego,"
-                 "bloqueada,ahorro,atlas_kb,silencio,notificaciones"
+                 "bloqueada,ahorro,atlas_kb,silencio,notificaciones,objetivo_ms,acelerado_ms,estirado_ms,tardes"
               << std::endl;
   }
 
@@ -593,7 +593,8 @@ class Programa {
              medicion.memoria_propia / 1024, medicion.fallas, ventana_.arranque_ms(), uso.pixeles,
              situacion.con_foco, situacion.juego, situacion.bloqueada, situacion.ahorro,
              atlas.Width * atlas.Height * atlas.BytesPerPixel / 1024, static_cast<int>(servidor_.silencio),
-             notificador_ ? notificador_->mostrados() : 0u);
+             notificador_ ? notificador_->mostrados() : 0u, voz ? motor_->objetivo_ms() : 0u,
+             voz ? motor_->acelerado_ms() : 0u, voz ? motor_->estirado_ms() : 0u, voz ? motor_->tardes() : 0u);
       trafico_ = trafico;
     }
     cuadros_ = 0;
