@@ -93,6 +93,12 @@ Están en `CMakeLists.txt`, junto a cada biblioteca:
   - `SQLITE_THREADSAFE=0`: se usa desde un solo hilo, como pide el diseño. El control de hilos de SQLite 3.54 usa funciones de Windows 7.
   - `SQLITE_OMIT_LOAD_EXTENSION`: no puede cargar código de afuera.
   - `SQLITE_DQS=0`: las comillas dobles son solo para nombres, nunca para texto.
-- **RNNoise:** versión en C común, la misma que Opus usa en `dnn/vec.h`. En la clásica se apaga `restrict`, que el compilador de C de VS 2017 no conoce; es solo una pista para optimizar.
+- **RNNoise:**
+  - En la clásica, versión en C común, la misma que Opus usa en `dnn/vec.h`, y se apaga `restrict`, que el compilador de C de VS 2017 no conoce; es solo una pista para optimizar.
+  - En la moderna elige al arrancar, según el procesador, la versión en C, SSE4.1 o AVX2 (`RNN_ENABLE_X86_RTCD` y los archivos de `src/x86/`; `nnet_sse4_1.c` con `OPUS_X86_MAY_HAVE_SSE4_1` y `nnet_avx2.c` con `/arch:AVX2`, cada uno solo en su archivo).
+    - En la PC de prueba bajó de 7,2 % a 2,5 % de un núcleo, cada 10 ms a 48 kHz.
+    - En la clásica no se usa, porque XP no guarda los registros de AVX.
+    - RNNoise no consulta si Windows tiene prendido AVX (XGETBV). En Windows 10 y 11 siempre lo está; en alguna máquina virtual rara el hilo de la voz podría cerrarse con una instrucción inválida.
+- **SpeexDSP:** sin sus avisos por consola (`DISABLE_WARNINGS`), que escribirían con `fprintf` desde el hilo de la voz.
 - **stb_vorbis:** solo desde memoria y con el sonido entero (`STB_VORBIS_NO_STDIO`, `STB_VORBIS_NO_PUSHDATA_API`): no abre archivos por su cuenta. Todavía no lo usa ningún programa; se compila para comprobar que anda en las dos versiones.
 - **doctest (solo en la clásica):** sin su informe de cierres inesperados (`DOCTEST_CONFIG_NO_WINDOWS_SEH`), que usa una función que XP de 32 bits no tiene.

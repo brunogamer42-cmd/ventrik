@@ -160,9 +160,9 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
   target_sources(fuzz_textos PRIVATE src/client/avisos.cpp src/client/silencios.cpp)
   target_link_libraries(fuzz_base PRIVATE sqlite)
   target_sources(fuzz_voz_servidor PRIVATE src/server/proteccion.cpp src/server/voz.cpp)
-  target_sources(fuzz_voz PRIVATE src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/motor_voz.cpp
-                 src/client/voz_primero.cpp)
-  target_link_libraries(fuzz_voz PRIVATE opus)
+  target_sources(fuzz_voz PRIVATE src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/limpieza.cpp
+                 src/client/motor_voz.cpp src/client/voz_primero.cpp)
+  target_link_libraries(fuzz_voz PRIVATE opus rnnoise speexdsp)
   return()
 endif()
 
@@ -182,11 +182,11 @@ if(VENTRIK_VERSION STREQUAL "asan")
 endif()
 add_library(ventrik_cliente_base STATIC
   src/client/audio.cpp src/client/avisos.cpp src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/conexion.cpp
-  src/client/diagnostico.cpp src/client/guardados.cpp src/client/horas.cpp
-  src/client/motor_voz.cpp src/client/sala.cpp src/client/sesion.cpp src/client/silencios.cpp
-  src/client/vigia.cpp)
+  src/client/diagnostico.cpp src/client/guardados.cpp src/client/horas.cpp src/client/limpieza.cpp
+  src/client/motor_voz.cpp src/client/sala.cpp src/client/salida_de_windows.cpp src/client/sesion.cpp
+  src/client/silencios.cpp src/client/vigia.cpp)
 target_sources(ventrik_cliente_base PRIVATE src/client/voz_primero.cpp)
-target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm)
+target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm rnnoise speexdsp ole32)
 add_library(ventrik_interfaz STATIC
   src/client/ui/aviso_ventana.cpp src/client/ui/aviso_windows.cpp src/client/ui/dibujante.cpp src/client/ui/iconos.cpp src/client/ui/inicio.cpp
   src/client/ui/menu_avisos.cpp src/client/ui/piezas.cpp
@@ -238,6 +238,7 @@ add_executable(ventrik_pruebas
   tests/prueba_sqlite.cpp
   tests/prueba_stb_image.cpp
   tests/prueba_texto.cpp
+  tests/prueba_limpieza.cpp
   tests/prueba_voz_servidor.cpp
   tests/prueba_textos.cpp
   tests/prueba_utf.cpp

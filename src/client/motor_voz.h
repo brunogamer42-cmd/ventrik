@@ -11,6 +11,7 @@
 #include <gsl/gsl>
 
 #include "client/buffer_voz.h"
+#include "client/limpieza.h"
 #include "client/puente_voz.h"
 #include "client/voz_primero.h"
 
@@ -43,7 +44,7 @@ class MotorVoz {
   MotorVoz(const MotorVoz&) = delete;
   MotorVoz& operator=(const MotorVoz&) = delete;
 
-  bool ok() const { return codificador_ && !decodificadores_.empty(); }
+  bool ok() const { return codificador_ && !decodificadores_.empty() && limpieza_; }
   unsigned frecuencia() const { return calidad_.frecuencia; }
   void transmitir(bool si) { transmitiendo_ = si && !sin_microfono_; }
   bool transmitiendo() const { return transmitiendo_; }
@@ -61,6 +62,8 @@ class MotorVoz {
   void solo_en_el_canal(bool si) { solo_ = si; }
   void por_voz(bool si) { por_voz_ = si; }
   void sensibilidad(int por_ciento) { umbral_ = umbral_de(por_ciento); }
+  void limpiar(const Limpiar& limpiar) { limpieza_->usar(limpiar); }
+  std::uint32_t tomar_limpieza_us();
   std::size_t memoria_fija() const { return fija_.fijada(); }
   std::uint32_t espera_ms() const { return espera_ms_.load(std::memory_order_relaxed); }
   int nivel(int segmentos) const;
@@ -103,6 +106,8 @@ class MotorVoz {
 
   using Pedazo = std::array<std::int16_t, 960>;
 
+  void limpiar_lo_capturado();
+  void escuchar_salida(gsl::span<const std::int16_t> parte);
   void pedazo_completo(bool por_voz);
   void codificar(const Pedazo& pedazo, std::uint16_t tiempo);
   void recibir();
@@ -120,9 +125,15 @@ class MotorVoz {
   std::size_t por_paquete_;
   std::unique_ptr<OpusEncoder, Borrar> codificador_;
   std::vector<std::uint64_t> decodificadores_;
+  std::unique_ptr<Limpieza> limpieza_;
   Pedazo capturado_{};
   Pedazo anterior_{};
   std::size_t capturadas_ = 0;
+  std::size_t limpias_ = 0;
+  int pico_limpio_ = 0;
+  std::array<std::int16_t, 480> referencia_{};
+  std::size_t en_referencia_ = 0;
+  bool capturaba_ = false;
   std::uint64_t capturadas_total_ = 0;
   bool hay_anterior_ = false;
   bool abierto_ = false;
@@ -152,6 +163,7 @@ class MotorVoz {
   std::atomic<std::uint32_t> acelerado_ms_{0};
   std::atomic<std::uint32_t> estirado_ms_{0};
   std::atomic<std::uint32_t> tardes_{0};
+  std::atomic<std::uint64_t> limpieza_tics_{0};
   std::array<std::atomic<std::uint64_t>, kMaximoPersonasConVolumen> personas_{};
   MemoriaFija fija_;
 };

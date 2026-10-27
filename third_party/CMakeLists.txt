@@ -116,6 +116,17 @@ if(VENTRIK_VERSION STREQUAL "clasica")
   # pista para optimizar: sin ella el resultado es el mismo.
   target_compile_definitions(rnnoise PRIVATE restrict=)
 endif()
+if(VENTRIK_VERSION STREQUAL "moderna")
+  # En la moderna elige al arrancar la versión con SSE4.1 o AVX2 según el
+  # procesador (en C común gastaba 7 % de un núcleo; ver docs/estado.md, paso
+  # 3.4). En la clásica no: XP no guarda los registros de AVX.
+  target_sources(rnnoise PRIVATE
+    rnnoise/src/x86/x86cpu.c rnnoise/src/x86/x86_dnn_map.c
+    rnnoise/src/x86/nnet_sse4_1.c rnnoise/src/x86/nnet_avx2.c)
+  target_compile_definitions(rnnoise PRIVATE RNN_ENABLE_X86_RTCD)
+  set_source_files_properties(rnnoise/src/x86/nnet_sse4_1.c PROPERTIES COMPILE_DEFINITIONS OPUS_X86_MAY_HAVE_SSE4_1)
+  set_source_files_properties(rnnoise/src/x86/nnet_avx2.c PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+endif()
 target_link_libraries(rnnoise PRIVATE ventrik_opciones_terceros)
 
 # --- SpeexDSP: cancelación de eco, preprocesado y cambio de frecuencia ---
@@ -130,7 +141,7 @@ add_library(speexdsp STATIC
   speexdsp/libspeexdsp/scal.c
   speexdsp/libspeexdsp/smallft.c)
 target_include_directories(speexdsp PUBLIC speexdsp/include "${INTEGRACION}/speexdsp")
-target_compile_definitions(speexdsp PRIVATE FLOATING_POINT USE_SMALLFT EXPORT=)
+target_compile_definitions(speexdsp PRIVATE FLOATING_POINT USE_SMALLFT EXPORT= DISABLE_WARNINGS)
 target_link_libraries(speexdsp PRIVATE ventrik_opciones_terceros)
 
 # --- Argon2 (implementación de referencia): contraseñas ---

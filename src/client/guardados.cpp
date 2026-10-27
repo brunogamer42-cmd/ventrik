@@ -1,6 +1,7 @@
 #include "client/guardados.h"
 
 #include <algorithm>
+#include <array>
 
 #include <windows.h>
 
@@ -11,19 +12,47 @@
 namespace ventrik::cliente {
 namespace {
 constexpr std::uint32_t kMarca = 0x52504B56;
-constexpr std::uint16_t kVersion = 6;
+constexpr std::uint16_t kVersion = 7;
 constexpr std::uint16_t kVersionConLeidos = 2;
 constexpr std::uint16_t kVersionConModo = 3;
 constexpr std::uint16_t kVersionConSilencio = 4;
 constexpr std::uint16_t kVersionConPersonas = 5;
 constexpr std::uint16_t kVersionConAvisos = 6;
+constexpr std::uint16_t kVersionConAjustes = 7;
 constexpr std::size_t kTexto = 2 + kMaximoBytesNombre;
 constexpr std::size_t kAjuste = 10;
 static_assert(kMaximoArchivoGuardados >=
               13 + kTexto + kMaximoServidoresGuardados *
                                 (6 + std::tuple_size<cifrado::Huella::Bytes>::value + 2 * kTexto + 14 +
                                  kMaximoLeidosPorServidor * 8 + kMaximoPersonasPorServidor * (kTexto + 2) +
-                                 kAjuste + 3 + protocolo::kMaximoCanales * (4 + kAjuste)));
+                                 kAjuste + 3 + protocolo::kMaximoCanales * (4 + kAjuste)) +
+                  2 + kMaximoAjustes * 4 + kMaximoBloqueDeAjustes);
+
+struct MaximoDeAjuste {
+  Ajuste ajuste;
+  std::uint8_t maximo;
+};
+
+constexpr std::array<MaximoDeAjuste, 4> kMaximos = {{{Ajuste::ruido, static_cast<std::uint8_t>(Ruido::alta)},
+                                                     {Ajuste::eco, static_cast<std::uint8_t>(Eco::prendido)},
+                                                     {Ajuste::volumen_automatico, 1},
+                                                     {Ajuste::bajar_otros, static_cast<std::uint8_t>(Bajar::mucho)}}};
+
+bool son_validos(const std::map<std::uint16_t, std::vector<std::uint8_t>>& ajustes) {
+  std::size_t total = 0;
+  for (const auto& [clave, valor] : ajustes) {
+    total += valor.size();
+    const std::uint16_t esta = clave;
+    const auto conocido = std::find_if(kMaximos.begin(), kMaximos.end(), [esta](const MaximoDeAjuste& m) {
+      return static_cast<std::uint16_t>(m.ajuste) == esta;
+    });
+    if (valor.size() > kMaximoLargoDeAjuste ||
+        (conocido != kMaximos.end() && (valor.size() != 1 || valor[0] > conocido->maximo))) {
+      return false;
+    }
+  }
+  return ajustes.size() <= kMaximoAjustes && total <= kMaximoBloqueDeAjustes;
+}
 
 bool nombre_opcional(const std::string& nombre) { return nombre.empty() || es_nombre_valido(nombre); }
 
@@ -93,6 +122,7 @@ bool son_validos(const Guardados& guardados) {
     }
   }
   return servidores.size() <= kMaximoServidoresGuardados && nombre_opcional(guardados.nombre) &&
+         son_validos(guardados.ajustes) &&
          es_tecla_valida(guardados.tecla_hablar) && guardados.sensibilidad <= kSensibilidadMaxima &&
          protocolo::es_silencio_valido(guardados.silencio) && guardados.volumen_microfono <= kVolumenMaximo &&
          guardados.volumen_salida <= kVolumenMaximo;
@@ -164,6 +194,18 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
     }
     leidos.servidores.push_back(std::move(servidor));
   }
+  const std::size_t ajustes = version >= kVersionConAjustes ? lector.leer_u16() : 0;
+  if (ajustes > kMaximoAjustes) {
+    return LecturaGuardados::danados;
+  }
+  for (std::size_t i = 0; i < ajustes && lector.ok(); ++i) {
+    const std::uint16_t clave = lector.leer_u16();
+    const auto valor = lector.leer_bytes(lector.leer_u16());
+    if (lector.ok() && !leidos.ajustes.empty() && leidos.ajustes.rbegin()->first >= clave) {
+      return LecturaGuardados::danados;
+    }
+    leidos.ajustes.emplace(clave, std::vector<std::uint8_t>(valor.begin(), valor.end()));
+  }
   if (version == 0 || !lector.terminado() || !son_validos(leidos)) {
     return LecturaGuardados::danados;
   }
@@ -214,7 +256,32 @@ std::vector<std::uint8_t> armar_guardados(const Guardados& guardados) {
       escribir_ajuste(escritor, canal.ajuste);
     }
   }
+  escritor.escribir_u16(static_cast<std::uint16_t>(guardados.ajustes.size()));
+  for (const auto& [clave, valor] : guardados.ajustes) {
+    escritor.escribir_u16(clave);
+    escritor.escribir_u16(static_cast<std::uint16_t>(valor.size()));
+    escritor.escribir_bytes(valor);
+  }
   return escritor.datos();
+}
+
+std::optional<std::uint8_t> ajuste_u8(const Guardados& guardados, Ajuste ajuste) {
+  const auto valor = guardados.ajustes.find(static_cast<std::uint16_t>(ajuste));
+  return valor != guardados.ajustes.end() && valor->second.size() == 1 ? std::optional<std::uint8_t>(valor->second[0])
+                                                                       : std::nullopt;
+}
+
+void poner_ajuste(Guardados& guardados, Ajuste ajuste, std::uint8_t valor) {
+  guardados.ajustes[static_cast<std::uint16_t>(ajuste)] = {valor};
+}
+
+AjustesDeLimpieza limpieza_de(const Guardados& guardados, bool un_nucleo) {
+  const auto valor = [&guardados](Ajuste ajuste, std::uint8_t de_fabrica) {
+    return ajuste_u8(guardados, ajuste).value_or(de_fabrica);
+  };
+  return {static_cast<Ruido>(valor(Ajuste::ruido, un_nucleo ? 0 : 2)),
+          static_cast<Eco>(valor(Ajuste::eco, un_nucleo ? 0 : 1)), valor(Ajuste::volumen_automatico, 1) == 1,
+          static_cast<Bajar>(valor(Ajuste::bajar_otros, 0))};
 }
 
 bool es_tecla_valida(std::uint8_t tecla) {

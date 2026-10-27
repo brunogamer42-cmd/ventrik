@@ -74,6 +74,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       const bool sin_microfono = (entrada[4] & 64) != 0;
       motor.silenciar(sin_microfono, sin_microfono && (entrada[4] & 128) != 0);
       motor.volumenes(entrada[1] % 201, entrada[2] % 201);
+      motor.limpiar({static_cast<ventrik::cliente::Ruido>(entrada[1] % 4), (entrada[2] & 1) != 0,
+                     (entrada[2] & 2) != 0});
       puente.bajada.poner(paquete);
       std::transform(opus.begin(), opus.begin() + std::min(opus.size(), sonido.size()),
                      sonido.begin(), [](std::uint8_t valor) { return static_cast<std::int16_t>(valor << 7); });

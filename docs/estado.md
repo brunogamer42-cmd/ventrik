@@ -369,7 +369,56 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - la ventanita de aviso propia se pinta antes de verse (`UpdateWindow`) y sin el fundido de Windows al abrir y cerrar (`DWMWA_TRANSITIONS_FORCEDISABLED` con `GetProcAddress`; en XP no existe y no hace falta);
     - los carteles siguen apareciendo tras una pequeña demora, de golpe y sin fundido; los submenús se abren al pasar el mouse.
   - **Pruebas nuevas (prueba_pantallas):** con el mouse quieto, ninguna pantalla, menú ni cuadro cambia en 90 dibujos; el oscurecido y el cuadro están juntos en cada dibujo al abrir y cerrar ("Listo", Escape y el cuadro de canal); los menús nacen ocultos solo con `por_aparecer` avisando y después no se mueven; Escape cierra primero "Agregar canal".
-- **Lo que sigue:** la prueba a mano de las notificaciones, del paso 3.2 y del 3.3 juntas, en la PC y en la XP.
+- **Etapa 3, paso 3.4: limpieza de la voz (hecho, 2026-10-27).** Primero de los cuatro pasos que el dueño pidió de un tirón (3.4 a 3.7, plan aprobado el 2026-10-27).
+  - **`client/limpieza`** (clase `Limpieza`, dentro de `MotorVoz`), en bloques de 10 ms y en el hilo de la voz:
+    - **qué hace, en orden** (los niveles, en docs/diseno.md):
+      1. eco, con SpeexDSP `mdf` y 200 ms de cola, usando como referencia lo que el mismo `procesar` mandó a los parlantes;
+      2. ruido, con RNNoise o con el preprocesador de SpeexDSP;
+      3. volumen automático, con el control de SpeexDSP;
+      4. después, "por voz" y Opus;
+    - **la memoria:**
+      - toda se pide al crear el motor;
+      - el estado de RNNoise se arma en un bloque propio (`rnnoise_get_size` y `rnnoise_init`, que no pide memoria) y se fija en la RAM con el resto de la voz: 368 KB en total a 48 kHz;
+      - los estados de SpeexDSP los pide la biblioteca con `malloc` y no se pueden fijar; se usan cada 10 ms, así que no se van al disco salvo con muy poca memoria;
+    - el eco no se reinicia al soltar la tecla: conserva lo aprendido. Mientras no se escucha el micrófono tampoco se le pasa la salida, así que al volver cancela a medias los primeros 200 ms (lo que todavía tiene de antes) y después igual que antes: medido, 24,6 dB desde los 300 ms. Reiniciarlo obligaba a reaprender 1 a 2 s en cada pulsación (lo vio la revisión);
+    - "por voz" decide con el pico de cada bloque ya sin ruido pero antes del volumen automático (`limpiar` lo devuelve), para que el volumen automático no abra el micrófono subiendo un ventilador bajo;
+    - SpeexDSP se compila sin sus avisos por consola (`DISABLE_WARNINGS`).
+  - **De fábrica:**
+    - PCs comunes: ruido Media, eco Automática, volumen automático prendido y bajar otros programas apagado;
+    - PCs de un núcleo: ruido y eco apagados;
+    - los auriculares se reconocen con `PKEY_AudioEndpoint_FormFactor` (COM, en Vista y más nuevos; en XP no hay).
+  - **Bajar otros programas (`client/salida_de_windows`, `OtrosProgramas`):**
+    - baja las sesiones de audio de los otros programas mientras alguien habla y las devuelve al callarse, al salir de la voz y al cerrar;
+    - corre en el hilo de la interfaz, solo cuando cambia si hay voces;
+    - COM se inicia recién al primer `bajar` y en el mismo modo que el resto del programa (`COINIT_MULTITHREADED`, como las notificaciones y miniaudio); `otros_` se declara antes que el notificador, así se destruye después. La revisión encontró que en el modo de un solo hilo cambiaba cómo andaban las notificaciones y que al cerrar se apagaba COM antes de soltar sus objetos;
+    - no baja con tu audio apagado; devuelve tras 1 s sin voces; no pisa un volumen que la persona cambió mientras estaba bajo;
+    - **riesgo:** si Ventrik se cierra de golpe mientras alguien habla, el otro programa queda bajo hasta que la persona lo suba.
+  - **programa.dat versión 7, con un bloque de ajustes por clave al final:**
+    - el formato: `u16` cantidad (hasta 128) y, por cada ajuste, `u16` clave, `u16` largo (hasta 2048) y el valor, ordenados por clave; en total hasta 16 KB;
+    - el lector valida las claves conocidas (ruido, eco, volumen automático, bajar otros) y conserva las que no conoce, para que un programa viejo no borre lo que guardó uno nuevo;
+    - los pasos 3.5 a 3.7 suman claves sin cambiar el formato;
+    - **regla:** nunca ampliar el rango ni el largo de una clave existente, ni los topes del bloque, sin subir la versión del archivo. Para un valor nuevo, una clave nueva. Si no, un programa más viejo vería el archivo dañado y al guardar perdería los servidores;
+    - el tope del archivo pasa a 160 KB, con el `static_assert` del peor caso.
+  - **Medición:**
+    - **banco "banco de la limpieza"**, en la PC de prueba, cada 10 ms a 48 kHz:
+      - eco 177 µs (1,8 % de un núcleo);
+      - ruido Baja 41 µs;
+      - ruido Media 248 µs (2,5 %);
+      - volumen 39 µs;
+      - todo junto 459 µs (4,6 %);
+      - a 16 kHz, todo junto 66 µs (0,65 %);
+    - RNNoise en C común gastaba 7,2 %: en la moderna se compila con la elección por procesador (SSE4.1 o AVX2, third_party/VERSIONS.md);
+    - nueva columna `limpieza_us` en `--registro`, para medirlo en la HP en la prueba a mano;
+    - **a medir en una XP de varios núcleos (no hay una):** con WinMM la cola hacia los parlantes llega a 120-250 ms, cerca de los 200 ms que cubre el filtro de eco, que podría no alcanzar. La HP no se ve afectada: es de un núcleo y tiene el eco apagado.
+  - **Pruebas** (`prueba_limpieza`):
+    - un eco con 40 ms de demora baja 22,8 dB;
+    - un ventilador baja con todos los niveles, a 48 y a 16 kHz;
+    - sin limpieza, la voz pasa intacta;
+    - el volumen automático sube 16 dB una voz baja;
+    - con la limpieza, un ventilador no abre "por voz" (sin ella sí): era un pendiente de esta etapa;
+    - programa.dat v7: ida y vuelta, claves desconocidas, rechazos, de fábrica según la PC;
+    - `fuzz_voz` cambia la limpieza al azar, y hay semilla `version7_ajustes.bin`.
+- **Lo que sigue:** pasos 3.5 (Ajustes, bandeja e inicio con Windows), 3.6 (susurro) y 3.7 (sonidos de los avisos); al final, una sola prueba a mano en la PC y en la XP.
 
 ## Ramas y repositorio
 

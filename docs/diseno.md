@@ -334,6 +334,27 @@ Recorrido de la voz:
 
 1. El micrófono capta el sonido a 48 kHz, la calidad con la que trabaja Opus, así no hay que convertirlo. En los niveles de consumo Bajo y Mínimo capta a 16 u 8 kHz (ver "Consumo de la voz").
 2. Se limpia el ruido de fondo y, si no usás auriculares, se cancela el eco (si Windows no informa qué tipo de salida es, queda encendida). Las dos cosas son opcionales porque son lo que más procesador gasta.
+   - **El orden** (paso 3.4), en bloques de 10 ms y en el hilo de la voz:
+     1. el volumen del micrófono;
+     2. el eco (SpeexDSP, con lo que sale por los parlantes como referencia);
+     3. el ruido;
+     4. "Ajustar solo el volumen del micrófono" (el control automático de SpeexDSP);
+     5. recién después se decide si se transmite, así que un ventilador o el teclado ya no abren "por voz". La decisión mira la voz ya sin ruido pero antes del volumen automático: así el volumen automático no abre "por voz" subiendo un ruido bajo. El medidor muestra el micrófono sin limpiar.
+   - **"Quitar ruido de fondo" tiene tres niveles:**
+     - Baja: SpeexDSP, −15 dB;
+     - Media: RNNoise;
+     - Alta: RNNoise, y además baja lo que RNNoise dice que no es voz;
+     - RNNoise trabaja solo a 48 kHz: a 16 y 8 kHz, Media y Alta usan SpeexDSP con −25 y −35 dB.
+   - **De fábrica:**
+     - en PCs comunes, ruido Media, eco "Automática: se apaga con auriculares" y el volumen automático prendido;
+     - en PCs de un núcleo, ruido y eco apagados (docs/optimizacion.md, etapa 3).
+   - **Auriculares:** en Vista y más nuevos se reconocen por el tipo de salida que informa Windows. En XP no hay forma de saberlo y el eco queda prendido, salvo en PCs de un núcleo, que lo tienen apagado.
+   - **"Bajar el volumen de otros programas cuando alguien habla":**
+     - desde Windows 7, con las sesiones de audio de Windows; en XP no existe;
+     - no baja nada con tu audio apagado;
+     - los devuelve después de 1 s sin voces (para que la música no suba y baje con cada pausa), al salir de la voz y al cerrar Ventrik;
+     - si mientras estaban bajos cambiaste el volumen de un programa, ese no lo toca.
+   - **Medido en la PC de prueba**, cada 10 ms a 48 kHz: eco 1,8 % de un núcleo, ruido Media 2,5 % (RNNoise con SSE4.1 o AVX2 en la moderna), todo junto 4,6 %. A 16 kHz, todo junto 0,65 %.
 3. Se transmite solo mientras apretás la tecla para hablar, o, en el modo por voz, mientras tu voz supera la sensibilidad que marcás en el medidor. El modo se elige en el panel flotante "Cómo transmitís" del panel de audio (ver "Panel de audio"), en los dos modos de la interfaz. En silencio no se envía casi nada.
    - **Por voz** (capturas: docs/pantallas/Rendimiento-por-voz.png, -por-voz-microfono.png y sus Visual): la cabecera dice "Activación por voz" en lugar de "Hablar con <tecla>"; el botón del modo dice "Por voz"; en "Cómo transmitís", en lugar de la tecla va un medidor propio con una marca (el umbral) y el control "Sensibilidad", que mueve esa marca, con el texto "Transmite cuando tu voz pasa la marca del medidor". "Transmitiendo" se prende solo mientras el nivel pasa la marca, y sigue 0,4 s después de callarte para no cortar el final de las palabras. Con la voz pasando la marca se manda también el pedazo de 20 ms anterior, para no comerse el principio. La tecla no hace nada en este modo.
    - **El medidor del panel de audio según el modo de la interfaz** (decisión del dueño, 2026-10-25; las capturas de Rendimiento muestran el medidor con divisiones y moviéndose: manda este texto):

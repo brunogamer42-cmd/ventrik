@@ -18,6 +18,7 @@
 #include "client/horas.h"
 #include "client/motor_voz.h"
 #include "client/sala.h"
+#include "client/salida_de_windows.h"
 #include "client/sesion.h"
 #include "client/vigia.h"
 #include "client/ui/aviso_ventana.h"
@@ -36,6 +37,7 @@ namespace {
 using namespace std::chrono_literals;
 using Reloj = std::chrono::steady_clock;
 constexpr auto kEntreAperturasDeVoz = 1s;
+constexpr auto kSilencioParaDevolver = 1s;
 
 template <typename... Valores>
 void anotar(std::ostream& salida, const Valores&... valores) {
@@ -98,7 +100,7 @@ class Programa {
                  "vaciados_colchon_total,faltas_colchon_total,transmitiendo,voces,voz_lista,avisos,mensajes,"
                  "mensaje_comun,ram_mb,despertares_ventana,despertares_audio,despertares_red,tcp_sube,tcp_baja,"
                  "udp_sube,udp_baja,memoria_propia_kb,fallas_por_segundo,arranque_ms,pixeles,foco,juego,"
-                 "bloqueada,ahorro,atlas_kb,silencio,notificaciones,objetivo_ms,acelerado_ms,estirado_ms,tardes"
+                 "bloqueada,ahorro,atlas_kb,silencio,notificaciones,objetivo_ms,acelerado_ms,estirado_ms,tardes,limpieza_us"
               << std::endl;
   }
 
@@ -127,6 +129,7 @@ class Programa {
     motor_->por_voz(guardados_.por_voz);
     aplicar_personas();
     aplicar_audio();
+    aplicar_limpieza();
     audio_ = std::make_unique<cliente::Audio>();
     servidor_.hay_audio =
         motor_->ok() && audio_->abrir(motor_->frecuencia(), cliente::MotorVoz::procesar_audio, motor_.get());
@@ -145,7 +148,19 @@ class Programa {
     }
   }
 
+  void aplicar_limpieza() {
+    limpieza_ = cliente::limpieza_de(guardados_, calidad_.frecuencia != cliente::Calidad{}.frecuencia);
+    if (motor_) {
+      motor_->limpiar({limpieza_.ruido,
+                       limpieza_.eco == cliente::Eco::prendido ||
+                           (limpieza_.eco == cliente::Eco::automatico && !cliente::con_auriculares()),
+                       limpieza_.volumen});
+    }
+  }
+
   void cerrar_voz() {
+    otros_.devolver();
+    bajando_ = false;
     if (sesion_) {
       sesion_->voz(nullptr);
     }
@@ -538,6 +553,17 @@ class Programa {
     const auto antes = std::make_tuple(servidor_.transmitiendo, servidor_.hablando, servidor_.nivel);
     servidor_.transmitiendo = motor_ && motor_->transmitiendo();
     servidor_.hablando = puente_ ? puente_->quienes() : cliente::Hablando{};
+    const bool hablan = std::any_of(servidor_.hablando.begin(), servidor_.hablando.end(),
+                                    [](std::uint32_t id) { return id != 0; }) &&
+                        (guardados_.silencio & protocolo::kSilencioAudio) == 0;
+    ultima_voz_ = hablan ? Reloj::now() : ultima_voz_;
+    if (hablan && limpieza_.bajar != cliente::Bajar::nada && !bajando_) {
+      bajando_ = true;
+      otros_.bajar(cliente::factor_de_bajada(static_cast<std::uint8_t>(limpieza_.bajar)));
+    } else if (!hablan && bajando_ && Reloj::now() - ultima_voz_ >= kSilencioParaDevolver) {
+      bajando_ = false;
+      otros_.devolver();
+    }
     servidor_.nivel = vigia_ ? vigia_->nivel() : 0;
     const Situacion& situacion = ventana_.situacion();
     if (const bool medir = vigia_ && servidor_.por_voz && servidor_.ajustando && situacion.con_foco && situacion.dibuja();
@@ -629,7 +655,8 @@ class Programa {
              situacion.con_foco, situacion.juego, situacion.bloqueada, situacion.ahorro,
              atlas.Width * atlas.Height * atlas.BytesPerPixel / 1024, static_cast<int>(servidor_.silencio),
              notificador_ ? notificador_->mostrados() : 0u, voz ? motor_->objetivo_ms() : 0u,
-             voz ? motor_->acelerado_ms() : 0u, voz ? motor_->estirado_ms() : 0u, voz ? motor_->tardes() : 0u);
+             voz ? motor_->acelerado_ms() : 0u, voz ? motor_->estirado_ms() : 0u, voz ? motor_->tardes() : 0u,
+             voz ? motor_->tomar_limpieza_us() : 0u);
       trafico_ = trafico;
     }
     cuadros_ = 0;
@@ -663,12 +690,16 @@ class Programa {
   const std::wstring carpeta_;
   const bool integrar_;
   cliente::Avisos avisos_;
+  cliente::OtrosProgramas otros_;
   std::unique_ptr<Notificador> notificador_;
   std::uint32_t canal_del_aviso_ = 0;
   std::vector<std::uint32_t> silenciados_enviados_;
   std::uint64_t version_avisos_ = 0;
   bool juego_avisos_ = false;
   const cliente::Calidad calidad_ = cliente::calidad_automatica();
+  cliente::AjustesDeLimpieza limpieza_;
+  Reloj::time_point ultima_voz_{};
+  bool bajando_ = false;
   std::atomic<bool> avisado_{false};
   PantallaInicio pantalla_;
   PantallaServidor servidor_;

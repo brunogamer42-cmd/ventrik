@@ -3,12 +3,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <gsl/gsl>
 
+#include "client/limpieza.h"
 #include "client/silencios.h"
 #include "common/cifrado/huella.h"
 #include "common/protocol/pedidos.h"
@@ -16,7 +18,7 @@
 
 namespace ventrik::cliente {
 constexpr std::size_t kMaximoServidoresGuardados = 32;
-constexpr std::size_t kMaximoArchivoGuardados = 131072;
+constexpr std::size_t kMaximoArchivoGuardados = 163840;
 constexpr std::size_t kMaximoLeidosPorServidor = 64;
 constexpr std::size_t kMaximoPersonasPorServidor = 16;
 static_assert(kMaximoLeidosPorServidor >= protocolo::kMaximoCanales);
@@ -25,6 +27,20 @@ constexpr std::uint8_t kSensibilidadMaxima = 100;
 constexpr std::uint8_t kSensibilidadPorDefecto = 30;
 constexpr std::uint8_t kVolumenMaximo = 200;
 constexpr std::uint8_t kVolumenPorDefecto = 100;
+constexpr std::size_t kMaximoAjustes = 128;
+constexpr std::size_t kMaximoLargoDeAjuste = 2048;
+constexpr std::size_t kMaximoBloqueDeAjustes = 16384;
+
+enum class Ajuste : std::uint16_t { ruido = 1, eco = 2, volumen_automatico = 3, bajar_otros = 4 };
+enum class Eco : std::uint8_t { apagado, automatico, prendido };
+enum class Bajar : std::uint8_t { nada, un_poco, bastante, mucho };
+
+struct AjustesDeLimpieza {
+  Ruido ruido = Ruido::apagado;
+  Eco eco = Eco::apagado;
+  bool volumen = true;
+  Bajar bajar = Bajar::nada;
+};
 
 struct Leido {
   std::uint32_t canal = 0;
@@ -63,6 +79,7 @@ struct Guardados {
   std::uint8_t volumen_salida = kVolumenPorDefecto;
   std::string nombre;
   std::vector<ServidorGuardado> servidores;
+  std::map<std::uint16_t, std::vector<std::uint8_t>> ajustes;
 };
 
 enum class LecturaGuardados { leidos, danados, version_nueva, error };
@@ -70,6 +87,9 @@ enum class LecturaGuardados { leidos, danados, version_nueva, error };
 LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& guardados);
 std::vector<std::uint8_t> armar_guardados(const Guardados& guardados);
 bool es_tecla_valida(std::uint8_t tecla);
+std::optional<std::uint8_t> ajuste_u8(const Guardados& guardados, Ajuste ajuste);
+void poner_ajuste(Guardados& guardados, Ajuste ajuste, std::uint8_t valor);
+AjustesDeLimpieza limpieza_de(const Guardados& guardados, bool un_nucleo);
 std::uint8_t tecla_para_hablar(std::uint8_t guardada);
 ServidorGuardado* buscar_guardado(Guardados& guardados, const red::Direccion& direccion);
 bool recordar(Guardados& guardados, ServidorGuardado servidor);

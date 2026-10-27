@@ -94,7 +94,7 @@ TEST_CASE("el archivo de servidores rechaza lo que no armó Ventrik") {
   marca[0] ^= 1;
   CHECK(leer_sin_tocar(marca) == LecturaGuardados::danados);
   auto version = bien;
-  version[4] = 7;
+  version[4] = 8;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::version_nueva);
   version[4] = 0;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::danados);
@@ -153,8 +153,8 @@ TEST_CASE("una lista de la versión 3 se lee sin silencio y con los volúmenes a
   CHECK(leidos.volumen_microfono == ventrik::cliente::kVolumenPorDefecto);
   CHECK(leidos.volumen_salida == ventrik::cliente::kVolumenPorDefecto);
   const auto nuevo = armar_guardados(leidos);
-  REQUIRE(nuevo.size() == escritor.datos().size() + 3);
-  CHECK(nuevo[4] == 6);
+  REQUIRE(nuevo.size() == escritor.datos().size() + 5);
+  CHECK(nuevo[4] == 7);
   CHECK(nuevo[9] == 0);
   CHECK(nuevo[10] == 100);
   CHECK(nuevo[11] == 100);
@@ -173,8 +173,8 @@ TEST_CASE("una lista de la versión 2 se lee con la tecla para hablar y la sensi
   CHECK_FALSE(leidos.por_voz);
   CHECK(leidos.sensibilidad == ventrik::cliente::kSensibilidadPorDefecto);
   const auto nuevo = armar_guardados(leidos);
-  REQUIRE(nuevo.size() == escritor.datos().size() + 5);
-  CHECK(nuevo[4] == 6);
+  REQUIRE(nuevo.size() == escritor.datos().size() + 7);
+  CHECK(nuevo[4] == 7);
   CHECK(nuevo[7] == 0);
   CHECK(nuevo[8] == ventrik::cliente::kSensibilidadPorDefecto);
 }
@@ -273,8 +273,8 @@ TEST_CASE("una lista de la versión 1 se lee con sus servidores y sin lo leído"
   CHECK(leidos.servidores[0].nombre == "Tano");
   CHECK(leidos.servidores[0].leidos.empty());
   const auto nuevo = armar_guardados(leidos);
-  REQUIRE(nuevo.size() == escritor.datos().size() + 20);
-  CHECK(nuevo[4] == 6);
+  REQUIRE(nuevo.size() == escritor.datos().size() + 22);
+  CHECK(nuevo[4] == 7);
   auto con_leidos = escritor.datos();
   con_leidos.push_back(0);
   CHECK(leer_sin_tocar(con_leidos) == LecturaGuardados::danados);
@@ -339,7 +339,7 @@ TEST_CASE("el volumen de cada persona se guarda por servidor y por nombre, hasta
   CHECK(leidos.servidores[1].personas[1].volumen == 150);
   CHECK(armar_guardados(leidos) == bytes);
   auto silenciada_mal = bytes;
-  silenciada_mal[silenciada_mal.size() - 14] = 2;
+  silenciada_mal[silenciada_mal.size() - 16] = 2;
   CHECK(leer_sin_tocar(silenciada_mal) == LecturaGuardados::danados);
 
   std::vector<PersonaGuardada> personas;
@@ -446,4 +446,66 @@ TEST_CASE("recordar pone el servidor adelante, lo actualiza y guarda hasta 32") 
   CHECK(std::count_if(guardados.servidores.begin(), guardados.servidores.end(),
                       [](const ServidorGuardado& s) { return s.direccion.ipv4 == 20; }) == 1);
   CHECK(!armar_guardados(guardados).empty());
+}
+
+TEST_CASE("los ajustes van por clave: se guardan en orden, se conservan los que no se conocen y se validan los conocidos") {
+  Guardados guardados = ejemplo();
+  ventrik::cliente::poner_ajuste(guardados, ventrik::cliente::Ajuste::eco, 2);
+  ventrik::cliente::poner_ajuste(guardados, ventrik::cliente::Ajuste::ruido, 2);
+  guardados.ajustes[900] = {1, 2, 3};
+  const auto bytes = armar_guardados(guardados);
+  REQUIRE_FALSE(bytes.empty());
+  CHECK(bytes[4] == 7);
+  Guardados leidos;
+  REQUIRE(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
+  CHECK(leidos.ajustes == guardados.ajustes);
+  CHECK(armar_guardados(leidos) == bytes);
+  CHECK(ventrik::cliente::ajuste_u8(leidos, ventrik::cliente::Ajuste::ruido) == 2);
+  CHECK_FALSE(ventrik::cliente::ajuste_u8(leidos, ventrik::cliente::Ajuste::bajar_otros));
+
+  Guardados fuera = guardados;
+  fuera.ajustes[static_cast<std::uint16_t>(ventrik::cliente::Ajuste::eco)] = {3};
+  CHECK(armar_guardados(fuera).empty());
+  fuera = guardados;
+  fuera.ajustes[static_cast<std::uint16_t>(ventrik::cliente::Ajuste::volumen_automatico)] = {1, 0};
+  CHECK(armar_guardados(fuera).empty());
+  fuera = guardados;
+  fuera.ajustes[901] = std::vector<std::uint8_t>(ventrik::cliente::kMaximoLargoDeAjuste + 1);
+  CHECK(armar_guardados(fuera).empty());
+  fuera = guardados;
+  fuera.ajustes[901] = std::vector<std::uint8_t>(ventrik::cliente::kMaximoLargoDeAjuste);
+  CHECK_FALSE(armar_guardados(fuera).empty());
+  for (std::uint16_t clave = 902; clave < 910; ++clave) {
+    fuera.ajustes[clave] = std::vector<std::uint8_t>(ventrik::cliente::kMaximoLargoDeAjuste);
+  }
+  CHECK(armar_guardados(fuera).empty());
+
+  auto desordenado = bytes;
+  const std::size_t bloque = bytes.size() - (2 + 3 * 4 + 1 + 1 + 3);
+  REQUIRE(desordenado[bloque] == 3);
+  std::swap(desordenado[bloque + 2], desordenado[bloque + 2 + 5]);
+  CHECK(leer_sin_tocar(desordenado) == LecturaGuardados::danados);
+  auto demasiados = bytes;
+  demasiados[bloque] = static_cast<std::uint8_t>(ventrik::cliente::kMaximoAjustes + 1);
+  CHECK(leer_sin_tocar(demasiados) == LecturaGuardados::danados);
+  auto cortado = bytes;
+  cortado.pop_back();
+  CHECK(leer_sin_tocar(cortado) == LecturaGuardados::danados);
+}
+
+TEST_CASE("la limpieza de la voz viene prendida en las PCs comunes y apagada en las de un núcleo, hasta que se cambia") {
+  using ventrik::cliente::Bajar;
+  using ventrik::cliente::Eco;
+  using ventrik::cliente::Ruido;
+  Guardados guardados;
+  const auto comun = ventrik::cliente::limpieza_de(guardados, false);
+  CHECK(comun.ruido == Ruido::media);
+  CHECK(comun.eco == Eco::automatico);
+  CHECK(comun.volumen);
+  CHECK(comun.bajar == Bajar::nada);
+  const auto debil = ventrik::cliente::limpieza_de(guardados, true);
+  CHECK(debil.ruido == Ruido::apagado);
+  CHECK(debil.eco == Eco::apagado);
+  ventrik::cliente::poner_ajuste(guardados, ventrik::cliente::Ajuste::ruido, static_cast<std::uint8_t>(Ruido::alta));
+  CHECK(ventrik::cliente::limpieza_de(guardados, true).ruido == Ruido::alta);
 }

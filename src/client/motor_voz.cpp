@@ -151,7 +151,8 @@ void MotorVoz::Borrar::operator()(OpusEncoder* codificador) const {
 MotorVoz::MotorVoz(PuenteVoz& puente, const Calidad& calidad)
     : puente_(puente),
       calidad_(calidad),
-      por_paquete_(std::min<std::size_t>(calidad.frecuencia / 50, 960)) {
+      por_paquete_(std::min<std::size_t>(calidad.frecuencia / 50, 960)),
+      limpieza_(std::make_unique<Limpieza>(calidad.frecuencia)) {
   int error = OPUS_OK;
   codificador_.reset(opus_encoder_create(static_cast<opus_int32>(calidad_.frecuencia), 1,
                                          OPUS_APPLICATION_VOIP, &error));
@@ -175,7 +176,9 @@ MotorVoz::MotorVoz(PuenteVoz& puente, const Calidad& calidad)
   fija_.fijar({{this, sizeof(*this)},
                {&puente_, sizeof(puente_)},
                {codificador_.get(), static_cast<std::size_t>(opus_encoder_get_size(1))},
-               {decodificadores_.data(), decodificadores_.size() * sizeof(std::uint64_t)}});
+               {decodificadores_.data(), decodificadores_.size() * sizeof(std::uint64_t)},
+               {limpieza_.get(), sizeof(Limpieza)},
+               limpieza_->rnnoise()});
 }
 
 void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
@@ -196,8 +199,14 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     abierto_ = hay_anterior_ = false;
     restante_ = 0;
   }
-  if (!escuchar || (solo_ && !por_voz)) {
-    capturadas_ = 0;
+  const bool captura = escuchar && !(solo_ && !por_voz);
+  if (captura && !capturaba_) {
+    en_referencia_ = 0;
+  }
+  capturaba_ = captura;
+  if (!captura) {
+    capturadas_ = limpias_ = 0;
+    pico_limpio_ = 0;
     capturadas_total_ += entrada.size();
     entrada = {};
   }
@@ -208,9 +217,11 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     capturadas_ += parte.size();
     capturadas_total_ += parte.size();
     entrada = entrada.subspan(parte.size());
+    limpiar_lo_capturado();
     if (capturadas_ == por_paquete_) {
       pedazo_completo(por_voz);
-      capturadas_ = 0;
+      capturadas_ = limpias_ = 0;
+      pico_limpio_ = 0;
     }
   }
   const float volumen = sin_audio_ ? 0.0f : static_cast<float>(ganancia_salida_.load()) / 100;
@@ -223,6 +234,9 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
       sumar(cual, mezcla, volumen);
     }
     limitar(mezcla, parte, limite_);
+    if (capturaba_) {
+      escuchar_salida(parte);
+    }
     reproducidas_total_ += parte.size();
     for (Voz& voz : voces_) {
       voz.objetivo = std::max(kObjetivoMinimo, voz.objetivo - static_cast<float>(en_ms(parte.size())) * kBajadaDelObjetivo);
@@ -230,6 +244,42 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     salida = salida.subspan(parte.size());
   }
   contar();
+}
+
+void MotorVoz::limpiar_lo_capturado() {
+  const std::size_t bloque = limpieza_->bloque();
+  if (limpias_ + bloque > capturadas_) {
+    return;
+  }
+  LARGE_INTEGER desde = {};
+  QueryPerformanceCounter(&desde);
+  for (; limpias_ + bloque <= capturadas_; limpias_ += bloque) {
+    pico_limpio_ = std::max(pico_limpio_, limpieza_->limpiar(gsl::make_span(capturado_).subspan(limpias_, bloque)));
+  }
+  LARGE_INTEGER hasta = {};
+  QueryPerformanceCounter(&hasta);
+  limpieza_tics_.fetch_add(static_cast<std::uint64_t>(hasta.QuadPart - desde.QuadPart), std::memory_order_relaxed);
+}
+
+void MotorVoz::escuchar_salida(gsl::span<const std::int16_t> parte) {
+  const std::size_t bloque = limpieza_->bloque();
+  while (!parte.empty()) {
+    const auto pedazo = parte.first(std::min(parte.size(), bloque - en_referencia_));
+    std::copy(pedazo.begin(), pedazo.end(), referencia_.begin() + static_cast<std::ptrdiff_t>(en_referencia_));
+    en_referencia_ += pedazo.size();
+    parte = parte.subspan(pedazo.size());
+    if (en_referencia_ == bloque) {
+      limpieza_->escuchar(gsl::make_span(referencia_).first(bloque));
+      en_referencia_ = 0;
+    }
+  }
+}
+
+std::uint32_t MotorVoz::tomar_limpieza_us() {
+  LARGE_INTEGER frecuencia = {};
+  QueryPerformanceFrequency(&frecuencia);
+  return static_cast<std::uint32_t>(limpieza_tics_.exchange(0, std::memory_order_relaxed) * 1000000 /
+                                    static_cast<std::uint64_t>(std::max<LONGLONG>(frecuencia.QuadPart, 1)));
 }
 
 int MotorVoz::nivel(int segmentos) const {
@@ -252,9 +302,7 @@ void MotorVoz::pedazo_completo(bool por_voz) {
     codificar(capturado_, tiempo);
     return;
   }
-  const int umbral = umbral_;
-  const bool pasa = std::any_of(capturado_.begin(), capturado_.begin() + static_cast<std::ptrdiff_t>(por_paquete_),
-                                [umbral](std::int16_t muestra) { return std::abs(static_cast<int>(muestra)) >= umbral; });
+  const bool pasa = pico_limpio_ >= umbral_;
   const bool abrir = pasa || restante_ > 0;
   restante_ = pasa ? kPedazosTrasCallarse : std::max(restante_ - 1, 0);
   if (abrir && !solo_) {
