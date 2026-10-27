@@ -22,7 +22,6 @@ Cada biblioteca se guarda con versión fija y sin modificar su código. De cada 
 | Argon2 (implementación de referencia) | 20190702 | CC0 o Apache 2.0 | Contraseñas | 2026-10-21 |
 | SQLite | 3.54.1 | Dominio público | Base de datos del servidor | 2026-10-21 |
 | stb_image | 2.30 | Dominio público o MIT | GIF del modo Visual | 2026-10-21 |
-| stb_vorbis | 1.22 | Dominio público o MIT | Sonidos OGG de los avisos. **Sin usar desde el 2026-10-27:** el fuzzing le encontró fallas con OGG armados a propósito, y no tiene arreglos desde 2021 (ver docs/estado.md, paso 3.7) | 2026-10-26 |
 | miniz | 3.0.2 | MIT | Leer y armar los paquetes de sonidos (.vksonidos, que son zip) | 2026-10-27 |
 | jsmn | 1.1.0 | MIT | Leer el índice JSON de los paquetes de sonidos | 2026-10-27 |
 | libwebp | 1.6.0 | BSD de 3 cláusulas | WebP del modo Visual | 2026-10-21 |
@@ -46,7 +45,6 @@ Cada biblioteca se guarda con versión fija y sin modificar su código. De cada 
 | Argon2 | `https://github.com/P-H-C/phc-winner-argon2/archive/refs/tags/20190702.tar.gz` | SHA-256 `daf972a89577f8772602bf2eb38b6a3dd3d922bf5724d45e7f9589b5e830442c` |
 | SQLite | `https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip` | SHA3-256 `92281c86e2957f9b9305890f9ac04204caa7b677cc868dc326d942689df28e30`, comprobada con la página de descargas; SHA-256 `0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9` |
 | stb_image | `https://github.com/nothings/stb/archive/013ac3beddff3dbffafd5177e7972067cd2b5083.tar.gz` (último cambio de `stb_image.h`, 2024-05-31) | SHA-256 `b01aa93e1a968aed55f43e072c98ee401d2f20e897aabdb1a166c7166886ed11` |
-| stb_vorbis | El mismo paquete que stb_image (en esa versión `stb_vorbis.c` es la 1.22, del 2021-07-11) | La misma huella que stb_image, comprobada otra vez al bajarlo el 2026-10-26 |
 | miniz | `https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip` (el paquete armado de la versión, con `miniz.c` y `miniz.h` en un solo par) | SHA-256 `ada38db0b703a56d3dd6d57bf84a9c5d664921d870d8fea4db153979fb5332c5` |
 | jsmn | `https://github.com/zserge/jsmn/archive/refs/tags/v1.1.0.tar.gz` | SHA-256 `5f0913a10657fe7ec8d5794ccf00a01000e3e1f2f1e1f143c34a0f7b47edcb38` |
 | libwebp | `https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz` | SHA-256 `e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564` (publican una firma PGP, todavía no verificada) |
@@ -65,7 +63,7 @@ Cada biblioteca se guarda con versión fija y sin modificar su código. De cada 
 - **SpeexDSP:** `include/speex/`, `libspeexdsp/` (sin los `test*.c`) y la licencia.
 - **Argon2:** `include/argon2.h`, la parte de `src/` de la implementación de referencia (sin la versión optimizada, las pruebas ni los programas) y la licencia.
 - **SQLite:** `sqlite3.c` y `sqlite3.h`. Es de dominio público y no trae archivo de licencia (ver https://www.sqlite.org/copyright.html).
-- **stb_image y stb_vorbis:** `stb_image.h`, `stb_vorbis.c` y la licencia del repositorio (una sola para los dos).
+- **stb_image:** `stb_image.h` y la licencia del repositorio. **stb_vorbis 1.22 se sacó el 2026-10-27:** el fuzzing le encontró fallas con OGG armados a propósito, no tiene arreglos desde 2021, y el dueño decidió que los sonidos propios sean solo WAV y MP3.
 - **miniz:** `miniz.c`, `miniz.h` y la licencia. Sin los ejemplos.
 - **jsmn:** `jsmn.h` y la licencia. Sin pruebas ni ejemplos. Su código se compila en `integracion/jsmn/jsmn.c`.
 - **libwebp:** `src/` (decodificador, codificador, animaciones y utilidades), `sharpyuv/`, la licencia y `PATENTS`.
@@ -109,5 +107,4 @@ Están en `CMakeLists.txt`, junto a cada biblioteca:
     - En la clásica no se usa, porque XP no guarda los registros de AVX.
     - RNNoise no consulta si Windows tiene prendido AVX (XGETBV). En Windows 10 y 11 siempre lo está; en alguna máquina virtual rara el hilo de la voz podría cerrarse con una instrucción inválida.
 - **SpeexDSP:** sin sus avisos por consola (`DISABLE_WARNINGS`), que escribirían con `fprintf` desde el hilo de la voz.
-- **stb_vorbis:** solo desde memoria y con el sonido entero (`STB_VORBIS_NO_STDIO`, `STB_VORBIS_NO_PUSHDATA_API`): no abre archivos por su cuenta. Todavía no lo usa ningún programa; se compila para comprobar que anda en las dos versiones.
 - **doctest (solo en la clásica):** sin su informe de cierres inesperados (`DOCTEST_CONFIG_NO_WINDOWS_SEH`), que usa una función que XP de 32 bits no tiene.

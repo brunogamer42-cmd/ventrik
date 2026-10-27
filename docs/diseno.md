@@ -327,8 +327,8 @@ Diseño del dueño del 2026-10-26. No es para la etapa en curso: va con las noti
   - un selector de grupo que muestra un grupo por vez, con los avisos en dos columnas;
   - por cada aviso: casilla para encenderlo, botón para probarlo y "Predeterminado / Propio / Elegir un archivo…".
 - **Sonidos propios:**
-  - **Formatos y límites:** WAV o MP3; hasta 1 MB y 5 s (los de llamada, hasta 10 s). **OGG quedó apagado** el 2026-10-27: el fuzzing encontró que stb_vorbis 1.22 escribe fuera de su memoria con un OGG armado a propósito, y el proyecto no tiene arreglos desde 2021. Decisión pendiente del dueño: dejarlo así o sumar libvorbis, la biblioteca oficial de Xiph.
-  - **Al elegir uno**, se decodifica con decodificadores de un solo archivo (dr_wav, stb_vorbis, dr_mp3), se rechaza si está dañado o se pasa de los límites, se pasa a 48 kHz mono y se guarda una copia en la carpeta del programa.
+  - **Formatos y límites:** WAV o MP3; hasta 1 MB y 5 s (los de llamada, hasta 10 s). **OGG quedó apagado** el 2026-10-27: el fuzzing encontró que stb_vorbis 1.22 escribe fuera de su memoria con un OGG armado a propósito, y el proyecto no tiene arreglos desde 2021. El dueño decidió el mismo día dejarlo así: solo WAV y MP3, y stb_vorbis salió de third_party.
+  - **Al elegir uno**, se decodifica con los decodificadores que trae miniaudio (dr_wav y dr_mp3), se rechaza si está dañado o se pasa de los límites, se pasa a 48 kHz mono y se guarda una copia en la carpeta del programa.
   - **Volumen:** no se nivela ni se limita, porque lo escucha solo el usuario. Solo aplica el volumen general de los avisos.
   - **Son locales:** nunca se mandan a otros ni a los servidores.
 - **Paquete .vksonidos:** un zip con los audios y un JSON que dice a qué aviso va cada uno. Al importarlo se valida cada archivo con las mismas reglas, y se ignora cualquier archivo que no sea audio.

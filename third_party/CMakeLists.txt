@@ -178,13 +178,6 @@ add_library(stb_image STATIC "${INTEGRACION}/stb/stb_image.c")
 target_include_directories(stb_image PUBLIC stb)
 target_link_libraries(stb_image PRIVATE ventrik_opciones_terceros)
 
-# --- stb_vorbis: sonidos OGG de los avisos (se usa desde la etapa 3) ---
-add_library(stb_vorbis STATIC stb/stb_vorbis.c)
-target_include_directories(stb_vorbis PUBLIC stb)
-# Solo desde memoria y con el sonido entero: sin abrir archivos ni leer por partes.
-target_compile_definitions(stb_vorbis PUBLIC STB_VORBIS_NO_STDIO STB_VORBIS_NO_PUSHDATA_API)
-target_link_libraries(stb_vorbis PRIVATE ventrik_opciones_terceros)
-
 # --- miniz: los paquetes de sonidos (.vksonidos) son zip ---
 add_library(miniz STATIC miniz/miniz.c)
 target_include_directories(miniz PUBLIC miniz)
