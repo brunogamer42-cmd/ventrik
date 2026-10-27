@@ -326,6 +326,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - doce tandas de mensajes comunes después de una mención no la borran ni la vuelven a mandar;
     - en las 4 combinaciones, la ventana de verdad minimizada no abre aviso en 4 s con un mensaje común y sí con "@ventana";
     - fuzzing: `fuzz_textos` (`mencion_en`), `fuzz_sala` (mensajes con @Ana y @todos, y ajustes al azar) y `fuzz_guardados` (semilla v6).
+- **Diseño actualizado (2026-10-27): qué prende y qué apaga cada modo.** Cada modo es una lista de 15 interruptores (Rendimiento todo apagado y Visual todo prendido de fábrica), que cada persona cambia en Ajustes → Apariencia; lo apagado no se baja ni ocupa memoria, lo que el servidor no permite manda, y un interruptor nuevo arranca apagado en Rendimiento. En docs/diseno.md ("Qué prende y qué apaga cada modo") y en la etapa 10 de docs/plan.md, con las capturas Ajustes-apariencia*.png; Perfil.png y PersonalizarServidor.png se reemplazaron (la frase de Rendimiento dice "tal como viene"). No cambia el código de la etapa 3.
 - **Etapa 3, paso 3.3b: las pantallas de silenciar avisos (hecho, 2026-10-27).**
   - **`ui/menu_avisos`:** los menús de ImGui ("Silenciar ▸", "Avisarme de ▸", el del servidor y el de cada canal) y el diálogo "Avisos de <servidor>", para usar desde la pantalla del servidor y desde Inicio.
     - "Avisarme de ▸" muestra lo elegido a la derecha; ImGui no lo trae para los submenús, así que se anota el ancho en la columna de atajos del menú (`MenuColumns`, de imgui_internal) y se escribe a mano.

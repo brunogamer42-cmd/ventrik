@@ -79,7 +79,55 @@ Organización de la ventana:
 | Animaciones | Ninguna | Solo mientras se ven; en pausa con la ventana minimizada o sin foco |
 | Ritmo de la interfaz | Lo que se mueve solo (quién habla, el medidor del panel "Cómo transmitís" mientras está abierto) a 4 imágenes por segundo; el medidor del panel de audio es una barra fija (ver Voz, paso 3) | Hasta 30 imágenes por segundo, para que los elementos visuales se vean fluidos |
 
-En Rendimiento todo eso se apaga, no se oculta: el programa no lo descarga ni lo procesa. Los dos modos tienen los mismos botones, canales, chat, tarjeta de perfil y controles de audio; solo cambia lo que se descarga y se anima. La única excepción es "Ocultar sus efectos" en la tarjeta de otro, que solo aparece en Visual porque en Rendimiento no hay efectos. En Ajustes hay un tercer modo, Automático: usa Visual, salvo en PCs débiles o con un juego en pantalla completa abierto, donde pasa solo a Rendimiento. Las PCs débiles arrancan en Rendimiento.
+La tabla muestra los modos como vienen de fábrica; cada persona puede cambiar qué prende cada uno (ver "Qué prende y qué apaga cada modo"). Lo apagado se apaga, no se oculta: el programa no lo descarga ni lo procesa. Los dos modos tienen los mismos botones, canales, chat, tarjeta de perfil y controles de audio; solo cambia lo que se descarga y se anima. La única excepción es "Ocultar sus efectos" en la tarjeta de otro, que solo aparece en Visual porque en Rendimiento no hay efectos. En Ajustes hay un tercer modo, Automático: usa Visual, salvo en PCs débiles o con un juego en pantalla completa abierto, donde pasa solo a Rendimiento. Las PCs débiles arrancan en Rendimiento.
+
+### Qué prende y qué apaga cada modo
+
+Diseño del dueño del 2026-10-27. Capturas: docs/pantallas/Ajustes-apariencia.png (como viene, con la vista previa de Rendimiento), Ajustes-apariencia-visual.png (la vista previa de Visual) y Ajustes-apariencia-personalizado.png (Rendimiento con 5 cosas prendidas). Se cambia en Ajustes → Apariencia.
+
+- **Cada modo es una lista guardada de interruptores:** qué se baja y qué se muestra.
+  - De fábrica, **Rendimiento** tiene todo apagado y **Visual** todo prendido.
+  - Cada persona puede cambiar las dos listas.
+  - **Automático** y "Pasar a Rendimiento al abrir un juego en pantalla completa" siguen igual: pasan de una lista a la otra.
+  - **Apagado quiere decir apagado, no oculto:** no se baja, no se decodifica y no ocupa memoria.
+- **Los interruptores**, con una columna por modo:
+
+| Grupo | Interruptor | Depende de | Pesado |
+| --- | --- | --- | --- |
+| Perfiles de la gente | Imágenes de perfil (apagado: iniciales) | | |
+| | Animadas (GIF o WebP) | Imágenes de perfil | sí |
+| | Marcos del avatar y efectos del editor | | |
+| | Fondos de la tarjeta de perfil | | |
+| | Animados | Fondos de la tarjeta | sí |
+| | Efectos alrededor de la tarjeta y al abrirla | | sí |
+| | Fuentes y efectos en los nombres | | |
+| Servidores | Icono y fondo del encabezado (apagado: solo el nombre) | | |
+| | Animados | Icono y fondo | sí |
+| | Fondo del chat (se oscurece para que el texto se lea) | | |
+| | Color de cada servidor (tiñe el canal donde estás y las barras) | | |
+| | Stickers del servidor (apagado: se ve el nombre del sticker) | | |
+| Chat | Imágenes y GIFs que manda la gente (apagado: se bajan solo si tocás "Ver") | | |
+| | GIFs en movimiento (apagado: se mueven al pasar el mouse) | Imágenes y GIFs | sí |
+| El programa | Animaciones del programa (Inicio, transiciones y brillos) | | sí |
+
+- **Dependencias:** si el de arriba está apagado, el que depende de él se ve gris y no se puede tocar. Su valor queda guardado y vuelve a valer cuando se prende el de arriba.
+- **"Pesado"** marca lo que más procesador y memoria gasta. Es solo una etiqueta, no un número estimado.
+- **Botones de cada columna:** "Apagar todo" en Rendimiento y "Prender todo" en Visual; los dos dejan esa lista como venía de fábrica.
+- **La tarjeta de cada modo dice cómo está:** "Todo apagado: consume lo mínimo", "Todo prendido…" o "Personalizado: 5 de 15 prendidas".
+- **Vista previa en vivo:** a la derecha, cambia al tocar cualquier interruptor; debajo dice qué se mueve ("Se mueven: …" o "Nada se mueve").
+- **Ajustes que salen de la pantalla** porque ahora están en la tabla: "Animaciones en modo Visual" y "Fondo del chat de cada servidor".
+- **Ajuste nuevo:** "Frenar las animaciones con la ventana minimizada o sin foco", prendido de entrada. Ya era el comportamiento de Visual; ahora se puede apagar.
+- **El buscador de Ajustes** encuentra cada interruptor por su nombre.
+- **Reglas:**
+  - **Solo cambia lo que ves vos.** Los demás te siguen viendo según lo que eligieron ellos.
+  - **Orden de prioridad:**
+    1. lo que el servidor no permite ("Qué se permite en este servidor") no se ve aunque lo prendas;
+    2. después cuentan tus interruptores;
+    3. después, "Ocultar sus efectos" desde la tarjeta de esa persona.
+  - **Los cambios valen al instante, sin reiniciar.** Al prender algo, se baja solo lo que está a la vista, usando lo que ya esté guardado en la PC. Al apagar algo, se libera de la memoria enseguida; lo guardado en el disco se queda.
+  - **Un interruptor nuevo de una versión nueva** arranca apagado en Rendimiento y prendido en Visual, aunque la persona haya cambiado los otros. Así Rendimiento sigue siendo lo más liviano después de cada actualización.
+  - **Se guarda** con el resto de la configuración local, con número de versión del formato.
+  - **Rendimiento de fábrica no anima nada**, tampoco lo que trae ImGui por su cuenta (el oscurecido de los cuadros, Ctrl+Tab, abrir y cerrar en dos pasos): lo vigilan las pruebas de pantalla (docs/estado.md, paso 3.3b). "Animaciones del programa" es lo único que las prende, y solo si la persona lo elige.
 
 Aspecto, tomado de la imagen de referencia del autor: grafito azulado con acento naranja; botones con esquinas biseladas y borde oscuro; botones secundarios marcados solo por esquineros; triángulos claros en las esquinas de los paneles; rayado diagonal y cuadrícula tenue en los encabezados; avatares con una esquina cortada; medidores segmentados; selector de modo enmarcado en naranja, y las tipografías Barlow y Barlow Semi Condensed. El celeste marca a quien habla y el naranja, cuando transmitís vos. La ventana principal mide 1376 × 768 en el boceto y es la base de todas las demás pantallas. Medidas y colores exactos: docs/aspecto.md.
 
@@ -183,6 +231,7 @@ Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Ajustes-*.png, una p
   Tocar una sección la muestra sola, a todo el ancho. Los cambios se guardan solos, como antes ("Los cambios se guardan solos", junto al título).
 - **Secciones en desarrollo:** llevan "PRONTO" en el menú; adentro se ven desactivadas, con "EN DESARROLLO".
 - **El buscador** filtra el menú y salta a la sección que tiene el ajuste buscado.
+- **Apariencia** (capturas Ajustes-apariencia.png, -apariencia-visual.png y -apariencia-personalizado.png): la tabla de interruptores de cada modo, con la vista previa a la derecha (ver "Qué prende y qué apaga cada modo").
 - **General** (captura Ajustes-general.png): "Abrir Ventrik al iniciar Windows", "Entrar solo al último servidor al abrir el programa", "Al cerrar la ventana" (seguir en la bandeja, junto al reloj, o salir), idioma y "Al entrar a un servidor".
   - **"Al minimizar la ventana"** (pedido del dueño del 2026-10-26; no está en la captura): una lista como la de "Al cerrar la ventana" y junto a ella, con "Dejarla en la barra de tareas" (de fábrica) o "Pasarla a la bandeja, junto al reloj". Con la segunda, minimizar esconde también el botón de la barra de tareas (el ícono grande en Windows 10 y 11, la barra larga en XP), y queda solo el ícono de Ventrik junto al reloj, al lado de los de volumen y red.
   - **El ícono junto al reloj** es el mismo al cerrar y al minimizar:
