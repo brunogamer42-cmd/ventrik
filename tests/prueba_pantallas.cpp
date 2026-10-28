@@ -8,6 +8,9 @@
 #include <variant>
 #include <vector>
 
+struct IUnknown;
+#include <d3d9.h>
+
 #include <doctest/doctest.h>
 #include <imgui.h>
 #include <imgui_impl_null.h>
@@ -967,6 +970,18 @@ TEST_CASE("Una ventana sin bordes que cubre el monitor es pantalla completa") {
   CHECK_FALSE(ui::tapa_el_monitor({-8, -8, 1928, 1088}, monitor, WS_OVERLAPPEDWINDOW | WS_MAXIMIZE, 0));
   CHECK_FALSE(ui::tapa_el_monitor({0, 0, 1920, 1080}, monitor, WS_POPUP, WS_EX_TOOLWINDOW));
   CHECK_FALSE(ui::tapa_el_monitor({1920, 0, 3840, 1080}, monitor, WS_POPUP, 0));
+}
+
+TEST_CASE("Si Direct3D no vuelve con Reset en 2 segundos, se arma de nuevo") {
+  CHECK(ui::como_recuperar(S_OK, false, 0) == ui::Arreglo::ninguno);
+  CHECK(ui::como_recuperar(S_PRESENT_OCCLUDED, false, 0) == ui::Arreglo::ninguno);
+  CHECK(ui::como_recuperar(S_OK, true, 0) == ui::Arreglo::reiniciar);
+  CHECK(ui::como_recuperar(D3DERR_DEVICENOTRESET, false, 0) == ui::Arreglo::reiniciar);
+  CHECK(ui::como_recuperar(D3DERR_DEVICEHUNG, false, 1999) == ui::Arreglo::reiniciar);
+  CHECK(ui::como_recuperar(D3DERR_DEVICELOST, true, 1999) == ui::Arreglo::esperar);
+  CHECK(ui::como_recuperar(D3DERR_DEVICELOST, false, 2000) == ui::Arreglo::recrear);
+  CHECK(ui::como_recuperar(D3DERR_DEVICENOTRESET, false, 2000) == ui::Arreglo::recrear);
+  CHECK(ui::como_recuperar(D3DERR_DEVICEREMOVED, false, 0) == ui::Arreglo::recrear);
 }
 
 TEST_CASE("La marca de la carpeta no depende de las mayúsculas, es la misma en 32 y 64 bits y cambia con la carpeta") {

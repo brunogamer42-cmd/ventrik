@@ -29,6 +29,9 @@ struct UsoVentana {
   int vertices_max = 0;
   std::uint32_t despertares = 0;
   std::uint64_t pixeles = 0;
+  std::uint32_t reinicios_fallidos = 0;
+  std::uint32_t error_direct3d = 0;
+  std::uint32_t aviso_de_sesion = 0;
 };
 
 struct Situacion {
@@ -42,6 +45,9 @@ struct Situacion {
   bool dibuja() const { return !minimizada && !oculta && !tapada && !juego && !bloqueada; }
 };
 
+enum class Arreglo { ninguno, esperar, reiniciar, recrear };
+
+Arreglo como_recuperar(HRESULT estado, bool otro_tamano, DWORD perdido_ms);
 bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, std::optional<LPARAM>& ultimo_mouse);
 DWORD espera_entre_cuadros(double ultimo_ms);
 bool tapa_el_monitor(const RECT& ventana, const RECT& monitor, LONG estilo, LONG extendido);
@@ -80,6 +86,7 @@ class Ventana {
   void escuchar_a_windows();
   void mirar_situacion();
   bool recuperar_dispositivo();
+  bool recrear_dispositivo();
   bool dibujar_cuadro(const std::function<void()>& dibujar);
   void poner_en_bandeja(bool poner);
   void menu_de_bandeja();
@@ -90,6 +97,7 @@ class Ventana {
   float escala_ = 1.0f;
   bool lista_ = false;
   bool perdido_ = false;
+  std::optional<DWORD> perdido_desde_;
   bool presentar_igual_ = true;
   bool bloqueo_ = false;
   bool protector_ = false;

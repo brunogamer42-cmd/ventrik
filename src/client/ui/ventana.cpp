@@ -40,6 +40,7 @@ constexpr DWORD kVecesElCuadroEntreCuadros = 4;
 constexpr UINT_PTR kTic = 1;
 constexpr UINT kMilisegundosPorTic = 1000;
 constexpr ULONG kToleranciaDelTic = 50;
+constexpr DWORD kEsperaParaRecrear = 2000;
 constexpr UINT kCambioDeEnergia = 0x8013;
 constexpr int kJuegoDeDirect3D = 3;
 constexpr GUID kAhorroDeBateria = {0xE00958C0, 0xC213, 0x4ACE, {0xAC, 0x77, 0xFE, 0xCC, 0xED, 0x2E, 0xEE, 0xA5}};
@@ -82,6 +83,13 @@ std::uint32_t ms_desde_que_arranco() {
     return (static_cast<std::uint64_t>(tiempo.dwHighDateTime) << 32) | tiempo.dwLowDateTime;
   };
   return static_cast<std::uint32_t>((entero(ahora) - std::min(entero(ahora), entero(creado))) / 10000);
+}
+
+bool salio_bien(HRESULT resultado, std::uint32_t& error) {
+  if (FAILED(resultado)) {
+    error = static_cast<std::uint32_t>(resultado);
+  }
+  return SUCCEEDED(resultado);
 }
 
 double ms_desde(Reloj::time_point desde) {
@@ -343,29 +351,60 @@ void Ventana::cargar_logo(float escala) {
   textura->UnlockRect(0);
 }
 
-bool Ventana::recuperar_dispositivo() {
-  IDirect3DDevice9& dispositivo = *grafica_->dispositivo;
-  const HRESULT estado =
-      grafica_->ex != nullptr ? grafica_->ex->CheckDeviceState(ventana_) : dispositivo.TestCooperativeLevel();
-  if (estado == D3DERR_DEVICELOST || estado == D3DERR_DEVICEREMOVED) {
+Arreglo como_recuperar(HRESULT estado, bool otro_tamano, DWORD perdido_ms) {
+  if (estado == D3DERR_DEVICEREMOVED || perdido_ms >= kEsperaParaRecrear) {
+    return Arreglo::recrear;
+  }
+  if (estado == D3DERR_DEVICELOST) {
+    return Arreglo::esperar;
+  }
+  return estado == D3DERR_DEVICENOTRESET || estado == D3DERR_DEVICEHUNG || otro_tamano ? Arreglo::reiniciar
+                                                                                        : Arreglo::ninguno;
+}
+
+bool Ventana::recrear_dispositivo() {
+  grafica_->dibujante.reset();
+  grafica_->logo.reset();
+  grafica_->ex = nullptr;
+  grafica_->dispositivo.reset();
+  if (!preparar_dispositivo()) {
     return false;
   }
-  const bool colgado = estado == D3DERR_DEVICEHUNG;
-  if (estado == D3DERR_DEVICENOTRESET || colgado || ancho_nuevo_ != 0) {
-    if (ancho_nuevo_ != 0) {
-      grafica_->presentar.BackBufferWidth = ancho_nuevo_;
-      grafica_->presentar.BackBufferHeight = alto_nuevo_;
-      ancho_nuevo_ = alto_nuevo_ = 0;
-    }
+  grafica_->dibujante = std::make_unique<Dibujante>(*grafica_->dispositivo, grafica_->textura_maxima);
+  cargar_logo(escala_);
+  return true;
+}
+
+bool Ventana::recuperar_dispositivo() {
+  const HRESULT estado = !grafica_->dispositivo    ? D3DERR_DEVICELOST
+                         : grafica_->ex != nullptr ? grafica_->ex->CheckDeviceState(ventana_)
+                                                   : grafica_->dispositivo->TestCooperativeLevel();
+  salio_bien(estado, uso_.error_direct3d);
+  const DWORD ahora = GetTickCount();
+  const Arreglo arreglo = como_recuperar(estado, ancho_nuevo_ != 0, ahora - perdido_desde_.value_or(ahora));
+  if (ancho_nuevo_ != 0 && arreglo != Arreglo::esperar) {
+    grafica_->presentar.BackBufferWidth = ancho_nuevo_;
+    grafica_->presentar.BackBufferHeight = alto_nuevo_;
+    ancho_nuevo_ = alto_nuevo_ = 0;
+  }
+  bool listo = arreglo == Arreglo::ninguno;
+  if (arreglo == Arreglo::reiniciar) {
     grafica_->presentar.BackBufferFormat = D3DFMT_UNKNOWN;
-    if (grafica_->ex == nullptr || colgado) {
+    if (grafica_->ex == nullptr || estado == D3DERR_DEVICEHUNG) {
       grafica_->dibujante->soltar();
     }
-    const bool reiniciado = SUCCEEDED(dispositivo.Reset(&grafica_->presentar));
+    listo = salio_bien(grafica_->dispositivo->Reset(&grafica_->presentar), uso_.error_direct3d);
+    uso_.reinicios_fallidos += listo ? 0 : 1;
     grafica_->dibujante->preparar();
-    return reiniciado;
+  } else if (arreglo == Arreglo::recrear) {
+    listo = recrear_dispositivo();
   }
-  return true;
+  if (listo) {
+    perdido_desde_.reset();
+  } else if (!perdido_desde_ || arreglo == Arreglo::recrear) {
+    perdido_desde_ = ahora;
+  }
+  return listo;
 }
 
 bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, std::optional<LPARAM>& ultimo_mouse) {
@@ -469,6 +508,7 @@ bool Ventana::dibujar_cuadro(const std::function<void()>& dibujar) {
   const auto* sucia = entera ? nullptr : reinterpret_cast<const RGNDATA*>(&region);
   const HRESULT resultado = grafica_->ex != nullptr ? grafica_->ex->PresentEx(nullptr, nullptr, nullptr, sucia, 0)
                                                     : dispositivo.Present(nullptr, nullptr, nullptr, sucia);
+  salio_bien(resultado, uso_.error_direct3d);
   perdido_ = resultado == D3DERR_DEVICELOST || resultado == D3DERR_DEVICEHUNG || resultado == D3DERR_DEVICEREMOVED;
   situacion_.tapada = resultado == S_PRESENT_OCCLUDED;
   uso_.direct3d_ms += ms_desde(armado);
@@ -602,7 +642,7 @@ int Ventana::correr(const std::function<bool()>& atender, const std::function<vo
       presentar_igual_ = true;
       if (dibuja) {
         pendientes = kCuadrosTrasEvento;
-      } else {
+      } else if (grafica_->dibujante) {
         grafica_->dibujante->soltar();
       }
     }
@@ -659,6 +699,7 @@ LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LP
       break;
     case WM_WTSSESSION_CHANGE:
       if (yo != nullptr) {
+        yo->uso_.aviso_de_sesion = static_cast<std::uint32_t>(wparam);
         if (wparam == WTS_SESSION_LOCK || wparam == WTS_CONSOLE_DISCONNECT || wparam == WTS_REMOTE_DISCONNECT) {
           yo->bloqueo_ = true;
         } else if (wparam == WTS_SESSION_UNLOCK || wparam == WTS_CONSOLE_CONNECT || wparam == WTS_REMOTE_CONNECT) {

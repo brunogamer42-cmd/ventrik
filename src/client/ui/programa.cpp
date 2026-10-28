@@ -107,7 +107,6 @@ class Programa {
         integrar_(carpeta_ == carpeta_de_datos(L"Programa")),
         avisos_(idioma) {
     pantalla_.idioma = idioma;
-    pantalla_.logo = ventana.logo();
     if (integrar_) {
       escuchar_clics_de_windows(ventana.hwnd());
     }
@@ -165,7 +164,8 @@ class Programa {
                  "vaciados_colchon_total,faltas_colchon_total,transmitiendo,voces,voz_lista,avisos,mensajes,"
                  "mensaje_comun,ram_mb,despertares_ventana,despertares_audio,despertares_red,tcp_sube,tcp_baja,"
                  "udp_sube,udp_baja,memoria_propia_kb,fallas_por_segundo,arranque_ms,pixeles,foco,juego,"
-                 "bloqueada,ahorro,atlas_kb,silencio,notificaciones,objetivo_ms,acelerado_ms,estirado_ms,tardes,limpieza_us"
+                 "bloqueada,ahorro,atlas_kb,silencio,notificaciones,objetivo_ms,acelerado_ms,estirado_ms,tardes,limpieza_us,"
+                 "reinicios_fallidos,error_direct3d,aviso_de_sesion"
               << std::endl;
   }
 
@@ -979,6 +979,7 @@ class Programa {
 
   void cuadro() {
     ++cuadros_;
+    pantalla_.logo = servidor_.logo = ventana_.logo();
     if (en_ajustes_) {
       cuadro_de_ajustes();
       return;
@@ -1448,7 +1449,7 @@ class Programa {
              atlas.Width * atlas.Height * atlas.BytesPerPixel / 1024, static_cast<int>(servidor_.silencio),
              notificador_ ? notificador_->mostrados() : 0u, voz ? motor_->objetivo_ms() : 0u,
              voz ? motor_->acelerado_ms() : 0u, voz ? motor_->estirado_ms() : 0u, voz ? motor_->tardes() : 0u,
-             voz ? motor_->tomar_limpieza_us() : 0u);
+             voz ? motor_->tomar_limpieza_us() : 0u, uso.reinicios_fallidos, uso.error_direct3d, uso.aviso_de_sesion);
       trafico_ = trafico;
     }
     cuadros_ = 0;
