@@ -141,11 +141,13 @@ function Revisar-Exe([string]$exe, [string]$version) {
 # Abre el programa, espera su ventana y la cierra como lo haría la X.
 function Probar-Ventana([string]$exe) {
     if (-not (Test-Path $exe)) { return }
-    if (-not ('VentanaDePrueba' -as [type])) {
-        Add-Type -Name VentanaDePrueba -Namespace '' -MemberDefinition ('[DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);' +
-            '[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);')
+    if (-not ('VentanaDeCheck' -as [type])) {
+        Add-Type -Name VentanaDeCheck -Namespace '' -MemberDefinition ('[DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);' +
+            '[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);' +
+            '[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder s, int n);')
     }
     $datos = Join-Path $env:TEMP ('ventrik-ventana-' + [guid]::NewGuid().ToString('N'))
+    $otraCarpeta = $datos + '-otra'
     $proceso = Start-Process -FilePath $exe -ArgumentList @('--carpeta', ('"' + $datos + '"')) -PassThru
     $null = $proceso.Handle   # para poder leer el código de salida después
     try {
@@ -153,7 +155,10 @@ function Probar-Ventana([string]$exe) {
         $limite = (Get-Date).AddSeconds(15)
         while ((Get-Date) -lt $limite -and -not $proceso.HasExited) {
             $proceso.Refresh()
-            if ($proceso.MainWindowHandle -ne [IntPtr]::Zero) {
+            $clase = New-Object System.Text.StringBuilder 64
+            if ($proceso.MainWindowHandle -ne [IntPtr]::Zero -and
+                [VentanaDeCheck]::GetClassNameW($proceso.MainWindowHandle, $clase, 64) -gt 0 -and
+                $clase.ToString() -eq 'VentrikVentanaPrincipal') {
                 $titulo = $proceso.MainWindowTitle
                 break
             }
@@ -163,26 +168,41 @@ function Probar-Ventana([string]$exe) {
         $cerro = $false
         $oculta = $false
         $unaSola = $false
+        $muestra = $false
         if (-not $proceso.HasExited) {
             $ventana = $proceso.MainWindowHandle
             $null = $proceso.CloseMainWindow()
             Start-Sleep -Milliseconds 500
-            $oculta = -not $proceso.HasExited -and -not [VentanaDePrueba]::IsWindowVisible($ventana)
-            $otro = Start-Process -FilePath $exe -ArgumentList @('--carpeta', ('"' + $datos + '"')) -PassThru
+            $oculta = -not $proceso.HasExited -and -not [VentanaDeCheck]::IsWindowVisible($ventana)
+            $otro = Start-Process -FilePath $exe -ArgumentList @('--carpeta', ('"' + $otraCarpeta + '"')) -PassThru
             $null = $otro.Handle
-            $unaSola = $otro.WaitForExit(10000) -and $otro.ExitCode -eq 0
-            if (-not $otro.HasExited) { $otro.Kill() }
+            $aviso = [IntPtr]::Zero
+            $limite = (Get-Date).AddSeconds(10)
+            while ((Get-Date) -lt $limite -and -not $otro.HasExited -and $aviso -eq [IntPtr]::Zero) {
+                Start-Sleep -Milliseconds 200
+                $otro.Refresh()
+                $aviso = $otro.MainWindowHandle
+            }
+            $clase = New-Object System.Text.StringBuilder 64
+            $esAviso = $aviso -ne [IntPtr]::Zero -and [VentanaDeCheck]::GetClassNameW($aviso, $clase, 64) -gt 0 -and
+                       $clase.ToString() -eq '#32770'
+            if ($esAviso) { $null = [VentanaDeCheck]::PostMessageW($aviso, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) }
+            $unaSola = $esAviso -and $otro.WaitForExit(10000) -and $otro.ExitCode -eq 4 -and -not (Test-Path $otraCarpeta)
+            if (-not $otro.HasExited) { $otro.Kill(); [void]$otro.WaitForExit(5000) }
             Start-Sleep -Milliseconds 500
-            $unaSola = $unaSola -and [VentanaDePrueba]::IsWindowVisible($ventana)
-            $null = [VentanaDePrueba]::PostMessageW($ventana, 0x0111, [IntPtr]1002, [IntPtr]::Zero)
+            $muestra = $oculta -and [VentanaDeCheck]::IsWindowVisible($ventana)
+            $null = [VentanaDeCheck]::PostMessageW($ventana, 0x0111, [IntPtr]1002, [IntPtr]::Zero)
             $cerro = -not $proceso.HasExited -and $proceso.WaitForExit(10000)
         }
         Informar 'Cerrar la ventana la deja en la bandeja' $oculta
-        Informar 'Abrir Ventrik otra vez muestra el que ya estaba abierto' $unaSola
+        Informar 'Abrir otro Ventrik, aunque sea con otra carpeta, avisa que ya hay uno y no abre' $unaSola
+        Informar 'Después del aviso muestra el que ya estaba abierto' $muestra
         Informar 'Salir de la bandeja lo cierra' ($cerro -and $proceso.ExitCode -eq 0)
     } finally {
-        if (-not $proceso.HasExited) { $proceso.Kill() }
-        if (Test-Path $datos) { Remove-Item -Recurse -Force $datos }
+        if (-not $proceso.HasExited) { $proceso.Kill(); [void]$proceso.WaitForExit(5000) }
+        foreach ($carpeta in @($datos, $otraCarpeta)) {
+            if (Test-Path $carpeta) { Remove-Item -Recurse -Force $carpeta }
+        }
     }
 }
 
@@ -194,6 +214,10 @@ try {
                        $_.Path -notlike '*\servidor_de_prueba\*' } |
         ForEach-Object { $_.Kill(); [void]$_.WaitForExit(5000) }
     Write-Host 'Herramientas'
+    $ajeno = @(Get-Process -Name ventrik -ErrorAction SilentlyContinue)
+    Informar 'Ningún otro Ventrik abierto (solo puede haber uno)' ($ajeno.Count -eq 0) `
+        ('Cerrá el que está abierto: ' + ($ajeno | Select-Object -First 1 -ExpandProperty Path))
+    if ($ajeno.Count -gt 0) { exit 1 }
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
     $componentes = @('Microsoft.VisualStudio.Component.VC.Tools.x86.x64', 'Microsoft.VisualStudio.Component.VC.ASAN')
     if (-not $SoloModerna) { $componentes += 'Microsoft.VisualStudio.Component.WinXP' }

@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include <windows.h>
@@ -51,8 +52,8 @@ Arreglo como_recuperar(HRESULT estado, bool otro_tamano, DWORD perdido_ms);
 bool pide_cuadros(UINT mensaje, WPARAM tecla, LPARAM datos, bool escribiendo, std::optional<LPARAM>& ultimo_mouse);
 DWORD espera_entre_cuadros(double ultimo_ms);
 bool tapa_el_monitor(const RECT& ventana, const RECT& monitor, LONG estilo, LONG extendido);
-std::uint32_t marca_de(std::wstring carpeta);
-bool despertar_otra(std::uint32_t marca);
+std::unique_ptr<std::remove_pointer_t<HANDLE>, decltype(&CloseHandle)> ser_el_unico();
+void mostrar_el_otro();
 
 class Ventana {
  public:
@@ -76,7 +77,6 @@ class Ventana {
   void al_terminar_la_sesion(std::function<void()> terminar) { al_terminar_ = std::move(terminar); }
   void bandeja(bool al_cerrar, bool al_minimizar, std::wstring abrir, std::wstring salir);
   void ocultar();
-  void marcar(std::uint32_t marca);
 
  private:
   struct Grafica;

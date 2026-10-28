@@ -1567,12 +1567,12 @@ class Programa {
 
 int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar, const std::wstring& carpeta,
                    const std::vector<std::string>& entrar, const std::wstring& registro) {
-  const std::uint32_t marca = marca_de(carpeta);
-  const std::unique_ptr<std::remove_pointer_t<HANDLE>, decltype(&CloseHandle)> unica(
-      CreateMutexW(nullptr, FALSE, (L"Local\\Ventrik-" + std::to_wstring(marca)).c_str()), &CloseHandle);
-  if (unica && GetLastError() == ERROR_ALREADY_EXISTS) {
-    despertar_otra(marca);
-    return 0;
+  const auto unico = ser_el_unico();
+  if (!unico) {
+    MessageBoxW(nullptr, a_utf16(texto(idioma, Clave::aviso_ya_abierto)).c_str(), titulo.c_str(),
+                MB_OK | MB_ICONERROR);
+    mostrar_el_otro();
+    return 4;
   }
   const cifrado::Inicio cifrado;
   const red::Inicio red;
@@ -1582,7 +1582,6 @@ int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar, 
                 MB_OK | MB_ICONERROR);
     return 3;
   }
-  ventana.marcar(marca);
   Programa programa(idioma, ventana, carpeta, entrar);
   if (!registro.empty()) {
     programa.registrar(registro);

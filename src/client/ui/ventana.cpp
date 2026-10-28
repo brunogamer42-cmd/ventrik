@@ -26,7 +26,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND ventana, UINT 
 namespace ventrik::ui {
 namespace {
 constexpr wchar_t kClase[] = L"VentrikVentanaPrincipal";
-constexpr wchar_t kMarca[] = L"VentrikCarpeta";
+constexpr wchar_t kUnico[] = L"Global\\VentrikUnico";
 constexpr int kAnchoReferencia = 1376;
 constexpr int kAltoReferencia = 768;
 constexpr int kAnchoMinimo = 1100;
@@ -541,30 +541,21 @@ void Ventana::bandeja(bool al_cerrar, bool al_minimizar, std::wstring abrir, std
   salir_ = std::move(salir);
 }
 
-std::uint32_t marca_de(std::wstring carpeta) {
-  CharLowerBuffW(carpeta.data(), static_cast<DWORD>(carpeta.size()));
-  std::uint32_t marca = 2166136261U;
-  for (const wchar_t letra : carpeta) {
-    marca = (marca ^ letra) * 16777619U;
+std::unique_ptr<std::remove_pointer_t<HANDLE>, decltype(&CloseHandle)> ser_el_unico() {
+  decltype(ser_el_unico()) unico(CreateMutexW(nullptr, FALSE, kUnico), &CloseHandle);
+  if (unico && (GetLastError() == ERROR_ALREADY_EXISTS || FindWindowW(kClase, nullptr) != nullptr)) {
+    unico.reset();
   }
-  return marca;
+  return unico;
 }
 
-bool despertar_otra(std::uint32_t marca) {
-  for (HWND otra = FindWindowExW(nullptr, nullptr, kClase, nullptr); otra != nullptr;
-       otra = FindWindowExW(nullptr, otra, kClase, nullptr)) {
-    if (reinterpret_cast<std::uintptr_t>(GetPropW(otra, kMarca)) == marca) {
-      DWORD proceso = 0;
-      GetWindowThreadProcessId(otra, &proceso);
-      AllowSetForegroundWindow(proceso);
-      return PostMessageW(otra, WM_COMMAND, kOrdenAbrir, 0) != FALSE;
-    }
+void mostrar_el_otro() {
+  const HWND otro = FindWindowW(kClase, nullptr);
+  DWORD proceso = 0;
+  if (otro != nullptr && GetWindowThreadProcessId(otro, &proceso) != 0) {
+    AllowSetForegroundWindow(proceso);
+    PostMessageW(otro, WM_COMMAND, kOrdenAbrir, 0);
   }
-  return false;
-}
-
-void Ventana::marcar(std::uint32_t marca) {
-  SetPropW(ventana_, kMarca, reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(marca)));
 }
 
 void Ventana::ocultar() {
@@ -764,7 +755,6 @@ LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LP
       }
       return 0;
     case WM_DESTROY:
-      RemovePropW(ventana, kMarca);
       if (yo != nullptr && yo->situacion_.oculta) {
         yo->poner_en_bandeja(false);
       }

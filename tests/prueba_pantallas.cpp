@@ -984,12 +984,6 @@ TEST_CASE("Si Direct3D no vuelve con Reset en 2 segundos, se arma de nuevo") {
   CHECK(ui::como_recuperar(D3DERR_DEVICEREMOVED, false, 0) == ui::Arreglo::recrear);
 }
 
-TEST_CASE("La marca de la carpeta no depende de las mayúsculas, es la misma en 32 y 64 bits y cambia con la carpeta") {
-  CHECK(ui::marca_de(L"C:\\Datos\\Ventrik") == ui::marca_de(L"c:\\datos\\VENTRIK"));
-  CHECK(ui::marca_de(L"C:\\Datos\\Ventrik") != ui::marca_de(L"C:\\Datos\\Ventrik2"));
-  CHECK(ui::marca_de(L"ab") == 0x4D2505CAU);
-}
-
 TEST_CASE("Las teclas repetidas no piden cuadros salvo las de edición escribiendo, los caracteres solo escribiendo, y los cuadros lentos se espacian") {
   constexpr LPARAM kRepetida = 0x40000000;
   std::optional<LPARAM> mouse;

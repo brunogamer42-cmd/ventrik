@@ -12,6 +12,7 @@
 #include <windows.h>
 
 #include "client/motor_voz.h"
+#include "client/ui/ventana.h"
 #include "cliente_de_prueba.h"
 #include "common/utf.h"
 #include "servidor_externo.h"
@@ -80,6 +81,7 @@ TEST_CASE("combinaciones: servidor y programa de verdad, de la misma versión o 
   REQUIRE(!servidor_exe.empty());
   REQUIRE(!programa_exe.empty());
   REQUIRE(!carpeta.empty());
+  REQUIRE_MESSAGE(ventrik::ui::ser_el_unico() != nullptr, "Hay otro Ventrik abierto en esta PC: cerralo y volvé a probar.");
   REQUIRE(ventrik::crear_carpetas(carpeta + L"\\servidor"));
   REQUIRE(ventrik::crear_carpetas(carpeta + L"\\programa"));
   ServidorExterno servidor(servidor_exe, carpeta + L"\\servidor");

@@ -11,6 +11,7 @@
 titulo_ventana = Ventrik
 aviso_windows_viejo = Ventrik necesita Windows XP con Service Pack 3 o una versión más nueva de Windows.
 aviso_sin_direct3d = Ventrik no pudo usar la placa de video (Direct3D 9). Revisá que Windows tenga instalado el controlador de video.
+aviso_ya_abierto = Ventrik ya está abierto en esta PC. Solo se puede abrir uno a la vez.
 
 # Servidor (ventana de consola, por ahora)
 servidor_titulo = Servidor de Ventrik, versión
