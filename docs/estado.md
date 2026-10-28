@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-27, con el cierre de la etapa 3.
+Última actualización: 2026-10-27, con el paso 4.1.
 
 ## Dónde estamos
 
@@ -551,7 +551,36 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - **un soplido directo al micrófono pasa igual.** A 16 kHz solo trabaja SpeexDSP, que saca ruido parejo, y un soplido viene en ráfagas. RNNoise no entra en una PC de un núcleo. Un filtro propio contra soplidos (ráfagas graves sin tono de voz) no está en el diseño. **Decisión del dueño: dejarlo así;**
   - **cortar el servidor de golpe con la HP dentro de un canal de voz:** se desconecta normal. Una vez, al apagar la PC del servidor, la ventana de la HP quedó gris. No se repitió, ni ahí ni en esta PC: se probó con la clásica, el puente WinMM forzado, un solo núcleo, matando y suspendiendo el servidor. El dueño pidió no seguir buscando. Si vuelve: preguntar si el título dice "No responde" y si vuelve sola.
 - **Etapa 3: cerrada (2026-10-27).** La prueba a mano de la etapa se hizo con dos equipos (la PC y la HP), no con tres personas.
-- **Lo que sigue:** etapa 4, identidad y seguridad (delicada), en una sesión nueva: dividirla en pasos chicos con su plan.
+- **Etapa 4: plan aprobado (2026-10-27).** Un subagente revisó la seguridad del diseño antes de aprobarlo y sus arreglos están metidos en cada paso.
+  - **Decisiones del dueño:**
+    - admin simple: el dueño nombra o saca admins, y un admin hace con los canales lo que hoy hace el dueño (los roles completos siguen en la etapa 9);
+    - nombres reservados por identidad;
+    - qrcodegen (Nayuki, MIT) para el QR del TOTP;
+    - voz de tamaño fijo como opción del nivel, prendida solo en Máximo. Cierra el pendiente del VBR.
+  - **Pasos** (todos delicados; el detalle de cada uno, con sus pruebas, está en el plan aprobado de la sesión):
+    - 4.1 tu identidad en la PC (DPAPI y copia con contraseña);
+    - 4.2 entrar con la identidad: protocolo 5, dueño por identidad, nombres reservados, nombre del servidor en la cabecera;
+    - 4.3 contraseña del servidor con Argon2id;
+    - 4.4 contraseña maestra y bloqueo automático;
+    - 4.5 admin simple, avisos de acciones de admins, aviso de equipo nuevo y registro de seguridad;
+    - 4.6 bóveda del servidor e historial cifrado;
+    - 4.7 TOTP para admins, con QR;
+    - 4.8 niveles de seguridad en el servidor;
+    - 4.9 respaldo, mudanza y cambio de clave del servidor (por consola);
+    - 4.10 Hostear (pasos 1, 4 y 7) y "Configuración del servidor";
+    - 4.11 llaves de seguridad y Windows Hello (moderna);
+    - 4.12 cierre: exportar, borrar, importar y volver a entrar, y mudar un servidor a otra PC.
+- **Etapa 4, paso 4.1: tu identidad en la PC (hecho, falta la prueba a mano).**
+  - Cada programa tiene su identidad: una clave P-256 que se crea sola la primera vez, guardada con DPAPI en `identidad.dat`, junto a `equipo.dat` (el secreto de la PC, que nunca se exporta). Detalles en "Decisiones técnicas".
+  - **Ajustes → Seguridad** deja de estar "EN DESARROLLO": "Copia de tu identidad" con Exportar e Importar, la identidad corta y si ya hiciste la copia, como en Ajustes-seguridad.png. Las demás filas de la captura llegan en sus pasos.
+  - **Inicio:** la tarjeta "Tu identidad" anda, con "Todavía no hiciste una copia" en amarillo y "Hacer una copia ahora", que abre Ajustes → Seguridad y la exportación.
+  - **Exportar:** elegir el archivo, la contraseña dos veces (8 caracteres como mínimo) y se guarda el `.vkid`. **Importar:** elegir el archivo y la contraseña; si es otra identidad, pide confirmar el reemplazo mostrando las dos. Una contraseña equivocada no toca nada.
+  - **Identidad dañada:** si `identidad.dat` no se puede abrir, no se crea otra: Ajustes muestra el problema con "Importar" y "Crear una nueva" (que pide confirmación), e Inicio dice "Tu identidad no se pudo abrir en esta PC" con "Ver en Ajustes".
+  - La clave del servidor (`IdentidadServidor`) pasó a usar la misma `cifrado::Clave`, sin cambiar su archivo ni su huella.
+  - Probado con fotos de la ventana real (1280 × 800): Inicio, Ajustes → Seguridad, exportar con contraseña corta y con la buena, importar con una equivocada y después la buena, reemplazo, volver a abrir y la identidad dañada.
+  - **Pruebas nuevas:** prueba_sobre.cpp (AES-GCM, sobre, valores de Argon2 fuera de rango, calibración, DPAPI) y prueba_mi_identidad.cpp (firma, pública fuera de la curva, archivo de identidad, crear una sola vez, archivo dañado que no se pisa, copia, secreto del equipo dañado que no se pisa, identidad vieja apartada, identidad corta). `fuzz_identidad` suma la cabecera del sobre, el contenido de la copia, identidad.dat, equipo.dat y la clave pública con su firma, con semillas nuevas.
+  - **Revisión con subagente (dos vueltas):** encontró 9 cosas y, en los arreglos, 2 más; todas arregladas (detalle en "Decisiones técnicas"): tope de 64 MiB al abrir una copia, hilo con prioridad baja y cierre sin esperar, copias de la contraseña dentro de ImGui, preguntar antes de pisar un archivo, equipo.dat que no se pisa, apartar y devolver la identidad vieja, ruta y huella dentro del trabajo, fuzzing de la firma, memoria de direcciones en la clásica, y que Ctrl+Z en el campo vacío podía cerrar Ventrik.
+  - `check.ps1` en TODO OK y fuzzing de 10 minutos sin fallas (`fuzz_identidad`: 61.600 casos en 64 bits y 41.008 en 32).
 
 ## Ramas y repositorio
 
@@ -631,7 +660,22 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - cada llamada a TLS lee como mucho 64 veces y 32 KiB: Mbed TLS descarta sin límite registros ChangeCipherSpec y alertas sueltas, y sin tope trababa el hilo de red.
   - un envío que quedó a medias (`WANT_WRITE`) se reintenta con **el mismo largo** (`SesionTls::a_medias_`): al reintentar, Mbed TLS manda lo que tenía guardado pero devuelve como enviado el largo nuevo, y si mientras tanto se encolaron más datos se perdían sin aviso. Lo prueba "Un envío TLS a medias..." en prueba_conexion.cpp.
 - **Huella:** SHA-256 de la clave pública (SubjectPublicKeyInfo), en base32 de a 4 (`src/common/cifrado/huella.cpp`). Se compara en tiempo constante.
-- **Identidad del servidor:** clave ECDSA P-256 en DER; el certificado se rehace en cada arranque y vence en 2099. Al cargar se revisa que la pública y la privada coincidan (`mbedtls_pk_check_pair`). Si el archivo existe pero no sirve, el servidor no arranca. La clave se crea sin reemplazar nunca un archivo existente (si otro servidor la creó a la vez, gana el otro).
+- **Identidad del servidor:** clave ECDSA P-256 en DER; el certificado se rehace en cada arranque y vence en 2099. Al cargar se revisa que la pública y la privada coincidan (`mbedtls_pk_check_pair`). Si el archivo existe pero no sirve, el servidor no arranca. La clave se crea sin reemplazar nunca un archivo existente (si otro servidor la creó a la vez, gana el otro). Desde el paso 4.1 la clave en sí es `cifrado::Clave` (src/common/cifrado/clave.cpp), la misma que usa la identidad de cada persona.
+- **Identidad de cada persona (paso 4.1):**
+  - **`cifrado::Clave`:** P-256; la pública viaja sin comprimir (65 bytes, `0x04` adelante) y al recibirla se comprueba que esté en la curva (`mbedtls_ecp_check_pubkey`). La firma es ECDSA sobre SHA-256, en DER, de 72 bytes como mucho; con bytes de más se rechaza;
+  - **DPAPI** (`cifrado::proteger_con_windows`, src/common/cifrado/dpapi.cpp): `CryptProtectData` con `CRYPTPROTECT_UI_FORBIDDEN` y una entropía distinta por archivo ("ventrik identidad v1", "ventrik equipo v1"), así un archivo no se puede hacer pasar por otro. Lo abierto se copia a un `Secreto` y lo de Windows se borra con `SecureZeroMemory` antes de soltarlo. Existe desde XP (crypt32.dll, que ya estaba en la lista de check.ps1);
+  - **"sobre"** (src/common/cifrado/sobre.cpp), el formato de todo archivo cifrado con contraseña (la copia de la identidad y, en el paso 4.9, el respaldo del servidor): marca de 4 letras ("VKID" para la identidad), versión 1, memoria de Argon2 en KiB (u32), vueltas (u8) y sal de 16 bytes; esa cabecera entera son los datos asociados de AES-256-GCM, con nonce al azar de 12 bytes y etiqueta de 16. La clave sale de Argon2id con un solo carril. La marca evita usar un sobre de un tipo como si fuera de otro;
+  - **Argon2 ajustado a la PC:** memoria de 64 MiB con 1 GiB libre o más, 32 con 512 MiB y 16 si hay menos; una primera pasada con la sal de verdad mide el tiempo, y si tardó menos de 1 s se repite con las vueltas que falten (hasta 10). En la PC de trabajo da 10 vueltas de 64 MiB (unos 0,7 s);
+  - **`identidad.dat`:** "VKMI", versión 1 y el bloque DPAPI con `[capa u8 (0 = sin contraseña maestra), largo u16, DER]`. El paso 4.4 suma la capa de la contraseña maestra en ese mismo byte. La copia `.vkid` adentro lleva `[versión u8, largo u16, DER]`;
+  - **se carga después del primer cuadro** (en `atender`, con `cuadros_ > 0`), así no demora la aparición de la ventana: abrir DPAPI y revisar la clave cuesta unos milisegundos en la PC y más en la HP;
+  - **"Ya hiciste una copia"** se guarda en programa.dat (ajuste 26, `copia_de_identidad`) como la huella de la identidad copiada: si la identidad cambia, el aviso vuelve solo. No hizo falta otra versión de programa.dat (los ajustes nuevos entran en el bloque que ya existe);
+  - **hilo de la copia:** exportar e importar corren Argon2 (hasta 1 s en la PC, unos segundos en la HP) en un `std::thread` con prioridad baja (en un solo núcleo no le compite a la ventana) que existe solo mientras calcula y avisa a la ventana con `kMensajeNovedades` al terminar. Nada de `std::async` ni `packaged_task`: en VS 2017 `std::async` usa un grupo de hilos que queda vivo y `packaged_task` exige copiar lo que guarda (adentro hay `Secreto`). La ruta y la huella viajan con el trabajo, no se leen al terminar. Si se cierra Ventrik mientras calcula, se guarda todo y el proceso termina sin esperar (`TerminateProcess`): el cálculo no tiene nada que guardar, y esperarlo dejaba un proceso sin ventana con el candado tomado;
+  - **topes al abrir una copia:** 64 MiB y 10 vueltas como mucho (lo máximo que escribe Ventrik), y nunca más de la mitad de la memoria libre, física o de direcciones (en la clásica, de 32 bits, el límite real es el espacio de direcciones);
+  - **la contraseña** pasa del campo de ImGui a un `Secreto` y el campo se borra con `mbedtls_platform_zeroize` apenas se usa, al cancelar y al cerrar Ventrik. Dear ImGui guarda copias propias (el texto activo, el de volver atrás y el del campo recién soltado): `olvidar_lo_escrito` (piezas.cpp) suelta el campo y borra esos búferes enteros (toda su capacidad, no solo lo usado). Además pone en cero el número de campo del estado de ImGui: si no, al volver a ese campo ImGui reusaba su historial de deshacer, que apuntaba al texto borrado, y Ctrl+Z llegaba a mover memoria con un largo negativo (lo encontró la segunda revisión). **Límite conocido:** las letras borradas con la tecla de retroceso quedan en la memoria de "deshacer" de ImGui hasta que se pisan, porque esa estructura no se ve desde afuera de imgui_widgets.cpp y las bibliotecas de terceros no se modifican;
+  - **guardar sin identidad usable** (dañada o ilegible) aparta antes el archivo viejo como `identidad-vieja-N.dat`, por si solo había fallado la lectura en ese momento (`guardar_apartando_la_vieja`). Si después no se puede guardar la nueva, la vieja vuelve a su lugar: si no, al abrir otra vez se crearía una identidad nueva sin avisar. Un error que no sea "no existe" al mirar el archivo no se toma como que falta. `equipo.dat` sigue la misma regla que la identidad: se crea solo si no existe y nunca se pisa;
+  - **al exportar,** si el diálogo de Windows no agregó `.vkid` y el programa lo agrega, pregunta antes de pisar un archivo que ya existe (el diálogo de XP agrega solo tres letras, por eso no se usa `lpstrDefExt`);
+  - **firmas ECDSA:** para un mismo mensaje hay varias firmas válidas (s o n−s, enteros DER con ceros de más). Nunca usar los bytes de una firma para identificar algo ni para detectar repeticiones: usar el resumen de lo firmado;
+  - **foco después de un error:** `por_aparecer` (piezas.cpp) ahora pide los cuadros extra también cuando hay un pedido de foco de teclado pendiente (`NavMoveSubmitted`, `NavNextActivateId`). Sin eso, la primera tecla después de "contraseña equivocada" solo activaba el campo y se perdía.
 - **Red:** Winsock con funciones de XP, solo IPv4. Sockets sin trabarse y sin heredarse. `SO_EXCLUSIVEADDRUSE` y `SetHandleInformation` pueden fallar en XP sin que importe. `aceptar` saltea las conexiones que se cortaron en la cola.
 - **Servidor (src/server/):**
   - un hilo de red con `select()` (`FD_SETSIZE` 1024 solo en servidor.cpp), conexiones como máquinas de estados;
@@ -834,7 +878,8 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 
 - Base de datos del servidor dañada en el disco: hoy el servidor la usa igual y, por ejemplo, un contador de mensajes puede bajar. Decidir (etapa 4 u 8) si al abrirla corre `PRAGMA quick_check` y qué hace si falla (avisar, guardar una copia y empezar otra). Visto con el fuzzing largo del paso 3.7.
 
-- **Decide el dueño (de la revisión de la optimización):** el VBR restringido de la decisión 7 solo actúa sobre la parte CELT de Opus. En las PCs de un núcleo (16 kHz, solo SILK) el tamaño de cada paquete sigue variando con lo que se dice, y en la calidad normal (híbrida) varía la parte SILK. Opciones: bitrate fijo (`OPUS_SET_VBR(0)`, al menos a 16 kHz; hay que medir que el DTX siga sin mandar nada en silencio) o dejar escrito en optimizacion.md 10.9 que en SILK no hay protección. El dueño preguntó si ahorra: no (mismo procesador, unos kbps más de red mientras se habla; solo es privacidad). Recomendación: dejar el VBR restringido y sumar el bitrate fijo como opción de los niveles de seguridad de la etapa 4, apagada por defecto. Falta su respuesta.
+- **VBR y SILK (de la revisión de la optimización), decidido por el dueño el 2026-10-27:** el VBR restringido de la decisión 7 solo actúa sobre la parte CELT de Opus; en SILK (PCs de un núcleo, 16 kHz) el tamaño de cada paquete sigue variando con lo que se dice. Se suma en el paso 4.8 como opción del nivel, "Paquetes de voz de tamaño fijo" (`OPUS_SET_VBR(0)`, comprobando que el DTX siga sin mandar nada en silencio), prendida solo en Máximo.
+- "Tu estado" en Inicio dice "Llega en la etapa 4", pero el estado (Disponible, Ausente) no está en la fila de la etapa 4 del plan. Preguntar al dueño en qué etapa va y corregir el cartel.
 - De hablar por voz: hasta la etapa 3 no hay limpieza de ruido ni cancelación de eco, así que con parlantes la voz de los demás o el teclado pueden pasar la marca.
 - De la optimización: medir en la moderna si conviene pasar a pedazos de audio de 20 ms; cerrar los parlantes después de un rato sin voz (12.2, VENTRIK_PENDIENTE en audio.cpp, falta medir en una PC real); el modo de red liviano de 40 ms (10.4) llega con su ajuste; el gráfico con el ping de la voz (10.6); las reglas del modo Visual (sección 6) se aplican cuando llegue (etapa 10).
 

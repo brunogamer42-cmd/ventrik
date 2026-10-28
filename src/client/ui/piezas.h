@@ -92,6 +92,7 @@ std::optional<float> deslizador(const char* id, ImVec2 desde, float ancho, float
 std::optional<int> desplegable(const char* id, ImVec2 donde, float ancho, const std::vector<std::string>& opciones,
                                int elegida, std::string_view vista = {});
 bool por_aparecer();
+void olvidar_lo_escrito();
 
 void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, ImU32 color);
 void dibujar_icono_tachado(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, ImU32 color);

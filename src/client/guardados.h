@@ -63,6 +63,7 @@ enum class Ajuste : std::uint16_t {
   susurro_4 = 23,
   sonar_por = 24,
   no_molestar = 25,
+  copia_de_identidad = 26,
   sonido_1 = 30,
   propio_1 = 60
 };

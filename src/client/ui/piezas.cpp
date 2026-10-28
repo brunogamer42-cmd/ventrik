@@ -105,11 +105,30 @@ void pantalla_completa(const std::function<void()>& dibujar) {
 }
 
 bool por_aparecer() {
-  const ImVector<ImGuiWindow*>& ventanas = ImGui::GetCurrentContext()->Windows;
-  return std::any_of(ventanas.begin(), ventanas.end(), [](const ImGuiWindow* ventana) {
-    return ventana->Active && ventana->Hidden &&
-           (ventana->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip)) != 0;
-  });
+  const ImGuiContext& contexto = *ImGui::GetCurrentContext();
+  const ImVector<ImGuiWindow*>& ventanas = contexto.Windows;
+  return contexto.NavMoveSubmitted || contexto.NavMoveForwardToNextFrame || contexto.NavNextActivateId != 0 ||
+         std::any_of(ventanas.begin(), ventanas.end(), [](const ImGuiWindow* ventana) {
+           return ventana->Active && ventana->Hidden &&
+                  (ventana->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip)) != 0;
+         });
+}
+
+void olvidar_lo_escrito() {
+  if (ImGui::GetCurrentContext() == nullptr) {
+    return;
+  }
+  ImGui::ClearActiveID();
+  ImGuiContext& contexto = *ImGui::GetCurrentContext();
+  ImGuiInputTextState& estado = contexto.InputTextState;
+  for (ImVector<char>* texto : {&estado.TextA, &estado.TextToRevertTo, &estado.CallbackTextBackup,
+                                &contexto.InputTextDeactivatedState.TextA}) {
+    if (texto->Data != nullptr) {
+      SecureZeroMemory(texto->Data, static_cast<std::size_t>(texto->Capacity));
+    }
+  }
+  estado.ID = 0;
+  contexto.InputTextDeactivatedState.ID = 0;
 }
 
 bool casilla(std::string_view etiqueta, ImVec2 donde, bool valor) {

@@ -11,6 +11,7 @@
 #include <windows.h>
 
 #include "client/horas.h"
+#include "client/mi_identidad.h"
 #include "client/silencios.h"
 #include "client/ui/menu_avisos.h"
 #include "client/ui/servidor.h"
@@ -44,12 +45,12 @@ constexpr std::array<Item, kSecciones> kMenu = {{{Seccion::general, Clave::ajust
                                                  {Seccion::red, Clave::ajustes_red, Clave::ajustes_grupo_conexion, 6},
                                                  {Seccion::descargas, Clave::ajustes_descargas, kSinGrupo, 5},
                                                  {Seccion::prestar, Clave::ajustes_prestar, kSinGrupo, 13},
-                                                 {Seccion::seguridad, Clave::ajustes_seguridad, Clave::ajustes_grupo_privacidad, 4},
+                                                 {Seccion::seguridad, Clave::ajustes_seguridad, Clave::ajustes_grupo_privacidad, 0},
                                                  {Seccion::amigos, Clave::ajustes_amigos, kSinGrupo, 14},
                                                  {Seccion::copias, Clave::ajustes_copias, kSinGrupo, 14},
                                                  {Seccion::acerca, Clave::ajustes_acerca, kSinGrupo, 11}}};
 
-constexpr std::array<std::pair<Seccion, Clave>, 33> kBuscables = {{
+constexpr std::array<std::pair<Seccion, Clave>, 35> kBuscables = {{
     {Seccion::general, Clave::ajustes_iniciar_con_windows},
     {Seccion::general, Clave::ajustes_entrar_al_ultimo},
     {Seccion::general, Clave::ajustes_al_cerrar},
@@ -82,7 +83,9 @@ constexpr std::array<std::pair<Seccion, Clave>, 33> kBuscables = {{
     {Seccion::avisos, Clave::ajustes_avisos_voz},
     {Seccion::avisos, Clave::ajustes_avisos_conexion},
     {Seccion::avisos, Clave::ajustes_avisos_privados},
-    {Seccion::avisos, Clave::ajustes_silenciados}}};
+    {Seccion::avisos, Clave::ajustes_silenciados},
+    {Seccion::seguridad, Clave::seguridad_copia},
+    {Seccion::seguridad, Clave::seguridad_exportar}}};
 
 struct Grupo {
   std::size_t primero;
@@ -150,6 +153,7 @@ class Dibujo {
     menu();
     contenido();
     avisos();
+    dialogo_de_identidad();
     if (cambiados_) {
       pedido_.guardados = std::move(*cambiados_);
     }
@@ -316,6 +320,9 @@ class Dibujo {
         break;
       case Seccion::avisos:
         fin = avisos_y_sonidos(ImVec2(x, y), ancho);
+        break;
+      case Seccion::seguridad:
+        fin = seguridad(ImVec2(x, y), ancho);
         break;
       default:
         fin = futura(ImVec2(x, y), ancho);
@@ -1013,6 +1020,185 @@ class Dibujo {
       chip(ImVec2(fin + px(8), texto_y - px(8)), t(Clave::servidor_chip_pronto));
     }
     ImGui::PopID();
+  }
+
+  float seguridad(ImVec2 desde, float ancho) {
+    const float x = desde.x + px(kRelleno);
+    const float interior = ancho - 2 * px(kRelleno);
+    const float fila = px(61);
+    const EstadoDeIdentidad estado = pantalla_.estado_identidad;
+    const bool sin_identidad = estado == EstadoDeIdentidad::danada || estado == EstadoDeIdentidad::error;
+    const std::string_view problema = t(estado == EstadoDeIdentidad::error ? Clave::seguridad_error : Clave::seguridad_danada);
+    const float abajo = sin_identidad ? alto_envuelto(problema, interior, medida::letra_chica) + px(8) : px(44);
+    const bool con_aviso = !pantalla_.aviso_identidad.empty();
+    const float alto = px(64) + fila + px(16) + abajo + (con_aviso ? px(26) : 0) + px(kRelleno);
+    panel(desde, ImVec2(desde.x + ancho, desde.y + alto));
+    float y = titulo(desde, Clave::ajustes_seguridad);
+    ImGui::GetWindowDrawList()->AddRect(ImVec2(x, y), ImVec2(x + interior, y + fila), tono(color::linea));
+    const std::string_view importar = t(Clave::seguridad_importar);
+    const std::string_view principal = t(sin_identidad ? Clave::seguridad_crear_otra : Clave::seguridad_exportar);
+    const float ancho_importar = ancho_boton(importar, Estilo::esquineros);
+    const float ancho_principal = ancho_boton(principal, Estilo::principal);
+    const float derecha = x + interior - px(12);
+    const float boton_y = y + (fila - px(36)) / 2;
+    ImGui::BeginDisabled(estado == EstadoDeIdentidad::cargando || pantalla_.calculando);
+    ImGui::SetCursorScreenPos(ImVec2(derecha - ancho_importar, boton_y));
+    pedido_.importar_identidad =
+        boton("##importar_identidad", importar, Estilo::esquineros, ImVec2(ancho_importar, px(36)));
+    ImGui::SetCursorScreenPos(ImVec2(derecha - ancho_importar - px(12) - ancho_principal, boton_y));
+    if (boton("##exportar_identidad", principal, Estilo::principal, ImVec2(ancho_principal, px(36)))) {
+      if (sin_identidad) {
+        abrir_dialogo(DialogoIdentidad::crear);
+      } else {
+        pedido_.exportar_identidad = true;
+      }
+    }
+    ImGui::EndDisabled();
+    const float ancho_texto = derecha - ancho_importar - ancho_principal - px(36) - x;
+    escribir_en(x + px(12), y + px(21), t(Clave::seguridad_copia), color::texto, Letra::fuerte, medida::letra, ancho_texto);
+    escribir_en(x + px(12), y + px(41), t(Clave::seguridad_copia_ayuda), color::apagado, Letra::normal,
+                medida::letra_chica, ancho_texto);
+    y += fila + px(16);
+    if (sin_identidad) {
+      escribir_envuelto(ImVec2(x, y), problema, color::rojo, interior, medida::letra_chica);
+    } else if (estado == EstadoDeIdentidad::lista) {
+      escribir_en(x, y + px(9), con_datos(t(Clave::seguridad_tu_identidad), {pantalla_.identidad}), color::texto2,
+                  Letra::normal, medida::letra_chica, interior);
+      escribir_en(x, y + px(31), t(pantalla_.copia_hecha ? Clave::seguridad_copia_hecha : Clave::seguridad_sin_copia),
+                  pantalla_.copia_hecha ? color::verde : color::amarillo, Letra::normal, medida::letra_chica, interior);
+    }
+    y += abajo;
+    if (con_aviso) {
+      escribir_en(x, y + px(13), pantalla_.aviso_identidad, pantalla_.aviso_identidad_es_error ? color::rojo : color::verde,
+                  Letra::normal, medida::letra_chica, interior);
+    }
+    return desde.y + alto;
+  }
+
+  void abrir_dialogo(DialogoIdentidad cual) {
+    pantalla_.dialogo_identidad = cual;
+    pantalla_.abrir_dialogo_identidad = true;
+    pantalla_.error_identidad.clear();
+  }
+
+  bool contrasenas_validas() {
+    const std::string_view primera(pantalla_.contrasena.data());
+    const std::string_view segunda(pantalla_.repetir.data());
+    const auto letras = static_cast<std::size_t>(
+        std::count_if(primera.begin(), primera.end(), [](char c) { return (static_cast<unsigned char>(c) & 0xC0) != 0x80; }));
+    if (pantalla_.dialogo_identidad == DialogoIdentidad::importar) {
+      return !primera.empty();
+    }
+    if (pantalla_.dialogo_identidad != DialogoIdentidad::exportar) {
+      return true;
+    }
+    pantalla_.error_identidad =
+        letras < cliente::kMinimoContrasena
+            ? con_datos(t(Clave::seguridad_corta), {std::to_string(cliente::kMinimoContrasena)})
+            : primera != segunda ? s(Clave::seguridad_distintas) : std::string();
+    return pantalla_.error_identidad.empty();
+  }
+
+  void dialogo_de_identidad() {
+    const DialogoIdentidad cual = pantalla_.dialogo_identidad;
+    if (cual == DialogoIdentidad::ninguno) {
+      return;
+    }
+    if (pantalla_.abrir_dialogo_identidad) {
+      ImGui::OpenPopup("##identidad");
+      pantalla_.abrir_dialogo_identidad = false;
+    }
+    const bool exportar = cual == DialogoIdentidad::exportar;
+    const bool con_contrasena = exportar || cual == DialogoIdentidad::importar;
+    const Clave titulo = exportar                                 ? Clave::seguridad_exportar_titulo
+                         : cual == DialogoIdentidad::importar     ? Clave::seguridad_importar_titulo
+                         : cual == DialogoIdentidad::reemplazar   ? Clave::seguridad_reemplazar_titulo
+                                                                  : Clave::seguridad_crear_titulo;
+    const Clave ayuda = exportar                               ? Clave::seguridad_exportar_ayuda
+                        : cual == DialogoIdentidad::importar   ? Clave::seguridad_importar_ayuda
+                        : cual == DialogoIdentidad::reemplazar ? Clave::seguridad_reemplazar_ayuda
+                                                               : Clave::seguridad_crear_ayuda;
+    const Clave si = exportar                               ? Clave::seguridad_guardar_copia
+                     : cual == DialogoIdentidad::importar   ? Clave::seguridad_abrir_copia
+                     : cual == DialogoIdentidad::reemplazar ? Clave::seguridad_reemplazar_si
+                                                            : Clave::seguridad_crear_si;
+    const std::string texto_ayuda = con_datos(t(ayuda), {pantalla_.identidad, pantalla_.identidad_nueva});
+    const std::string_view estado =
+        pantalla_.calculando ? t(exportar ? Clave::seguridad_protegiendo : Clave::seguridad_abriendo)
+                             : std::string_view(pantalla_.error_identidad);
+    const float ancho = px(440);
+    const float interior = ancho - px(40);
+    const float alto_ayuda = alto_envuelto(texto_ayuda, interior, medida::letra_chica);
+    const float alto = px(56) + alto_ayuda + px(14) + (con_contrasena ? px(46) : 0) + (exportar ? px(46) : 0) +
+                       (estado.empty() ? 0 : px(24)) + px(56);
+    ImGui::SetNextWindowPos(ImVec2(ancho_ / 2, alto_ / 2), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(ancho, alto));
+    if (!ImGui::BeginPopupModal("##identidad", nullptr,
+                                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                    ImGuiWindowFlags_NoScrollbar)) {
+      pantalla_.dialogo_identidad = DialogoIdentidad::ninguno;
+      pedido_.cancelar_identidad = !pantalla_.calculando;
+      return;
+    }
+    if (std::exchange(pantalla_.cerrar_dialogo_identidad, false)) {
+      cerrar_ventana_emergente();
+      ImGui::EndPopup();
+      pantalla_.dialogo_identidad = DialogoIdentidad::ninguno;
+      return;
+    }
+    const ImVec2 desde = ImGui::GetWindowPos();
+    triangulos(*ImGui::GetWindowDrawList(), desde, ImVec2(desde.x + ancho, desde.y + alto));
+    const float x = desde.x + px(20);
+    float y = desde.y + px(20);
+    escribir_cortado(ImVec2(x, y), interior, t(titulo), color::texto, Letra::titulo, medida::letra_tarjeta);
+    y += px(36);
+    escribir_envuelto(ImVec2(x, y), texto_ayuda, color::texto2, interior, medida::letra_chica);
+    y += alto_ayuda + px(14);
+    ImGui::BeginDisabled(pantalla_.calculando);
+    bool confirmar = false;
+    if (con_contrasena) {
+      if (std::exchange(pantalla_.enfocar_contrasena, false) || ImGui::IsWindowAppearing()) {
+        ImGui::SetKeyboardFocusHere();
+      }
+      ImGui::SetCursorScreenPos(ImVec2(x, y));
+      confirmar = campo("##contrasena_copia", t(Clave::seguridad_contrasena), pantalla_.contrasena,
+                        ImVec2(interior, px(36)), Icono::ninguno,
+                        ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_Password, color::pozo);
+      y += px(46);
+    }
+    if (exportar) {
+      ImGui::SetCursorScreenPos(ImVec2(x, y));
+      confirmar = campo("##repetir_copia", t(Clave::seguridad_repetir), pantalla_.repetir, ImVec2(interior, px(36)),
+                        Icono::ninguno, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_Password,
+                        color::pozo) ||
+                  confirmar;
+      y += px(46);
+    }
+    if (!estado.empty()) {
+      escribir_cortado(ImVec2(x, y), interior, estado, pantalla_.calculando ? color::apagado : color::rojo,
+                       Letra::normal, medida::letra_chica);
+      y += px(24);
+    }
+    const std::string_view no = t(Clave::inicio_cancelar);
+    const std::string_view texto_si = t(si);
+    const float ancho_no = ancho_boton(no, Estilo::contorneado);
+    const float ancho_si = ancho_boton(texto_si, Estilo::principal);
+    ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no, y + px(6)));
+    const bool cancelar = boton("##no_identidad", no, Estilo::contorneado, ImVec2(ancho_no, px(medida::alto_principal))) ||
+                          (ImGui::IsKeyPressed(ImGuiKey_Escape) && !pantalla_.calculando);
+    ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no - px(10) - ancho_si, y + px(6)));
+    confirmar = boton("##si_identidad", texto_si, Estilo::principal, ImVec2(ancho_si, px(medida::alto_principal))) ||
+                confirmar;
+    ImGui::EndDisabled();
+    if (confirmar && !pantalla_.calculando && contrasenas_validas()) {
+      pedido_.confirmar_identidad = true;
+    }
+    if (cancelar) {
+      pedido_.cancelar_identidad = true;
+      cerrar_ventana_emergente();
+      pantalla_.dialogo_identidad = DialogoIdentidad::ninguno;
+    }
+    ImGui::EndPopup();
   }
 
   void avisos() {

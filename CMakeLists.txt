@@ -125,10 +125,13 @@ add_custom_command(
 add_library(ventrik_comun STATIC
   src/common/archivos.cpp
   src/common/cifrado/base32.cpp
+  src/common/cifrado/clave.cpp
   src/common/cifrado/codigo_dueno.cpp
+  src/common/cifrado/dpapi.cpp
   src/common/cifrado/huella.cpp
   src/common/cifrado/identidad.cpp
   src/common/cifrado/inicio.cpp
+  src/common/cifrado/sobre.cpp
   src/common/cifrado/tls.cpp
   src/common/proceso.cpp
   src/common/protocol/bytes.cpp
@@ -142,7 +145,7 @@ add_library(ventrik_comun STATIC
   src/common/utf.cpp
   "${VENTRIK_GENERADO}/textos_generados.h")
 target_include_directories(ventrik_comun PUBLIC src "${VENTRIK_GENERADO}")
-target_link_libraries(ventrik_comun PUBLIC ventrik_opciones ventrik_sistema gsl mbedtls ws2_32 shell32)
+target_link_libraries(ventrik_comun PUBLIC ventrik_opciones ventrik_sistema gsl mbedtls argon2 ws2_32 shell32 crypt32)
 
 if(VENTRIK_VERSION STREQUAL "fuzzing")
   foreach(fuzzer fuzz_base fuzz_guardados fuzz_identidad fuzz_nombres fuzz_paquete fuzz_protocolo fuzz_sala
@@ -155,6 +158,7 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
   endforeach()
   target_sources(fuzz_base PRIVATE src/server/base.cpp)
   target_sources(fuzz_guardados PRIVATE src/client/guardados.cpp src/client/silencios.cpp)
+  target_sources(fuzz_identidad PRIVATE src/client/mi_identidad.cpp)
   target_sources(fuzz_sala PRIVATE src/client/avisos.cpp src/client/guardados.cpp src/client/sala.cpp
                                    src/client/silencios.cpp)
   target_sources(fuzz_textos PRIVATE src/client/avisos.cpp src/client/silencios.cpp)
@@ -189,7 +193,7 @@ endif()
 add_library(ventrik_cliente_base STATIC
   src/client/arranque.cpp src/client/audio.cpp src/client/avisos.cpp src/client/buffer_voz.cpp src/client/canal_voz.cpp
   src/client/conexion.cpp src/client/cuando_suena.cpp src/client/prueba_de_audio.cpp
-  src/client/diagnostico.cpp src/client/guardados.cpp src/client/horas.cpp src/client/limpieza.cpp
+  src/client/diagnostico.cpp src/client/guardados.cpp src/client/horas.cpp src/client/limpieza.cpp src/client/mi_identidad.cpp
   src/client/motor_voz.cpp src/client/paquete_de_sonidos.cpp src/client/sala.cpp src/client/salida_de_windows.cpp
   src/client/sesion.cpp src/client/silencios.cpp src/client/sonidos.cpp src/client/vigia.cpp)
 target_sources(ventrik_cliente_base PRIVATE src/client/voz_primero.cpp)
@@ -229,6 +233,7 @@ add_executable(ventrik_pruebas
   tests/prueba_imgui.cpp
   tests/prueba_libwebp.cpp
   tests/prueba_mbedtls.cpp
+  tests/prueba_mi_identidad.cpp
   tests/prueba_motor_voz.cpp
   tests/prueba_miniaudio.cpp
   tests/prueba_miniupnpc.cpp
@@ -245,6 +250,7 @@ add_executable(ventrik_pruebas
   tests/prueba_rnnoise.cpp
   tests/prueba_sala.cpp
   tests/prueba_sesion.cpp
+  tests/prueba_sobre.cpp
   tests/prueba_sonidos.cpp
   tests/prueba_speexdsp.cpp
   tests/prueba_sqlite.cpp

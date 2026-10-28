@@ -14,20 +14,13 @@
 namespace ventrik::cifrado {
 
 struct IdentidadServidor::Datos {
-  Datos() {
-    mbedtls_pk_init(&clave);
-    mbedtls_x509_crt_init(&certificado);
-  }
-  ~Datos() {
-    mbedtls_x509_crt_free(&certificado);
-    mbedtls_pk_free(&clave);
-  }
+  explicit Datos(Clave nueva) : clave(std::move(nueva)) { mbedtls_x509_crt_init(&certificado); }
+  ~Datos() { mbedtls_x509_crt_free(&certificado); }
   Datos(const Datos&) = delete;
   Datos& operator=(const Datos&) = delete;
 
-  mbedtls_pk_context clave;
+  Clave clave;
   mbedtls_x509_crt certificado;
-  std::optional<Huella> huella;
 };
 
 namespace {
@@ -41,14 +34,12 @@ bool armar_certificado(mbedtls_pk_context& clave, mbedtls_x509_crt& certificado)
   if (aleatorio(nullptr, serie.data(), serie.size()) != 0) {
     return false;
   }
-  // Positivo y sin ceros adelante, como pide DER.
   serie[0] = static_cast<unsigned char>((serie[0] & 0x7F) | 0x40);
 
   mbedtls_x509write_crt_set_version(&escritor, MBEDTLS_X509_CRT_VERSION_3);
   mbedtls_x509write_crt_set_md_alg(&escritor, MBEDTLS_MD_SHA256);
   mbedtls_x509write_crt_set_subject_key(&escritor, &clave);
   mbedtls_x509write_crt_set_issuer_key(&escritor, &clave);
-  // La validez no importa (el programa mira la huella), pero una PC con la hora mal no tiene que fallar.
   if (mbedtls_x509write_crt_set_subject_name(&escritor, "CN=Ventrik") != 0 ||
       mbedtls_x509write_crt_set_issuer_name(&escritor, "CN=Ventrik") != 0 ||
       mbedtls_x509write_crt_set_serial_raw(&escritor, serie.data(), serie.size()) != 0 ||
@@ -71,57 +62,35 @@ IdentidadServidor::IdentidadServidor(IdentidadServidor&&) noexcept = default;
 IdentidadServidor& IdentidadServidor::operator=(IdentidadServidor&&) noexcept = default;
 IdentidadServidor::~IdentidadServidor() = default;
 
-std::optional<IdentidadServidor> IdentidadServidor::completar(std::unique_ptr<Datos> datos) {
-  datos->huella = huella_de_clave(datos->clave);
-  if (!datos->huella || !armar_certificado(datos->clave, datos->certificado)) {
+std::optional<IdentidadServidor> IdentidadServidor::completar(std::optional<Clave> clave) {
+  if (!clave) {
+    return std::nullopt;
+  }
+  auto datos = std::make_unique<Datos>(std::move(*clave));
+  if (!armar_certificado(*datos->clave.contexto(), datos->certificado)) {
     return std::nullopt;
   }
   return IdentidadServidor(std::move(datos));
 }
 
 std::optional<IdentidadServidor> IdentidadServidor::crear_nueva() {
-  auto datos = std::make_unique<Datos>();
-  if (mbedtls_pk_setup(&datos->clave, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY)) != 0 ||
-      mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(datos->clave), aleatorio,
-                          nullptr) != 0) {
-    return std::nullopt;
-  }
-  return completar(std::move(datos));
+  return completar(Clave::crear_nueva());
 }
 
 std::optional<IdentidadServidor> IdentidadServidor::desde_der(gsl::span<const std::uint8_t> der) {
-  auto datos = std::make_unique<Datos>();
-  if (der.empty() ||
-      mbedtls_pk_parse_key(&datos->clave, der.data(), der.size(), nullptr, 0, aleatorio,
-                           nullptr) != 0 ||
-      mbedtls_pk_get_type(&datos->clave) != MBEDTLS_PK_ECKEY ||
-      mbedtls_ecp_keypair_get_group_id(mbedtls_pk_ec(datos->clave)) != MBEDTLS_ECP_DP_SECP256R1 ||
-      // El archivo trae la pública aparte de la privada: si no coinciden, la huella mentiría.
-      mbedtls_pk_check_pair(&datos->clave, &datos->clave, aleatorio, nullptr) != 0) {
-    return std::nullopt;
-  }
-  return completar(std::move(datos));
+  return completar(Clave::desde_der(der));
 }
 
 std::optional<Secreto> IdentidadServidor::clave_der() const {
-  Secreto espacio(1024);
-  const int largo =
-      mbedtls_pk_write_key_der(&datos_->clave, espacio.bytes().data(), espacio.size());
-  if (largo <= 0 || static_cast<std::size_t>(largo) > espacio.size()) {
-    return std::nullopt;
-  }
-  const auto escrito = espacio.bytes().last(static_cast<std::size_t>(largo));
-  Secreto resultado(escrito.size());
-  std::copy(escrito.begin(), escrito.end(), resultado.bytes().begin());
-  return resultado;
+  return datos_->clave.der();
 }
 
 const Huella& IdentidadServidor::huella() const {
-  return *datos_->huella;
+  return datos_->clave.huella();
 }
 
 mbedtls_pk_context* IdentidadServidor::clave() {
-  return &datos_->clave;
+  return datos_->clave.contexto();
 }
 
 mbedtls_x509_crt* IdentidadServidor::certificado() {
@@ -172,7 +141,6 @@ IdentidadCargada cargar_o_crear_identidad(const std::wstring& archivo) {
   const auto der = nueva->clave_der();
   const auto escritura = der ? escribir_archivo_nuevo(archivo, der->bytes()) : EscrituraNueva::error;
   if (escritura == EscrituraNueva::ya_existe) {
-    // Otro servidor la creó mientras tanto: vale la suya, que ya mostró su huella.
     return cargar(archivo, no_existe);
   }
   if (escritura != EscrituraNueva::escrito) {

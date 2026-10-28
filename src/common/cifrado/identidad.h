@@ -9,6 +9,7 @@
 #include <mbedtls/pk.h>
 #include <mbedtls/x509_crt.h>
 
+#include "common/cifrado/clave.h"
 #include "common/cifrado/huella.h"
 #include "common/cifrado/secreto.h"
 
@@ -16,11 +17,9 @@ namespace ventrik::cifrado {
 
 constexpr std::size_t kMaximoArchivoClave = 16 * 1024;
 
-// Clave ECDSA P-256 del servidor y su certificado autofirmado, hecho de nuevo en cada arranque.
 class IdentidadServidor {
  public:
   static std::optional<IdentidadServidor> crear_nueva();
-  // Solo claves privadas ECDSA P-256: cualquier otra cosa se rechaza.
   static std::optional<IdentidadServidor> desde_der(gsl::span<const std::uint8_t> der);
 
   IdentidadServidor(IdentidadServidor&&) noexcept;
@@ -35,7 +34,7 @@ class IdentidadServidor {
  private:
   struct Datos;
   explicit IdentidadServidor(std::unique_ptr<Datos> datos);
-  static std::optional<IdentidadServidor> completar(std::unique_ptr<Datos> datos);
+  static std::optional<IdentidadServidor> completar(std::optional<Clave> clave);
 
   std::unique_ptr<Datos> datos_;
 };
@@ -47,7 +46,6 @@ struct IdentidadCargada {
   std::optional<IdentidadServidor> identidad;
 };
 
-// Si el archivo existe pero no se puede usar, no crea otra: la huella cambiaría sin avisar.
 IdentidadCargada cargar_o_crear_identidad(const std::wstring& archivo);
 
 }  // namespace ventrik::cifrado

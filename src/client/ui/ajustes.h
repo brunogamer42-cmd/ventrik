@@ -31,6 +31,9 @@ enum class Seccion : std::uint8_t {
 };
 constexpr std::size_t kSecciones = 12;
 
+enum class DialogoIdentidad : std::uint8_t { ninguno, exportar, importar, reemplazar, crear };
+enum class EstadoDeIdentidad : std::uint8_t { cargando, lista, danada, error };
+
 struct PantallaAjustes {
   Idioma idioma{};
   Seccion seccion = Seccion::general;
@@ -55,6 +58,20 @@ struct PantallaAjustes {
   std::size_t grupo_de_sonidos = 0;
   std::string aviso_de_sonidos;
   bool aviso_es_error = false;
+  EstadoDeIdentidad estado_identidad = EstadoDeIdentidad::cargando;
+  std::string identidad;
+  std::string identidad_nueva;
+  bool copia_hecha = false;
+  DialogoIdentidad dialogo_identidad = DialogoIdentidad::ninguno;
+  bool abrir_dialogo_identidad = false;
+  bool cerrar_dialogo_identidad = false;
+  bool enfocar_contrasena = false;
+  Campo contrasena{};
+  Campo repetir{};
+  std::string error_identidad;
+  bool calculando = false;
+  std::string aviso_identidad;
+  bool aviso_identidad_es_error = false;
 };
 
 struct PedidoAjustes {
@@ -74,6 +91,10 @@ struct PedidoAjustes {
   bool importar_sonidos = false;
   bool exportar_sonidos = false;
   bool sonidos_de_fabrica = false;
+  bool exportar_identidad = false;
+  bool importar_identidad = false;
+  bool confirmar_identidad = false;
+  bool cancelar_identidad = false;
 };
 
 PedidoAjustes dibujar_ajustes(PantallaAjustes& pantalla, const cliente::Guardados& guardados);

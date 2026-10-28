@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -31,6 +32,7 @@
 #include "client/diagnostico.h"
 #include "client/guardados.h"
 #include "client/horas.h"
+#include "client/mi_identidad.h"
 #include "client/motor_voz.h"
 #include "client/arranque.h"
 #include "client/prueba_de_audio.h"
@@ -71,6 +73,23 @@ bool desde_windows_7() {
   return VerifyVersionInfoW(&pedido, VER_MAJORVERSION | VER_MINORVERSION,
                             VerSetConditionMask(VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL),
                                                 VER_MINORVERSION, VER_GREATER_EQUAL)) != FALSE;
+}
+
+struct TrabajoDeCopia {
+  bool exportar = false;
+  std::wstring ruta;
+  std::optional<cifrado::Huella> huella;
+  cifrado::Secreto contrasena;
+  cifrado::Secreto entrada;
+  std::optional<std::vector<std::uint8_t>> armada;
+  cliente::CopiaAbierta abierta;
+  std::atomic<bool> listo{false};
+};
+
+cifrado::Secreto copiar(const cifrado::Secreto& original) {
+  cifrado::Secreto copia(original.size());
+  std::copy(original.bytes().begin(), original.bytes().end(), copia.bytes().begin());
+  return copia;
 }
 
 template <typename... Valores>
@@ -117,8 +136,15 @@ class Programa {
   }
 
   ~Programa() {
+    borrar_contrasenas();
     cerrar();
     soltar_clics_de_windows();
+    if (copia_ && !copia_->listo) {
+      TerminateProcess(GetCurrentProcess(), 0);
+    }
+    if (hilo_de_copia_.joinable()) {
+      hilo_de_copia_.join();
+    }
   }
 
   void registrar(const std::wstring& ruta) {
@@ -470,6 +496,18 @@ class Programa {
     if (pedido.exportar_sonidos) {
       despues_del_cuadro_ = [this] { exportar_sonidos(); };
     }
+    if (pedido.exportar_identidad) {
+      despues_del_cuadro_ = [this] { exportar_identidad(); };
+    }
+    if (pedido.importar_identidad) {
+      despues_del_cuadro_ = [this] { importar_identidad(); };
+    }
+    if (pedido.confirmar_identidad) {
+      confirmar_identidad();
+    }
+    if (pedido.cancelar_identidad) {
+      olvidar_copia();
+    }
     if (pedido.guardar || (sin_guardar_ && !ImGui::IsAnyItemActive())) {
       guardar();
     }
@@ -495,7 +533,9 @@ class Programa {
     }
   }
 
-  std::optional<std::wstring> elegir_archivo(Clave titulo, Clave filtro, std::wstring_view patron, bool guardar_como) {
+  std::optional<std::wstring> elegir_archivo(Clave titulo, Clave filtro, std::wstring_view patron, bool guardar_como,
+                                             Clave nombre_nuevo = Clave::archivo_paquete_nuevo,
+                                             std::wstring_view extension = L".vksonidos") {
     const Idioma idioma = ajustes_.idioma;
     std::wstring filtros = a_utf16(texto(idioma, filtro));
     filtros.push_back(L'\0');
@@ -504,7 +544,7 @@ class Programa {
     const std::wstring titulo_ventana = a_utf16(texto(idioma, titulo));
     std::vector<wchar_t> ruta(32768);
     if (guardar_como) {
-      const std::wstring nombre = a_utf16(texto(idioma, Clave::archivo_paquete_nuevo));
+      const std::wstring nombre = a_utf16(texto(idioma, nombre_nuevo));
       std::copy(nombre.begin(), nombre.end(), ruta.begin());
     }
     OPENFILENAMEW pedido = {};
@@ -520,10 +560,15 @@ class Programa {
       return std::nullopt;
     }
     std::wstring elegida = ruta.data();
-    const std::wstring_view extension = L".vksonidos";
     if (guardar_como && (elegida.size() < extension.size() ||
                          _wcsicmp(elegida.c_str() + elegida.size() - extension.size(), extension.data()) != 0)) {
       elegida += extension;
+      if (GetFileAttributesW(elegida.c_str()) != INVALID_FILE_ATTRIBUTES &&
+          MessageBoxW(ventana_.hwnd(),
+                      a_utf16(con_datos(texto(idioma, Clave::archivo_reemplazar), {a_utf8(elegida)})).c_str(),
+                      titulo_ventana.c_str(), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) {
+        return std::nullopt;
+      }
     }
     return elegida;
   }
@@ -614,6 +659,196 @@ class Programa {
     avisar_sonidos(bien ? Clave::sonidos_exportados : Clave::sonidos_no_se_guardo, sonidos.size(), !bien);
   }
 
+  void cargar_identidad() {
+    identidad_cargada_ = true;
+    cliente::MiIdentidad cargada = cliente::cargar_o_crear_mi_identidad(carpeta_);
+    estado_identidad_ = cargada.estado;
+    identidad_ = std::move(cargada.clave);
+    aplicar_identidad();
+  }
+
+  void aplicar_identidad() {
+    const bool lista = identidad_.has_value();
+    ajustes_.estado_identidad = !identidad_cargada_ ? EstadoDeIdentidad::cargando
+                                : lista             ? EstadoDeIdentidad::lista
+                                : estado_identidad_ == cliente::EstadoIdentidad::danada ? EstadoDeIdentidad::danada
+                                                                                        : EstadoDeIdentidad::error;
+    ajustes_.identidad = lista ? cliente::identidad_corta(identidad_->huella()) : std::string();
+    ajustes_.copia_hecha = lista && cliente::ajuste_texto(guardados_, cliente::Ajuste::copia_de_identidad) ==
+                                        identidad_->huella().a_texto();
+    pantalla_.copia = !identidad_cargada_    ? Copia::sin_saber
+                      : !lista               ? Copia::problema
+                      : ajustes_.copia_hecha ? Copia::hecha
+                                             : Copia::falta;
+  }
+
+  void avisar_identidad(Clave clave, bool error, const std::string& dato = {}) {
+    ajustes_.aviso_identidad = con_datos(texto(ajustes_.idioma, clave), {dato});
+    ajustes_.aviso_identidad_es_error = error;
+  }
+
+  void abrir_dialogo_identidad(DialogoIdentidad cual) {
+    ajustes_.dialogo_identidad = cual;
+    ajustes_.abrir_dialogo_identidad = true;
+    ajustes_.error_identidad.clear();
+  }
+
+  void borrar_contrasenas() {
+    mbedtls_platform_zeroize(ajustes_.contrasena.data(), ajustes_.contrasena.size());
+    mbedtls_platform_zeroize(ajustes_.repetir.data(), ajustes_.repetir.size());
+    olvidar_lo_escrito();
+  }
+
+  void olvidar_copia() {
+    borrar_contrasenas();
+    copia_leida_ = cifrado::Secreto();
+    por_reemplazar_.reset();
+  }
+
+  void cerrar_dialogo_identidad() {
+    ajustes_.cerrar_dialogo_identidad = true;
+    olvidar_copia();
+  }
+
+  void exportar_identidad() {
+    const auto ruta = identidad_ ? elegir_archivo(Clave::archivo_exportar_identidad, Clave::archivo_filtro_identidad,
+                                                  L"*.vkid", true, Clave::archivo_identidad_nueva, L".vkid")
+                                 : std::nullopt;
+    if (ruta) {
+      ruta_de_copia_ = *ruta;
+      ajustes_.aviso_identidad.clear();
+      abrir_dialogo_identidad(DialogoIdentidad::exportar);
+    }
+  }
+
+  void importar_identidad() {
+    const auto ruta = elegir_archivo(Clave::archivo_importar_identidad, Clave::archivo_filtro_identidad, L"*.vkid",
+                                     false, Clave::archivo_identidad_nueva, L".vkid");
+    if (!ruta) {
+      return;
+    }
+    cifrado::Secreto leida;
+    if (leer_archivo(*ruta, cliente::kMaximoArchivoIdentidad, leida) != LecturaArchivo::leido) {
+      avisar_identidad(Clave::seguridad_archivo_malo, true);
+      return;
+    }
+    copia_leida_ = std::move(leida);
+    ajustes_.aviso_identidad.clear();
+    abrir_dialogo_identidad(DialogoIdentidad::importar);
+  }
+
+  void confirmar_identidad() {
+    switch (ajustes_.dialogo_identidad) {
+      case DialogoIdentidad::exportar:
+        if (auto der = identidad_ ? identidad_->der() : std::nullopt) {
+          empezar_copia(true, std::move(*der));
+        }
+        break;
+      case DialogoIdentidad::importar:
+        empezar_copia(false, copiar(copia_leida_));
+        break;
+      case DialogoIdentidad::reemplazar:
+        if (por_reemplazar_) {
+          usar_identidad(std::move(*por_reemplazar_), Clave::seguridad_importada, true);
+        }
+        cerrar_dialogo_identidad();
+        break;
+      case DialogoIdentidad::crear:
+        if (auto nueva = cifrado::Clave::crear_nueva()) {
+          usar_identidad(std::move(*nueva), Clave::seguridad_creada, false);
+        } else {
+          avisar_identidad(Clave::seguridad_no_se_guardo, true);
+        }
+        cerrar_dialogo_identidad();
+        break;
+      case DialogoIdentidad::ninguno:
+        break;
+    }
+  }
+
+  void empezar_copia(bool exportar, cifrado::Secreto entrada) {
+    auto trabajo = std::make_shared<TrabajoDeCopia>();
+    const std::string_view escrita(ajustes_.contrasena.data());
+    trabajo->exportar = exportar;
+    trabajo->ruta = ruta_de_copia_;
+    trabajo->huella = identidad_ ? std::optional<cifrado::Huella>(identidad_->huella()) : std::nullopt;
+    trabajo->contrasena = cifrado::Secreto(escrita.size());
+    std::transform(escrita.begin(), escrita.end(), trabajo->contrasena.bytes().begin(),
+                   [](char letra) { return static_cast<std::uint8_t>(letra); });
+    trabajo->entrada = std::move(entrada);
+    borrar_contrasenas();
+    ajustes_.error_identidad.clear();
+    try {
+      hilo_de_copia_ = std::thread([trabajo, ventana = ventana_.hwnd()] {
+        const std::string_view contrasena(reinterpret_cast<const char*>(trabajo->contrasena.bytes().data()),
+                                          trabajo->contrasena.size());
+        if (trabajo->exportar) {
+          trabajo->armada = cliente::armar_copia(trabajo->entrada.bytes(), contrasena);
+        } else {
+          trabajo->abierta = cliente::abrir_copia(trabajo->entrada.bytes(), contrasena);
+        }
+        trabajo->contrasena = cifrado::Secreto();
+        trabajo->entrada = cifrado::Secreto();
+        trabajo->listo = true;
+        PostMessageW(ventana, kMensajeNovedades, 0, 0);
+      });
+    } catch (const std::system_error&) {
+      ajustes_.error_identidad = texto(ajustes_.idioma, Clave::seguridad_no_se_guardo);
+      return;
+    }
+    SetThreadPriority(hilo_de_copia_.native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
+    copia_ = trabajo;
+    ajustes_.calculando = true;
+  }
+
+  void terminar_copia(TrabajoDeCopia& hecho) {
+    ajustes_.calculando = false;
+    if (hecho.exportar) {
+      const bool bien = hecho.huella && hecho.armada && escribir_archivo_completo(hecho.ruta, *hecho.armada);
+      if (bien) {
+        cliente::poner_texto(guardados_, cliente::Ajuste::copia_de_identidad, hecho.huella->a_texto());
+        guardar();
+      }
+      avisar_identidad(bien ? Clave::seguridad_exportada : Clave::seguridad_no_se_guardo, !bien);
+      cerrar_dialogo_identidad();
+      aplicar_identidad();
+      return;
+    }
+    const cifrado::AperturaSobre resultado = hecho.abierta.resultado;
+    if (resultado != cifrado::AperturaSobre::abierto || !hecho.abierta.clave) {
+      ajustes_.error_identidad = texto(ajustes_.idioma, resultado == cifrado::AperturaSobre::contrasena
+                                                            ? Clave::seguridad_contrasena_mal
+                                                        : resultado == cifrado::AperturaSobre::sin_memoria
+                                                            ? Clave::seguridad_sin_memoria
+                                                            : Clave::seguridad_archivo_malo);
+      ajustes_.enfocar_contrasena = true;
+      return;
+    }
+    if (identidad_ && hecho.abierta.clave->huella() != identidad_->huella()) {
+      ajustes_.identidad_nueva = cliente::identidad_corta(hecho.abierta.clave->huella());
+      por_reemplazar_ = std::move(hecho.abierta.clave);
+      abrir_dialogo_identidad(DialogoIdentidad::reemplazar);
+      return;
+    }
+    usar_identidad(std::move(*hecho.abierta.clave), Clave::seguridad_importada, true);
+    cerrar_dialogo_identidad();
+  }
+
+  void usar_identidad(cifrado::Clave nueva, Clave aviso, bool desde_copia) {
+    if (!(identidad_ ? cliente::guardar_mi_identidad(carpeta_, nueva)
+                     : cliente::guardar_apartando_la_vieja(carpeta_, nueva))) {
+      avisar_identidad(Clave::seguridad_no_se_guardo, true);
+      return;
+    }
+    identidad_ = std::move(nueva);
+    estado_identidad_ = cliente::EstadoIdentidad::lista;
+    cliente::poner_texto(guardados_, cliente::Ajuste::copia_de_identidad,
+                         desde_copia ? identidad_->huella().a_texto() : std::string());
+    guardar();
+    avisar_identidad(aviso, false, cliente::identidad_corta(identidad_->huella()));
+    aplicar_identidad();
+  }
+
   void aplicar_limpieza() {
     limpieza_ = cliente::limpieza_de(guardados_, calidad_.frecuencia != cliente::Calidad{}.frecuencia);
     if (motor_) {
@@ -647,6 +882,16 @@ class Programa {
     sonidos_.atender(Reloj::now());
     if (despues_del_cuadro_) {
       std::exchange(despues_del_cuadro_, nullptr)();
+      cambio = true;
+    }
+    if (!identidad_cargada_ && cuadros_ > 0) {
+      cargar_identidad();
+      cambio = true;
+    }
+    if (copia_ && copia_->listo) {
+      hilo_de_copia_.join();
+      const auto hecho = std::exchange(copia_, nullptr);
+      terminar_copia(*hecho);
       cambio = true;
     }
     const Situacion& situacion = ventana_.situacion();
@@ -801,8 +1046,14 @@ class Programa {
     if (pedido.guardar) {
       guardar();
     }
-    if (pedido.ajustes) {
+    if (pedido.ajustes || pedido.copia) {
       abrir_ajustes();
+    }
+    if (pedido.copia) {
+      ajustes_.seccion = Seccion::seguridad;
+      if (identidad_) {
+        despues_del_cuadro_ = [this] { exportar_identidad(); };
+      }
     }
     switch (pedido.accion) {
       case Accion::entrar_con_formulario:
@@ -1239,6 +1490,14 @@ class Programa {
   std::atomic<bool> avisado_{false};
   PantallaInicio pantalla_;
   PantallaAjustes ajustes_;
+  cliente::EstadoIdentidad estado_identidad_ = cliente::EstadoIdentidad::error;
+  bool identidad_cargada_ = false;
+  std::optional<cifrado::Clave> identidad_;
+  std::optional<cifrado::Clave> por_reemplazar_;
+  std::wstring ruta_de_copia_;
+  cifrado::Secreto copia_leida_;
+  std::shared_ptr<TrabajoDeCopia> copia_;
+  std::thread hilo_de_copia_;
   bool en_ajustes_ = false;
   bool mostrar_minimizada_ = true;
   std::unique_ptr<cliente::PruebaDeAudio> prueba_;

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -15,6 +16,7 @@
 
 namespace ventrik::ui {
 enum class Fase { quieta, conectando, error };
+enum class Copia : std::uint8_t { sin_saber, hecha, falta, problema };
 
 struct Intento {
   red::Direccion direccion;
@@ -39,6 +41,7 @@ struct PantallaInicio {
   bool enfocar_codigo = false;
   std::optional<red::Direccion> avisos_de;
   bool abrir_avisos = false;
+  Copia copia = Copia::sin_saber;
 };
 
 enum class Accion { ninguna, entrar_con_formulario, entrar_a_guardado, quitar, desconectar };
@@ -49,6 +52,7 @@ struct Pedido {
   std::optional<cliente::AvisosDelServidor> avisos;
   bool guardar = false;
   bool ajustes = false;
+  bool copia = false;
 };
 
 Pedido dibujar_inicio(PantallaInicio& pantalla, const cliente::Guardados& guardados);

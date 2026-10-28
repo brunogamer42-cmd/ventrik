@@ -41,8 +41,7 @@ class Dibujo {
     float y = invitacion(origen) + px(16);
     y = futuro(ImVec2(origen.x, y), Clave::inicio_tu_estado, Clave::inicio_tu_estado_ayuda,
                Clave::inicio_disponible, "4", "##estado") + px(16);
-    y = futuro(ImVec2(origen.x, y), Clave::inicio_tu_identidad, Clave::inicio_tu_identidad_ayuda,
-               Clave::inicio_hacer_copia, "4", "##identidad");
+    y = identidad(ImVec2(origen.x, y));
     ImGui::SetCursorScreenPos(ImVec2(origen.x, y));
     ImGui::Dummy(ImVec2(1, 1));
     ImGui::EndChild();
@@ -335,6 +334,26 @@ class Dibujo {
         ImGui::SetCursorScreenPos(ImVec2(x, ImGui::GetItemRectMax().y + px(12)));
         escribir_parrafo(aviso, conectando ? color::apagado : color::rojo, interior, medida::letra_chica);
       }
+    });
+  }
+
+  float identidad(ImVec2 desde) {
+    return con_panel(desde, Clave::inicio_tu_identidad, false, [this](float x, float interior) {
+      escribir_parrafo(t(Clave::inicio_tu_identidad_ayuda), color::texto2, interior, medida::letra_chica);
+      const Copia copia = pantalla_.copia;
+      if (copia != Copia::sin_saber) {
+        ImGui::SetCursorScreenPos(ImVec2(x, ImGui::GetItemRectMax().y + px(10)));
+        escribir_parrafo(t(copia == Copia::hecha   ? Clave::inicio_con_copia
+                           : copia == Copia::falta ? Clave::inicio_sin_copia
+                                                   : Clave::inicio_identidad_danada),
+                         copia == Copia::hecha ? color::verde : copia == Copia::falta ? color::amarillo : color::rojo,
+                         interior, medida::letra_chica);
+      }
+      ImGui::SetCursorScreenPos(ImVec2(x, ImGui::GetItemRectMax().y + px(14)));
+      ImGui::BeginDisabled(copia == Copia::sin_saber);
+      pedido_.copia = boton("##identidad", t(copia == Copia::problema ? Clave::inicio_ver_seguridad : Clave::inicio_hacer_copia),
+                            Estilo::contorneado, ImVec2(interior, px(medida::alto_principal)));
+      ImGui::EndDisabled();
     });
   }
 

@@ -783,6 +783,18 @@ Ningún cifrado frena a un programa malicioso que ya controla tu sesión mientra
 - **Firma de la llave:** el servidor la verifica con Mbed TLS (ECDSA P-256), sin bibliotecas extra.
 - **Respaldo:** DPAPI está atado a tu instalación de Windows; si reinstalás, la identidad se pierde. Por eso el programa permite exportarla a un archivo cifrado con contraseña. Con llaves, conviene registrar dos (una de repuesto) o guardar un código de recuperación.
 
+**Cómo es la identidad (etapa 4, paso 4.1):**
+
+- **Una clave ECDSA P-256,** la misma curva que la clave del servidor, la firma de las llaves de seguridad y las actualizaciones firmadas. Se crea sola la primera vez que se abre el programa.
+- **Se muestra corta,** con los primeros cuatro grupos de su huella (por ejemplo `CTBC-P44I-2FC4-QX7M`), en el mismo base32 que la huella del servidor. La captura Ajustes-seguridad.png muestra números hexadecimales; vale el formato de la huella.
+- **Archivos, en la carpeta del programa:**
+  - `identidad.dat`: la clave, cifrada con DPAPI;
+  - `equipo.dat`: un secreto propio de esta PC, también con DPAPI, que nunca se exporta (sirve para el aviso de equipo nuevo);
+  - la copia `.vkid`: la clave cifrada con una contraseña (Argon2id y AES-256-GCM).
+- **Contraseña de la copia:** por lo menos 8 caracteres, escrita dos veces. Argon2id usa 16, 32 o 64 MiB según la memoria libre y las vueltas que tarden cerca de 1 segundo en esa PC. Los valores van dentro del archivo, así una copia hecha en una PC rápida se abre en la netbook. Al abrir se rechaza la que pida más de 64 MiB (lo máximo que escribe Ventrik), más de la mitad de la memoria libre o más de 10 vueltas, así un archivo armado no traba la PC antes de saber si la contraseña es correcta.
+- **Si `identidad.dat` está dañado** o no se puede abrir (Windows reinstalado, archivo copiado de otra PC), el programa no crea otra en silencio: avisa y ofrece importar la copia o crear una nueva.
+- **Importar una identidad distinta de la actual** pide confirmación, mostrando las dos.
+
 ### Identidad del servidor: respaldo y mudanza
 
 La clave del servidor es su identidad: de ella sale la huella que llevan las invitaciones completas y la firma con la que se anota en la lista pública. Si se pierde, el servidor arranca con una clave nueva, pero las invitaciones dejan de servir y los usuarios ven el aviso de que la huella cambió, el mismo que verían ante un servidor falso.
