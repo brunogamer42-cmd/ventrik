@@ -1,8 +1,10 @@
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -11,6 +13,8 @@
 
 #include <gsl/gsl>
 
+#include "common/cifrado/clave.h"
+#include "common/cifrado/inicio.h"
 #include "common/protocol/bytes.h"
 #include "common/protocol/marcos.h"
 #include "common/protocol/mensajes.h"
@@ -161,6 +165,8 @@ void revisar_negociacion(const Hola& hola, const ConfigServidor& servidor) {
   exigir(leer_rechazo(escritor.datos()) == rechazo);
 }
 
+std::optional<ventrik::cifrado::Clave> clave_fija;
+
 void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
   std::vector<std::uint8_t> armado;
   exigir(armar_marco(marco.tipo, marco.cuerpo, armado));
@@ -170,7 +176,27 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
                   UsuarioCambioCanal, UsuarioSilencio, CanalCreado, CanalCambiado, CanalBorrado, EntrarACanal,
                   Silenciar, SilenciarPersonas, DestinosDeSusurro,
                   EnviarChat, MensajeChat, PedirHistorial, Historial, CrearCanal, CambiarCanal,
-                  MirarCanal, MensajesNuevos, BorrarCanal, Negado, Ping, Pong, ClaveVoz, MedioSubida, MedioBajada>(marco.cuerpo);
+                  MirarCanal, MensajesNuevos, BorrarCanal, Negado, Desplazado, Ping, Pong, ClaveVoz, MedioSubida,
+                  MedioBajada>(marco.cuerpo);
+  if (marco.tipo == static_cast<std::uint16_t>(TipoMensaje::presentarse)) {
+    if (const auto presentarse = leer_mensaje<Presentarse>(marco.cuerpo)) {
+      const std::array<std::uint8_t, kBytesValorDeConexion> nada{};
+      exigir(!ventrik::cifrado::verificar_firma(presentarse->clave,
+                                                lo_que_se_firma(*presentarse, ventrik::kProtocoloMaximo, nada, nada),
+                                                presentarse->firma));
+      Presentarse firmado = *presentarse;
+      firmado.clave = clave_fija->publica();
+      const auto mensaje = lo_que_se_firma(firmado, ventrik::kProtocoloMaximo, nada, nada);
+      const auto firma = clave_fija->firmar(mensaje);
+      exigir(!mensaje.empty() && firma && ventrik::cifrado::verificar_firma(firmado.clave, mensaje, *firma));
+      firmado.firma = *firma;
+      firmado.equipo[0] ^= 1;
+      exigir(!ventrik::cifrado::verificar_firma(
+          firmado.clave, lo_que_se_firma(firmado, ventrik::kProtocoloMaximo, nada, nada), firmado.firma));
+      std::vector<std::uint8_t> con_firma;
+      exigir(armar_mensaje(firmado, con_firma));
+    }
+  }
   switch (static_cast<TipoMensaje>(marco.tipo)) {
     case TipoMensaje::hola:
       if (const auto hola = leer_hola(marco.cuerpo)) {
@@ -284,6 +310,16 @@ void probar_escritor(gsl::span<const std::uint8_t> entrada) {
   exigir(lector.terminado());
 }
 
+std::unique_ptr<ventrik::cifrado::Inicio> cifrado_listo;
+
+}
+
+extern "C" int LLVMFuzzerInitialize(int*, char***) {
+  cifrado_listo = std::make_unique<ventrik::cifrado::Inicio>();
+  exigir(cifrado_listo->ok());
+  clave_fija = ventrik::cifrado::Clave::crear_nueva();
+  exigir(clave_fija.has_value());
+  return 0;
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t largo) {

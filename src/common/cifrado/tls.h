@@ -87,6 +87,7 @@ class SesionTls {
   void entregar(gsl::span<const std::uint8_t> datagrama) { canal_.entrada = datagrama; }
   bool reiniciar(const red::Direccion& otro);
   bool exportar(gsl::span<const std::uint8_t> contexto, gsl::span<std::uint8_t> salida);
+  bool valor_para_identidad(gsl::span<std::uint8_t> salida);
   std::size_t datagramas_enviados() const { return canal_.enviados; }
   const red::Direccion& otro_lado() const { return canal_.otro; }
   void marcar(std::uint32_t valor) { marca_ = valor; }

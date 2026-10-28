@@ -4,6 +4,7 @@
 #include <chrono>
 #include <iterator>
 #include <limits>
+#include <set>
 #include <utility>
 
 #include <windows.h>
@@ -20,8 +21,7 @@ constexpr std::size_t kMaximoPedidosEnCola = 4096;
 constexpr std::size_t kPedidosPorTanda = 64;
 constexpr std::chrono::hours kCadaCuantoLimpiar{1};
 constexpr std::chrono::minutes kCadaCuantoAsentar{1};
-constexpr std::uint64_t kMsPorDia = 24ull * 60 * 60 * 1000;
-constexpr int kVersionEsquema = 2;
+constexpr int kVersionEsquema = 3;
 constexpr int kMaximoFila = 64 * 1024;
 
 const char kAjustes[] =
@@ -55,7 +55,13 @@ const char kEsquema[] =
     " numero INTEGER NOT NULL DEFAULT 0);"
     "CREATE INDEX IF NOT EXISTS mensajes_por_canal ON mensajes(canal, id);"
     "CREATE INDEX IF NOT EXISTS mensajes_por_hora ON mensajes(hora);"
-    "CREATE TABLE IF NOT EXISTS config(clave TEXT PRIMARY KEY, valor INTEGER NOT NULL);";
+    "CREATE TABLE IF NOT EXISTS config(clave TEXT PRIMARY KEY, valor INTEGER NOT NULL);"
+    "CREATE TABLE IF NOT EXISTS usuarios(clave BLOB PRIMARY KEY, nombre TEXT NOT NULL,"
+    " comparable TEXT NOT NULL UNIQUE, dueno INTEGER NOT NULL DEFAULT 0, admin INTEGER NOT NULL DEFAULT 0,"
+    " creado INTEGER NOT NULL, visto INTEGER NOT NULL, entradas INTEGER NOT NULL DEFAULT 1) WITHOUT ROWID;"
+    "CREATE TABLE IF NOT EXISTS equipos(clave BLOB NOT NULL, equipo BLOB NOT NULL, primera INTEGER NOT NULL,"
+    " ultima INTEGER NOT NULL, PRIMARY KEY(clave, equipo)) WITHOUT ROWID;"
+    "CREATE TABLE IF NOT EXISTS textos(clave TEXT PRIMARY KEY, valor TEXT NOT NULL);";
 
 const char kMigrarDe1[] =
     "BEGIN;"
@@ -67,7 +73,7 @@ const char kMigrarDe1[] =
     " (PARTITION BY canal ORDER BY id) AS n FROM mensajes) AS orden WHERE mensajes.id = orden.id;"
     "UPDATE canales SET contador = (SELECT IFNULL(MAX(numero), 0) FROM mensajes"
     " WHERE mensajes.canal = canales.id);"
-    "PRAGMA user_version=2;"
+    "PRAGMA user_version=3;"
     "COMMIT;";
 
 class Consulta {
@@ -92,6 +98,14 @@ class Consulta {
     return *this;
   }
 
+  Consulta& bytes(int lugar, gsl::span<const std::uint8_t> valor) {
+    if (consulta_ != nullptr && sqlite3_bind_blob(consulta_, lugar, valor.data(), static_cast<int>(valor.size()),
+                                                  SQLITE_TRANSIENT) != SQLITE_OK) {
+      bien_ = false;
+    }
+    return *this;
+  }
+
   Consulta& entero(int lugar, std::int64_t valor) {
     if (consulta_ != nullptr && sqlite3_bind_int64(consulta_, lugar, valor) != SQLITE_OK) {
       bien_ = false;
@@ -102,6 +116,17 @@ class Consulta {
   int paso() { return consulta_ != nullptr && bien_ ? sqlite3_step(consulta_) : SQLITE_ERROR; }
 
   std::int64_t columna_entero(int columna) { return sqlite3_column_int64(consulta_, columna); }
+
+  bool columna_bytes(int columna, gsl::span<std::uint8_t> destino) {
+    const void* datos = sqlite3_column_blob(consulta_, columna);
+    const int largo = sqlite3_column_bytes(consulta_, columna);
+    if (datos == nullptr || largo < 0 || static_cast<std::size_t>(largo) != destino.size()) {
+      return false;
+    }
+    const gsl::span<const std::uint8_t> bytes(static_cast<const std::uint8_t*>(datos), destino.size());
+    std::copy(bytes.begin(), bytes.end(), destino.begin());
+    return true;
+  }
 
   std::string columna_texto(int columna) {
     const unsigned char* datos = sqlite3_column_text(consulta_, columna);
@@ -133,6 +158,24 @@ std::uint64_t ahora_ms() {
       std::chrono::duration_cast<std::chrono::milliseconds>(desde_1970).count());
 }
 
+std::uint64_t hace_dias(std::uint64_t ahora, std::uint64_t dias) {
+  return std::min<std::uint64_t>(ahora > dias * kMsPorDia ? ahora - dias * kMsPorDia : 0,
+                                 std::numeric_limits<std::int64_t>::max());
+}
+
+constexpr auto kMaximoMs = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+
+}
+
+bool esta_vencido(const UsuarioGuardado& usuario, std::uint64_t ahora) {
+  return !usuario.dueno && !usuario.admin &&
+         (usuario.visto_ms < hace_dias(ahora, kDiasSinVolver) ||
+          (usuario.entradas <= 1 && usuario.visto_ms < hace_dias(ahora, kDiasDeUnaSolaVez)));
+}
+
+bool se_puede_desalojar(const UsuarioGuardado& usuario, std::uint64_t ahora) {
+  return !usuario.dueno && !usuario.admin && usuario.entradas <= 1 &&
+         usuario.visto_ms < hace_dias(ahora, kDiasParaDesalojar);
 }
 
 std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string& nombre_general) {
@@ -155,7 +198,7 @@ std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string
   }
   if (sqlite3_db_config(abierta, SQLITE_DBCONFIG_DEFENSIVE, 1, nullptr) != SQLITE_OK ||
       guardada < 0 || guardada > kVersionEsquema || !ejecutar(abierta, kEsquema) ||
-      (guardada == 0 && !ejecutar(abierta, "PRAGMA user_version=2")) ||
+      ((guardada == 0 || guardada == 2) && !ejecutar(abierta, "PRAGMA user_version=3")) ||
       (guardada == 1 && !ejecutar(abierta, kMigrarDe1))) {
     return nullptr;
   }
@@ -419,6 +462,137 @@ void Base::borrar_viejos(std::uint64_t ahora) {
   consulta.entero(1, static_cast<std::int64_t>(std::min<std::uint64_t>(
                          limite, std::numeric_limits<std::int64_t>::max())));
   consulta.paso();
+}
+
+std::optional<std::vector<UsuarioGuardado>> Base::usuarios(std::uint64_t ahora) {
+  if (!es_su_hilo()) {
+    return std::nullopt;
+  }
+  Consulta ultimo(base_, "SELECT IFNULL(MAX(visto), 0) FROM usuarios");
+  if (ultimo.paso() != SQLITE_ROW) {
+    return std::nullopt;
+  }
+  if (ultimo.columna_entero(0) <= static_cast<std::int64_t>(std::min(ahora, kMaximoMs))) {
+    Consulta vencidos(base_,
+                      "DELETE FROM usuarios WHERE dueno = 0 AND admin = 0"
+                      " AND (visto < ?1 OR (entradas <= 1 AND visto < ?2))");
+    vencidos.entero(1, static_cast<std::int64_t>(hace_dias(ahora, kDiasSinVolver)))
+        .entero(2, static_cast<std::int64_t>(hace_dias(ahora, kDiasDeUnaSolaVez)));
+    if (vencidos.paso() != SQLITE_DONE ||
+        !ejecutar(base_, "DELETE FROM equipos WHERE clave NOT IN (SELECT clave FROM usuarios)")) {
+      return std::nullopt;
+    }
+  }
+  Consulta consulta(base_,
+                    "SELECT clave, nombre, dueno, admin, creado, visto, entradas FROM usuarios WHERE dueno IN (0, 1)"
+                    " AND admin IN (0, 1) AND creado >= 0 AND visto >= 0 AND entradas BETWEEN 0 AND 4294967295"
+                    " ORDER BY dueno DESC, admin DESC, visto DESC LIMIT ?1");
+  consulta.entero(1, static_cast<std::int64_t>(kMaximoUsuariosGuardados));
+  std::vector<UsuarioGuardado> lista;
+  std::set<std::wstring> comparables;
+  int paso = SQLITE_ROW;
+  while ((paso = consulta.paso()) == SQLITE_ROW) {
+    UsuarioGuardado usuario;
+    usuario.nombre = consulta.columna_texto(1);
+    usuario.dueno = consulta.columna_entero(2) == 1;
+    usuario.admin = consulta.columna_entero(3) == 1;
+    usuario.creado_ms = static_cast<std::uint64_t>(consulta.columna_entero(4));
+    usuario.visto_ms = static_cast<std::uint64_t>(consulta.columna_entero(5));
+    usuario.entradas = static_cast<std::uint32_t>(consulta.columna_entero(6));
+    if (consulta.columna_bytes(0, usuario.clave) && usuario.clave[0] == 0x04 && es_nombre_valido(usuario.nombre) &&
+        comparables.insert(nombre_para_comparar(usuario.nombre)).second) {
+      lista.push_back(std::move(usuario));
+    }
+  }
+  if (paso != SQLITE_DONE) {
+    return std::nullopt;
+  }
+  return lista;
+}
+
+bool Base::guardar_usuario(const UsuarioGuardado& usuario) {
+  if (!es_su_hilo() || !es_nombre_valido(usuario.nombre) || usuario.visto_ms > kMaximoMs ||
+      usuario.creado_ms > usuario.visto_ms) {
+    return false;
+  }
+  Consulta consulta(base_,
+                    "INSERT INTO usuarios(clave, nombre, comparable, dueno, admin, creado, visto, entradas)"
+                    " VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6, ?8) ON CONFLICT(clave) DO UPDATE SET nombre = ?2,"
+                    " comparable = ?3, dueno = ?4, admin = ?5, visto = MAX(visto, ?6), entradas = MAX(entradas, ?8)");
+  consulta.bytes(1, usuario.clave)
+      .texto(2, usuario.nombre)
+      .texto(3, comparable(usuario.nombre))
+      .entero(4, usuario.dueno)
+      .entero(5, usuario.admin)
+      .entero(6, static_cast<std::int64_t>(usuario.visto_ms))
+      .entero(7, static_cast<std::int64_t>(usuario.creado_ms))
+      .entero(8, usuario.entradas);
+  return consulta.paso() == SQLITE_DONE;
+}
+
+bool Base::borrar_usuarios(const std::vector<ClaveDeUsuario>& claves) {
+  if (!es_su_hilo()) {
+    return false;
+  }
+  bool bien = true;
+  for (const ClaveDeUsuario& clave : claves) {
+    Consulta usuario(base_, "DELETE FROM usuarios WHERE clave = ?1 AND dueno = 0 AND admin = 0");
+    Consulta equipos(base_, "DELETE FROM equipos WHERE clave = ?1 AND clave NOT IN (SELECT clave FROM usuarios)");
+    usuario.bytes(1, clave);
+    equipos.bytes(1, clave);
+    bien = usuario.paso() == SQLITE_DONE && equipos.paso() == SQLITE_DONE && bien;
+  }
+  return bien;
+}
+
+bool Base::liberar_nombre(const std::string& nombre) {
+  if (!es_su_hilo() || !es_nombre_valido(nombre)) {
+    return false;
+  }
+  Consulta consulta(base_, "DELETE FROM usuarios WHERE comparable = ?1 AND dueno = 0");
+  consulta.texto(1, comparable(nombre));
+  return consulta.paso() == SQLITE_DONE &&
+         ejecutar(base_, "DELETE FROM equipos WHERE clave NOT IN (SELECT clave FROM usuarios)");
+}
+
+bool Base::anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std::uint64_t ahora) {
+  if (!es_su_hilo() || ahora > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+    return false;
+  }
+  Consulta nuevo(base_,
+                 "INSERT INTO equipos(clave, equipo, primera, ultima) VALUES (?1, ?2, ?3, ?3)"
+                 " ON CONFLICT(clave, equipo) DO UPDATE SET ultima = MAX(ultima, ?3)");
+  nuevo.bytes(1, clave).bytes(2, equipo).entero(3, static_cast<std::int64_t>(ahora));
+  Consulta sobrantes(base_,
+                     "DELETE FROM equipos WHERE clave = ?1 AND equipo NOT IN"
+                     " (SELECT equipo FROM equipos WHERE clave = ?1 ORDER BY ultima - primera >= ?3 DESC,"
+                     " ultima DESC LIMIT ?2)");
+  sobrantes.bytes(1, clave)
+      .entero(2, static_cast<std::int64_t>(kMaximoEquiposPorUsuario))
+      .entero(3, static_cast<std::int64_t>(kMsPorDia));
+  return nuevo.paso() == SQLITE_DONE && sobrantes.paso() == SQLITE_DONE;
+}
+
+bool Base::quitar_dueno() {
+  return es_su_hilo() && ejecutar(base_, "UPDATE usuarios SET dueno = 0");
+}
+
+std::string Base::texto_guardado(const std::string& clave) {
+  if (!es_su_hilo()) {
+    return {};
+  }
+  Consulta consulta(base_, "SELECT valor FROM textos WHERE clave = ?1");
+  consulta.texto(1, clave);
+  return consulta.paso() == SQLITE_ROW ? consulta.columna_texto(0) : std::string();
+}
+
+bool Base::guardar_texto(const std::string& clave, const std::string& valor) {
+  if (!es_su_hilo()) {
+    return false;
+  }
+  Consulta consulta(base_, "INSERT OR REPLACE INTO textos(clave, valor) VALUES (?1, ?2)");
+  consulta.texto(1, clave).texto(2, valor);
+  return consulta.paso() == SQLITE_DONE;
 }
 
 ServicioBase::~ServicioBase() {

@@ -1,6 +1,7 @@
 #include <array>
 #include <cstdint>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -44,15 +45,35 @@ Bytes con(Bytes bytes, const std::string& texto) {
   bytes.insert(bytes.end(), texto.begin(), texto.end());
   return bytes;
 }
+
+Presentarse presentarse(std::optional<std::array<std::uint8_t, 16>> codigo = {}) {
+  Presentarse armado{"Ana", codigo};
+  armado.clave.fill(4);
+  armado.equipo.fill(5);
+  armado.firma = {1, 2, 3};
+  return armado;
+}
+
+Bytes cola_de_presentarse() {
+  Bytes cola(kBytesClavePublica, 4);
+  cola.insert(cola.end(), kBytesEquipo, 5);
+  cola.insert(cola.end(), {3, 1, 2, 3});
+  return cola;
+}
 }
 
 TEST_CASE("Los pedidos nuevos tienen bytes fijos") {
-  CHECK(en_bytes(Presentarse{"Ana", {}}) == Bytes{3, 0, 'A', 'n', 'a', 0});
+  Bytes sin_codigo = {3, 0, 'A', 'n', 'a', 0};
+  const Bytes cola = cola_de_presentarse();
+  sin_codigo.insert(sin_codigo.end(), cola.begin(), cola.end());
+  CHECK(en_bytes(presentarse()) == sin_codigo);
   std::array<std::uint8_t, 16> codigo{};
   codigo.fill(7);
   Bytes con_codigo = {3, 0, 'A', 'n', 'a', 16};
   con_codigo.insert(con_codigo.end(), codigo.begin(), codigo.end());
-  CHECK(en_bytes(Presentarse{"Ana", codigo}) == con_codigo);
+  con_codigo.insert(con_codigo.end(), cola.begin(), cola.end());
+  CHECK(en_bytes(presentarse(codigo)) == con_codigo);
+  CHECK(en_bytes(Desplazado{}).empty());
   CHECK(en_bytes(MensajeChat{0x0102030405060708u, 2, 9, 3, "Ana", 0x10, "hola"}) ==
         Bytes{8, 7, 6, 5, 4, 3, 2, 1, 2, 0, 0, 0, 9, 0, 0, 0, 3, 0, 0, 0, 3, 0, 'A', 'n', 'a',
               0x10, 0, 0, 0, 0, 0, 0, 0, 4, 0, 'h', 'o', 'l', 'a'});
@@ -73,7 +94,7 @@ TEST_CASE("Los pedidos nuevos tienen bytes fijos") {
         Bytes{2, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 0, 10, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0,
               3, 0, 'A', 'n', 'a', 5, 0, 0, 0, 0, 0, 0, 0, 4, 0, 'h', 'o', 'l', 'a'});
   CHECK(en_bytes(CanalBorrado{4, 1}) == Bytes{4, 0, 0, 0, 1, 0, 0, 0});
-  CHECK(en_bytes(UsuarioEntro{{8, "Ana", 2, 3}}) == Bytes{8, 0, 0, 0, 3, 0, 'A', 'n', 'a', 2, 0, 0, 0, 3});
+  CHECK(en_bytes(UsuarioEntro{{8, "Ana", 2, 3}}) == Bytes{8, 0, 0, 0, 3, 0, 'A', 'n', 'a', 2, 0, 0, 0, 3, 0});
   CHECK(en_bytes(Silenciar{1}) == Bytes{1});
   CHECK(en_bytes(UsuarioSilencio{0x01020304, 3}) == Bytes{4, 3, 2, 1, 3});
   CHECK(en_bytes(Negado{TipoMensaje::silenciar, MotivoNegado::demasiado_rapido}) == Bytes{19, 0, 4});
@@ -111,12 +132,14 @@ TEST_CASE("El silencio solo vale 0, 1 o 3: el audio apagado exige el micrófono 
 TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con bytes de más no") {
   std::array<std::uint8_t, 16> codigo{};
   codigo.fill(0xAB);
-  ida_y_vuelta(Presentarse{"Ana", {}});
-  ida_y_vuelta(Presentarse{"Ana", codigo});
-  ida_y_vuelta(Presentado{7, true, {{1, "General"}, {2, "Juegos", TipoCanal::voz, false, 4},
-                                     {3, "Charla", TipoCanal::texto, true, 9}},
-                          {{7, "Ana", 1}, {8, "Beto", 2}}});
+  ida_y_vuelta(presentarse());
+  ida_y_vuelta(presentarse(codigo));
+  ida_y_vuelta(Presentado{7, true, "Mi servidor", {{1, "General"}, {2, "Juegos", TipoCanal::voz, false, 4},
+                                                  {3, "Charla", TipoCanal::texto, true, 9}},
+                          {{7, "Ana", 1, 0, true}, {8, "Beto", 2}}});
   ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::nombre_en_uso});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::firma_invalida});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::demasiadas});
   ida_y_vuelta(UsuarioEntro{{8, "Beto", 1}});
   ida_y_vuelta(UsuarioSalio{8});
   ida_y_vuelta(UsuarioCambioCanal{8, 2});
@@ -152,7 +175,17 @@ TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con byte
 TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Presentarse>(Bytes{3, 0, 'A', 'n', 'a', 5, 1, 2, 3, 4, 5}));
   CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{0}));
-  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{5}));
+  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{7}));
+  Bytes sin_firma = {3, 0, 'A', 'n', 'a', 0};
+  sin_firma.insert(sin_firma.end(), kBytesClavePublica + kBytesEquipo, 1);
+  Bytes firma_larga = sin_firma;
+  sin_firma.push_back(0);
+  CHECK_FALSE(leer_mensaje<Presentarse>(sin_firma));
+  firma_larga.push_back(static_cast<std::uint8_t>(kMaximoFirma + 1));
+  firma_larga.insert(firma_larga.end(), kMaximoFirma + 1, 1);
+  CHECK_FALSE(leer_mensaje<Presentarse>(firma_larga));
+  CHECK_FALSE(leer_mensaje<Desplazado>(Bytes{0}));
+  CHECK_FALSE(leer_mensaje<Presentado>(Bytes{7, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{30, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{1, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 0}));
@@ -211,6 +244,12 @@ TEST_CASE("Nombres y chats con trampas no se escriben ni se leen") {
   CHECK_FALSE(se_escribe(CrearCanal{" Juegos"}));
   CHECK_FALSE(se_escribe(CrearCanal{"a\xE2\x80\xAE" "b"}));
   CHECK_FALSE(se_escribe(Presentarse{"", {}}));
+  Presentarse sin_firma = presentarse();
+  sin_firma.firma.clear();
+  CHECK_FALSE(se_escribe(sin_firma));
+  sin_firma.firma.assign(kMaximoFirma + 1, 1);
+  CHECK_FALSE(se_escribe(sin_firma));
+  CHECK_FALSE(se_escribe(Presentado{7, true, ""}));
   CHECK_FALSE(se_escribe(EnviarChat{1, ""}));
   CHECK_FALSE(se_escribe(EnviarChat{1, "a\xE2\x80\xAE" "b"}));
   CHECK_FALSE(se_escribe(EnviarChat{1, std::string(4001, 'x')}));
@@ -222,6 +261,7 @@ TEST_CASE("Nombres y chats con trampas no se escriben ni se leen") {
 
 TEST_CASE("Las listas tienen tope al escribir y al leer") {
   Presentado lleno;
+  lleno.servidor = "Servidor";
   lleno.canales.resize(kMaximoCanalesEnLista + 1, CanalInfo{1, "a"});
   CHECK_FALSE(se_escribe(lleno));
   lleno.canales.resize(kMaximoCanalesEnLista);

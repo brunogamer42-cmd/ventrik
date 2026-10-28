@@ -377,7 +377,7 @@ TEST_CASE("Una base de una versión futura o que no es una base no se abre") {
       archivo, gsl::make_span(reinterpret_cast<const std::uint8_t*>(basura.data()), basura.size())));
   CHECK_FALSE(Base::abrir(archivo, "General"));
   REQUIRE(DeleteFileW(archivo.c_str()));
-  armar_base(archivo, "PRAGMA user_version=3");
+  armar_base(archivo, "PRAGMA user_version=4");
   CHECK_FALSE(Base::abrir(archivo, "General"));
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master") == 0);
   CHECK(DeleteFileW(archivo.c_str()));
@@ -458,4 +458,165 @@ TEST_CASE("El servicio de la base atiende pedidos en su hilo y despierta al de r
   servicio.atender_respuestas();
   CHECK(respondio.load());
   CHECK(canales == 1);
+}
+
+TEST_CASE("Las identidades se guardan, se renombran y las que no vuelven en 180 días se borran") {
+  const std::wstring archivo = archivo_temporal();
+  DeleteFileW(archivo.c_str());
+  const std::uint64_t ahora = 1800000000000ull;
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    UsuarioGuardado ana;
+    ana.clave.fill(1);
+    ana.clave[0] = 4;
+    ana.nombre = "Ana";
+    ana.visto_ms = ahora;
+    UsuarioGuardado vieja = ana;
+    vieja.clave[1] = 2;
+    vieja.nombre = "Vieja";
+    vieja.visto_ms = ahora - 181 * kDia;
+    UsuarioGuardado duena = vieja;
+    duena.clave[1] = 3;
+    duena.nombre = "Dueña";
+    duena.dueno = true;
+    REQUIRE(base->guardar_usuario(ana));
+    REQUIRE(base->guardar_usuario(vieja));
+    REQUIRE(base->guardar_usuario(duena));
+    ana.nombre = "Anita";
+    REQUIRE(base->guardar_usuario(ana));
+    UsuarioGuardado mismo_nombre = ana;
+    mismo_nombre.clave[1] = 9;
+    mismo_nombre.nombre = "ANITA";
+    CHECK_FALSE(base->guardar_usuario(mismo_nombre));
+    UsuarioGuardado sin_nombre = ana;
+    sin_nombre.clave[1] = 8;
+    sin_nombre.nombre.clear();
+    CHECK_FALSE(base->guardar_usuario(sin_nombre));
+    Equipo equipo{};
+    for (std::uint8_t i = 0; i < 20; ++i) {
+      equipo[0] = i;
+      REQUIRE(base->anotar_equipo(ana.clave, equipo, ahora + i));
+    }
+    REQUIRE(base->anotar_equipo(vieja.clave, equipo, ahora));
+    CHECK(base->texto_guardado("nombre").empty());
+    CHECK(base->guardar_texto("nombre", "Taberna"));
+    CHECK(base->texto_guardado("nombre") == "Taberna");
+    UsuarioGuardado anterior = ana;
+    anterior.visto_ms = ahora - kDia;
+    REQUIRE(base->guardar_usuario(anterior));
+    const auto atrasado = base->usuarios(ahora - 200 * kDia);
+    REQUIRE(atrasado);
+    CHECK(atrasado->size() == 3);
+    const auto lista = base->usuarios(ahora);
+    REQUIRE(lista);
+    REQUIRE(lista->size() == 2);
+    CHECK((*lista)[0].nombre == "Dueña");
+    CHECK((*lista)[0].dueno);
+    CHECK((*lista)[1].nombre == "Anita");
+    CHECK((*lista)[1].clave == ana.clave);
+    CHECK((*lista)[1].visto_ms == ahora);
+    CHECK_FALSE((*lista)[1].dueno);
+    CHECK(base->quitar_dueno());
+    const auto sin_duena = base->usuarios(ahora);
+    REQUIRE(sin_duena);
+    REQUIRE(sin_duena->size() == 1);
+    CHECK((*sin_duena)[0].nombre == "Anita");
+    CHECK(base->liberar_nombre("ANITA"));
+    CHECK(base->usuarios(ahora)->empty());
+  }
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM equipos") == 0);
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM usuarios") == 0);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 3);
+  for (const auto* final : {L"", L"-wal", L"-shm"}) {
+    DeleteFileW((archivo + final).c_str());
+  }
+}
+
+TEST_CASE("Las identidades que entraron una sola vez vencen antes, y se pueden desalojar a la semana") {
+  const std::uint64_t ahora = 1800000000000ull;
+  UsuarioGuardado una_vez;
+  una_vez.entradas = 1;
+  una_vez.creado_ms = ahora - 9 * kDia;
+  una_vez.visto_ms = ahora - 8 * kDia;
+  CHECK(se_puede_desalojar(una_vez, ahora));
+  CHECK_FALSE(esta_vencido(una_vez, ahora));
+  una_vez.visto_ms = ahora - 31 * kDia;
+  CHECK(esta_vencido(una_vez, ahora));
+  UsuarioGuardado volvio = una_vez;
+  volvio.entradas = 2;
+  CHECK_FALSE(esta_vencido(volvio, ahora));
+  CHECK_FALSE(se_puede_desalojar(volvio, ahora));
+  volvio.visto_ms = ahora - 181 * kDia;
+  volvio.creado_ms = volvio.visto_ms - kDia;
+  CHECK(esta_vencido(volvio, ahora));
+  UsuarioGuardado reciente;
+  reciente.entradas = 1;
+  reciente.creado_ms = reciente.visto_ms = ahora - kDia;
+  CHECK_FALSE(se_puede_desalojar(reciente, ahora));
+  una_vez.dueno = true;
+  CHECK_FALSE(esta_vencido(una_vez, ahora));
+  CHECK_FALSE(se_puede_desalojar(una_vez, ahora));
+
+  auto base = base_en_memoria();
+  UsuarioGuardado guardada;
+  guardada.clave.fill(5);
+  guardada.clave[0] = 4;
+  guardada.nombre = "Una vez";
+  guardada.entradas = 1;
+  guardada.creado_ms = guardada.visto_ms = ahora - 31 * kDia;
+  REQUIRE(base->guardar_usuario(guardada));
+  UsuarioGuardado al_reves = guardada;
+  al_reves.clave[1] = 6;
+  al_reves.nombre = "Al revés";
+  al_reves.creado_ms = ahora;
+  al_reves.visto_ms = ahora - kDia;
+  CHECK_FALSE(base->guardar_usuario(al_reves));
+  REQUIRE(base->usuarios(ahora));
+  CHECK(base->usuarios(ahora)->empty());
+  REQUIRE(base->guardar_usuario(guardada));
+  CHECK(base->borrar_usuarios({guardada.clave}));
+  CHECK(base->usuarios(ahora - 40 * kDia)->empty());
+}
+
+TEST_CASE("Si la tabla de identidades no se puede leer, no se la toma por vacía") {
+  const std::wstring archivo = archivo_temporal();
+  DeleteFileW(archivo.c_str());
+  armar_base(archivo,
+             "CREATE TABLE usuarios(clave BLOB PRIMARY KEY, nombre TEXT NOT NULL);"
+             "INSERT INTO usuarios VALUES (x'04', 'Ana');");
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    CHECK_FALSE(base->usuarios(1800000000000ull));
+  }
+  for (const auto* final : {L"", L"-wal", L"-shm"}) {
+    DeleteFileW((archivo + final).c_str());
+  }
+}
+
+TEST_CASE("Una base de la versión 2 pasa sola a la 3 y suma las tablas de identidades") {
+  const std::wstring archivo = archivo_temporal();
+  DeleteFileW(archivo.c_str());
+  armar_base(archivo,
+             "CREATE TABLE canales(id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL,"
+             " comparable TEXT NOT NULL UNIQUE, orden INTEGER NOT NULL, tipo INTEGER NOT NULL DEFAULT 1,"
+             " solo_admins INTEGER NOT NULL DEFAULT 0, contador INTEGER NOT NULL DEFAULT 0);"
+             "CREATE TABLE mensajes(id INTEGER PRIMARY KEY AUTOINCREMENT, canal INTEGER NOT NULL,"
+             " autor TEXT NOT NULL, hora INTEGER NOT NULL, texto TEXT NOT NULL, numero INTEGER NOT NULL DEFAULT 0);"
+             "CREATE TABLE config(clave TEXT PRIMARY KEY, valor INTEGER NOT NULL);"
+             "INSERT INTO canales(id, nombre, comparable, orden) VALUES (1, 'General', 'GENERAL', 0);"
+             "INSERT INTO canales(nombre, comparable, orden) VALUES ('Juegos', 'JUEGOS', 1);"
+             "PRAGMA user_version=2;");
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    CHECK(base->canales().size() == 2);
+    CHECK(base->usuarios(1800000000000ull)->empty());
+  }
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 3);
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('usuarios', 'equipos', 'textos')") == 3);
+  for (const auto* final : {L"", L"-wal", L"-shm"}) {
+    DeleteFileW((archivo + final).c_str());
+  }
 }

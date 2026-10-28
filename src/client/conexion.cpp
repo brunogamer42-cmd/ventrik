@@ -9,6 +9,7 @@
 
 #include <gsl/gsl>
 
+#include "client/mi_identidad.h"
 #include "common/protocol/negociacion.h"
 #include "common/texto.h"
 
@@ -134,6 +135,12 @@ void interpretar_presentacion(const protocolo::Marco& marco, ResultadoConexion& 
     case protocolo::MotivoPresentacion::lleno:
       resultado.estado = EstadoConexion::servidor_lleno;
       break;
+    case protocolo::MotivoPresentacion::firma_invalida:
+      resultado.estado = EstadoConexion::firma_rechazada;
+      break;
+    case protocolo::MotivoPresentacion::demasiadas:
+      resultado.estado = EstadoConexion::demasiadas;
+      break;
   }
 }
 
@@ -144,6 +151,10 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   ResultadoConexion resultado;
   if (!es_nombre_valido(quien.nombre)) {
     resultado.estado = EstadoConexion::nombre_invalido;
+    return resultado;
+  }
+  if (!quien.identidad) {
+    resultado.estado = EstadoConexion::sin_identidad;
     return resultado;
   }
   red::Socket nuevo = red::conectar(destino, opciones.tiempo_para_conectar, opciones.cancelar,
@@ -210,6 +221,19 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   if (quien.codigo_dueno) {
     presentarse.codigo_dueno = quien.codigo_dueno->bytes();
   }
+  presentarse.clave = quien.identidad->publica();
+  if (quien.equipo) {
+    presentarse.equipo = codigo_de_equipo(*quien.equipo, huella);
+  }
+  std::array<std::uint8_t, protocolo::kBytesValorDeConexion> valor{};
+  const auto firmado = tls.valor_para_identidad(valor)
+                           ? protocolo::lo_que_se_firma(presentarse, resultado.protocolo, huella.bytes(), valor)
+                           : std::vector<std::uint8_t>();
+  auto firma = firmado.empty() ? std::nullopt : quien.identidad->firmar(firmado);
+  if (!firma) {
+    return resultado;
+  }
+  presentarse.firma = std::move(*firma);
   salida.clear();
   if (!protocolo::armar_mensaje(presentarse, salida) ||
       !enviar_todo(*abierta, salida, limite, opciones.cancelar, resultado)) {

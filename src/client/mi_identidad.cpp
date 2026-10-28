@@ -5,6 +5,8 @@
 
 #include <windows.h>
 
+#include <mbedtls/md.h>
+
 #include "common/archivos.h"
 #include "common/cifrado/dpapi.h"
 #include "common/cifrado/inicio.h"
@@ -202,6 +204,16 @@ std::optional<cifrado::Secreto> leer_archivo_de_equipo(gsl::span<const std::uint
 
 std::string identidad_corta(const cifrado::Huella& huella) {
   return huella.a_texto().substr(0, kLargoCorto);
+}
+
+std::array<std::uint8_t, kBytesSecretoDeEquipo> codigo_de_equipo(const cifrado::Secreto& secreto,
+                                                                 const cifrado::Huella& huella) {
+  std::array<std::uint8_t, kBytesSecretoDeEquipo> codigo{};
+  if (mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), secreto.bytes().data(), secreto.size(),
+                      huella.bytes().data(), huella.bytes().size(), codigo.data()) != 0) {
+    codigo.fill(0);
+  }
+  return codigo;
 }
 
 }  // namespace ventrik::cliente

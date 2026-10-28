@@ -119,7 +119,7 @@ class Dibujo {
     chat();
     estado();
     dialogo();
-    EleccionDeAvisos eleccion = dialogo_avisos(pantalla_.idioma, pantalla_.direccion, pantalla_.avisos,
+    EleccionDeAvisos eleccion = dialogo_avisos(pantalla_.idioma, pantalla_.nombre_servidor, pantalla_.avisos,
                                                &sala_.canales(), ahora_, pantalla_.abrir_avisos);
     if (eleccion.avisos) {
       pedido_.avisos = std::move(eleccion.avisos);
@@ -249,8 +249,8 @@ class Dibujo {
     dibujo.AddRectFilled(ImVec2(0, alto), ImVec2(ancho_, alto + 1), tono(color::borde_oscuro));
     triangulos(dibujo, ImVec2(0, 0), ImVec2(ancho_, alto));
     emblema(ImVec2(px(12), px(8)), px(42), pantalla_.logo);
-    const ImVec2 nombre = medir(pantalla_.direccion, Letra::titulo, medida::letra_servidor);
-    escribir(ImVec2(px(63), px(8)), pantalla_.direccion, color::texto, Letra::titulo, medida::letra_servidor);
+    const ImVec2 nombre = medir(pantalla_.nombre_servidor, Letra::titulo, medida::letra_servidor);
+    escribir(ImVec2(px(63), px(8)), pantalla_.nombre_servidor, color::texto, Letra::titulo, medida::letra_servidor);
     const auto& servidor = pantalla_.avisos.servidor;
     const bool servidor_callado = cliente::silenciado(servidor, ahora_);
     const float medio_nombre = px(8) + nombre.y / 2;

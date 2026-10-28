@@ -22,6 +22,28 @@ struct sqlite3_stmt;
 namespace ventrik::servidor {
 enum class Retencion : std::uint8_t { siempre = 0, dias_30 = 1, dias_7 = 2, no_guardar = 3 };
 
+constexpr std::size_t kMaximoUsuariosGuardados = 20000;
+constexpr std::size_t kMaximoEquiposPorUsuario = 16;
+constexpr std::uint64_t kMsPorDia = 24ull * 60 * 60 * 1000;
+constexpr std::uint64_t kDiasSinVolver = 180;
+constexpr std::uint64_t kDiasDeUnaSolaVez = 30;
+constexpr std::uint64_t kDiasParaDesalojar = 7;
+using ClaveDeUsuario = std::array<std::uint8_t, protocolo::kBytesClavePublica>;
+using Equipo = std::array<std::uint8_t, protocolo::kBytesEquipo>;
+
+struct UsuarioGuardado {
+  ClaveDeUsuario clave{};
+  std::string nombre;
+  bool dueno = false;
+  bool admin = false;
+  std::uint64_t creado_ms = 0;
+  std::uint64_t visto_ms = 0;
+  std::uint32_t entradas = 0;
+};
+
+bool esta_vencido(const UsuarioGuardado& usuario, std::uint64_t ahora_ms);
+bool se_puede_desalojar(const UsuarioGuardado& usuario, std::uint64_t ahora_ms);
+
 using protocolo::kCanalGeneral;
 
 class Base {
@@ -46,6 +68,15 @@ class Base {
   Retencion retencion();
   bool cambiar_retencion(Retencion retencion);
   void borrar_viejos(std::uint64_t ahora_ms);
+
+  std::optional<std::vector<UsuarioGuardado>> usuarios(std::uint64_t ahora_ms);
+  bool guardar_usuario(const UsuarioGuardado& usuario);
+  bool borrar_usuarios(const std::vector<ClaveDeUsuario>& claves);
+  bool liberar_nombre(const std::string& nombre);
+  bool anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std::uint64_t ahora_ms);
+  bool quitar_dueno();
+  std::string texto_guardado(const std::string& clave);
+  bool guardar_texto(const std::string& clave, const std::string& valor);
 
   bool empezar_tanda();
   bool en_tanda() const;

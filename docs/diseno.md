@@ -182,7 +182,7 @@ Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Rendimiento-silencia
     - Bots y Configuración del servidor (solo admins);
     - Desconectar.
 
-    El mismo menú sale con clic derecho en la tarjeta del servidor en Inicio; ahí, sin conexión, "Marcar todo como leído" va apagado y no está Desconectar. Hasta que el nombre del servidor viaje en el protocolo (etapa 4, con Hostear), el ▾ va junto a la dirección, que es lo que muestra la cabecera. Lo que todavía no existe va apagado: Invitar gente y Configuración del servidor (etapa 4) y Bots (etapa 15), con "PRONTO" para el dueño y "admins" para los demás.
+    El mismo menú sale con clic derecho en la tarjeta del servidor en Inicio; ahí, sin conexión, "Marcar todo como leído" va apagado y no está Desconectar. Desde el paso 4.2 el nombre del servidor viaja al entrar, y la cabecera lo muestra con el ▾ al lado (la dirección queda en la barra de abajo). Lo que todavía no existe va apagado: Invitar gente y Configuración del servidor (etapa 4) y Bots (etapa 15), con "PRONTO" para el dueño y "admins" para los demás.
   - **Canal de texto,** con clic derecho (para todos): arriba el nombre del canal, Marcar como leído (apagado si no hay nuevos), Silenciar canal ▸, Avisarme de ▸ y Editar canal (admins; el dueño también tiene ahí Borrar canal).
   - **Chat de un canal de voz,** con clic derecho en el canal: Entrar al canal, Ver el chat del canal, Silenciar el chat ▸ y Avisarme del chat ▸, y abajo la nota "Silenciar el chat no apaga la voz". Silenciar el chat no toca la voz: si entrás, escuchás a todos igual. Hoy el chat de un canal de voz se ve solo estando adentro, así que "Ver el chat del canal" se usa para volver a él desde un canal de texto, y va apagado en los demás.
 - **Silenciar ▸:**
@@ -565,7 +565,7 @@ Abajo a la izquierda, fijo debajo de la lista de canales. Capturas: docs/pantall
   - **Salida:** "Volumen de salida" y la nota "El volumen de cada persona se cambia tocando su nombre".
   - **Por persona** (capturas Rendimiento*.png, con la tarjeta de Tano abierta): tocar el nombre de otra persona en la lista de canales abre su tarjeta (ver "Tarjeta de perfil") al lado de la lista. Abajo de la tarjeta van "Volumen de <nombre> para vos", de 0 a 200 %, y el botón "Silenciar para mí".
     - Silenciada para vos, su fila muestra el parlante tachado y el servidor deja de mandarte su voz.
-    - Se recuerda por servidor y por nombre, hasta 16 personas por servidor. Por nombre porque hasta la etapa 4 no hay identidad fija; ahí pasa a la identidad.
+    - Se recuerda por servidor y por nombre, hasta 16 personas por servidor. Por nombre: desde el paso 4.2 cada nombre está reservado para una identidad en cada servidor, así que recordar por nombre ya equivale a recordar por identidad.
 - **Silenciado:**
   - el botón queda rojo con el ícono tachado;
   - en tu fila del canal se ve el micrófono o los auriculares tachados, también para los demás;
@@ -577,7 +577,7 @@ Abajo a la izquierda, fijo debajo de la lista de canales. Capturas: docs/pantall
 
 - **Canales:** el servidor arranca con "General", que se puede renombrar pero no borrar. Al borrar un canal de voz, quienes estaban ahí pasan a General. Hasta 60 canales, sumando los de voz y los de texto, con nombres únicos entre todos.
 - **Nombres de personas y canales:** de 1 a 32 caracteres, sin espacios al principio, al final ni dobles, y sin controles, caracteres invisibles ni marcas de dirección de texto. Dos nombres que solo cambian en mayúsculas, en letras anchas o en cómo está escrita una tilde cuentan como el mismo. Las letras parecidas de otros alfabetos (como la "а" cirílica) quedan para la etapa 9.
-- **Dueño, provisorio hasta las identidades (etapa 4):** la primera vez que arranca, el servidor crea un código de dueño de 128 bits al azar y lo muestra en su consola esa sola vez; después muestra solo dónde está guardado, para que no salga en una captura junto con la huella. Quien se presenta con ese código administra los canales desde adentro del programa, como en Discord. Un código equivocado cuenta como intento fallido para la protección contra ataques.
+- **Dueño (desde el paso 4.2, por identidad):** mientras el servidor no tiene dueño, crea un código de dueño de 128 bits al azar y lo muestra en su consola esa sola vez; después muestra solo dónde está guardado, para que no salga en una captura junto con la huella. El primero que entra con ese código queda como dueño **para siempre, por su identidad**, y el código se borra: las veces siguientes entra como dueño sin código. Un código equivocado cuenta como intento fallido para la protección contra ataques. Si le roban la identidad al dueño, `ventrik_servidor --nuevo-codigo-dueno`, en la PC del servidor, le saca el ser dueño y hace un código nuevo. Hostear (paso 4.10) le pasa al servidor la identidad del dueño al crearlo, sin código.
 
 ### Antivirus antes de publicar
 
@@ -794,6 +794,16 @@ Ningún cifrado frena a un programa malicioso que ya controla tu sesión mientra
 - **Contraseña de la copia:** por lo menos 8 caracteres, escrita dos veces. Argon2id usa 16, 32 o 64 MiB según la memoria libre y las vueltas que tarden cerca de 1 segundo en esa PC. Los valores van dentro del archivo, así una copia hecha en una PC rápida se abre en la netbook. Al abrir se rechaza la que pida más de 64 MiB (lo máximo que escribe Ventrik), más de la mitad de la memoria libre o más de 10 vueltas, así un archivo armado no traba la PC antes de saber si la contraseña es correcta.
 - **Si `identidad.dat` está dañado** o no se puede abrir (Windows reinstalado, archivo copiado de otra PC), el programa no crea otra en silencio: avisa y ofrece importar la copia o crear una nueva.
 - **Importar una identidad distinta de la actual** pide confirmación, mostrando las dos.
+
+**Cómo se entra con la identidad (etapa 4, paso 4.2, protocolo 5):**
+
+- **Al presentarse, el programa firma** su nombre, su clave pública, el código de su equipo y un valor que sale de esa conexión TLS (el mismo mecanismo que da la clave de la voz), junto con la huella del servidor y el protocolo. Un servidor falso no puede reusar esa firma en el verdadero, y una firma vieja no sirve en otra conexión. Una firma que no vale corta la conexión y cuenta como intento fallido.
+- **Una sola presentación por conexión:** cualquier rechazo cierra la conexión, así cada conexión le cuesta al servidor como mucho una verificación de firma. La firma se verifica antes que nada, para que nadie pueda averiguar con qué nombre entra una identidad ajena.
+- **El servidor recuerda cada identidad** con su nombre. Un nombre queda reservado para la identidad que lo usó primero, aunque no esté conectada; los nombres parecidos (mayúsculas y formas de escribir la misma letra) cuentan como el mismo. Cada identidad tiene un solo nombre: si entra con otro, libera el anterior. Las identidades sin rol que no vuelven en 180 días (30 si entraron una sola vez) se borran, al arrancar y una vez por hora, y liberan su nombre; si el reloj de la PC del servidor está atrasado respecto de lo guardado, no se borra nada. `ventrik_servidor --liberar-nombre "…"` suelta a mano el nombre de alguien que no es el dueño (por ejemplo, si perdió su identidad).
+- **La misma identidad desde dos lugares:** la entrada nueva saca a la vieja, que ve "El servidor avisa que tu identidad entró desde otro equipo" (es lo que dice el servidor, que podría mentir). Hay un tope de reemplazos seguidos por identidad (6 cada 10 minutos), para que dos PCs no se echen en bucle.
+- **Topes contra el llenado:** 5 identidades nuevas por hora desde una misma IP; 30 por hora entre todas cuando el servidor está a la mitad de su capacidad o más; 20.000 guardadas. Con el servidor lleno, en vez de rechazar se desaloja la identidad sin rol más vieja que entró una sola vez hace más de una semana. Reclamar el servidor con el código de dueño no tiene topes. Un servidor de pruebas con `--local` no limita las identidades nuevas.
+- **El código del equipo** es un HMAC del secreto de la PC (`equipo.dat`) con la huella del servidor: distinto en cada servidor, así no permite relacionar la misma PC entre servidores. (La identidad sí es la misma en todos los servidores, porque su clave pública viaja a cada uno.) Se guarda para el aviso de equipo nuevo (paso 4.5). No sirve para baneos: se reinicia borrando `equipo.dat` (la huella de equipo de 5 piezas sigue en la etapa 9).
+- **El servidor tiene nombre** (`ventrik_servidor --nombre "…"`, después Hostear), que viaja al entrar y se ve en la cabecera en lugar de la dirección.
 
 ### Identidad del servidor: respaldo y mudanza
 

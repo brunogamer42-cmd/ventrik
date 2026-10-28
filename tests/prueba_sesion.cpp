@@ -399,7 +399,7 @@ TEST_CASE("Un programa que no lee lo que recibe es desconectado") {
   opciones.proteccion.rafaga_chat_por_ip = 1e6;
   opciones.proteccion.chat_por_segundo_por_ip = 1e6;
   ServidorDePrueba servidor(opciones);
-  const auto mudo = ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), {"Mudo", {}});
+  const auto mudo = ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), presentacion("Mudo"));
   REQUIRE(mudo.estado == EstadoConexion::conectado);
   Cliente ana(servidor, "Ana");
   ana.entrar_con_voz();

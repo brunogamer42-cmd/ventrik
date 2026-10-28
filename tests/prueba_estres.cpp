@@ -37,7 +37,7 @@ class Liviana {
  public:
   Liviana(const ServidorExterno& servidor, unsigned i, std::optional<ventrik::red::Direccion> origen)
       : resultado_(ventrik::cliente::conectar(servidor.direccion(), servidor.huella(),
-                                              {"carga" + std::to_string(i), {}}, opciones(origen))) {}
+                                              prueba::presentacion("carga" + std::to_string(i)), opciones(origen))) {}
   bool conectada() const { return resultado_.estado == EstadoConexion::conectado && resultado_.abierta; }
 
   void drenar() {

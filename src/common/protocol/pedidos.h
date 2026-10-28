@@ -19,7 +19,11 @@ constexpr std::size_t kMaximoUsuariosEnLista = 1024;
 constexpr std::size_t kMaximoMensajesEnHistorial = 256;
 constexpr std::size_t kMaximoOpus = 400;
 constexpr std::size_t kMaximoDatagrama = 2048;
-constexpr std::size_t kMaximoCuerpoPresentacion = 128;
+constexpr std::size_t kMaximoCuerpoPresentacion = 512;
+constexpr std::size_t kBytesClavePublica = 65;
+constexpr std::size_t kBytesEquipo = 32;
+constexpr std::size_t kMaximoFirma = 72;
+constexpr std::size_t kBytesValorDeConexion = 32;
 constexpr std::uint32_t kCanalGeneral = 1;
 constexpr std::size_t kMaximoCanales = 60;
 constexpr std::uint8_t kSilencioMicrofono = 1;
@@ -36,7 +40,14 @@ struct Presentarse {
   static constexpr TipoMensaje kTipo = TipoMensaje::presentarse;
   std::string nombre;
   std::optional<std::array<std::uint8_t, 16>> codigo_dueno;
+  std::array<std::uint8_t, kBytesClavePublica> clave{};
+  std::array<std::uint8_t, kBytesEquipo> equipo{};
+  std::vector<std::uint8_t> firma;
 };
+
+std::vector<std::uint8_t> lo_que_se_firma(const Presentarse& mensaje, std::uint16_t protocolo,
+                                          gsl::span<const std::uint8_t> huella,
+                                          gsl::span<const std::uint8_t> valor_de_conexion);
 
 enum class TipoCanal : std::uint8_t { voz = 1, texto = 2 };
 
@@ -55,12 +66,14 @@ struct UsuarioInfo {
   std::string nombre;
   std::uint32_t canal = 0;
   std::uint8_t silencio = 0;
+  bool admin = false;
 };
 
 struct Presentado {
   static constexpr TipoMensaje kTipo = TipoMensaje::presentado;
   std::uint32_t tu_id = 0;
   bool dueno = false;
+  std::string servidor;
   std::vector<CanalInfo> canales;
   std::vector<UsuarioInfo> usuarios;
 };
@@ -70,6 +83,8 @@ enum class MotivoPresentacion : std::uint8_t {
   nombre_en_uso = 2,
   codigo_incorrecto = 3,
   lleno = 4,
+  firma_invalida = 5,
+  demasiadas = 6,
 };
 
 struct PresentacionRechazada {
@@ -231,6 +246,10 @@ struct Negado {
   MotivoNegado motivo = MotivoNegado::sin_permiso;
 };
 
+struct Desplazado {
+  static constexpr TipoMensaje kTipo = TipoMensaje::desplazado;
+};
+
 struct Ping {
   static constexpr TipoMensaje kTipo = TipoMensaje::ping;
   std::uint64_t marca = 0;
@@ -298,6 +317,7 @@ VENTRIK_MENSAJE(MirarCanal)
 VENTRIK_MENSAJE(MensajesNuevos)
 VENTRIK_MENSAJE(BorrarCanal)
 VENTRIK_MENSAJE(Negado)
+VENTRIK_MENSAJE(Desplazado)
 VENTRIK_MENSAJE(Ping)
 VENTRIK_MENSAJE(Pong)
 VENTRIK_MENSAJE(ClaveVoz)

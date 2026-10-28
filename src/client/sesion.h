@@ -31,7 +31,7 @@ struct PingMedido {
   std::uint32_t milisegundos = 0;
 };
 
-enum class MotivoFin { el_servidor_corto, sin_respuesta, mensaje_ilegible, desbordada };
+enum class MotivoFin { el_servidor_corto, sin_respuesta, mensaje_ilegible, desbordada, desplazada };
 
 struct Fin {
   MotivoFin motivo = MotivoFin::el_servidor_corto;
@@ -96,6 +96,7 @@ class Sesion {
   std::deque<Novedad> novedades_;
   bool terminar_ = false;
   bool desbordada_ = false;
+  bool desplazada_ = false;
   std::optional<std::shared_ptr<PuenteVoz>> voz_pedida_;
   std::shared_ptr<PuenteVoz> puente_;
   std::optional<protocolo::ClaveVoz> clave_;

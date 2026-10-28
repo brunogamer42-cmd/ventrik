@@ -11,6 +11,7 @@
 
 #include "client/sesion.h"
 #include "common/cifrado/codigo_dueno.h"
+#include "identidad_de_prueba.h"
 #include "servidor_de_prueba.h"
 #include <doctest/doctest.h>
 
@@ -20,7 +21,10 @@ class Cliente {
  public:
   Cliente(const ventrik::red::Direccion& direccion, const ventrik::cifrado::Huella& huella, std::string nombre,
           std::optional<ventrik::cifrado::CodigoDueno> codigo = {}, ventrik::cliente::OpcionesSesion opciones = {})
-      : sesion_(direccion, huella, {std::move(nombre), codigo}, std::move(opciones)) {}
+      : sesion_(direccion, huella, presentacion(std::move(nombre), codigo), std::move(opciones)) {}
+  Cliente(const ServidorDePrueba& servidor, ventrik::cliente::Presentacion quien,
+          ventrik::cliente::OpcionesSesion opciones = {})
+      : sesion_(servidor.direccion(), servidor.huella(), std::move(quien), std::move(opciones)) {}
   Cliente(const ServidorDePrueba& servidor, std::string nombre,
           std::optional<ventrik::cifrado::CodigoDueno> codigo = {}, ventrik::cliente::OpcionesSesion opciones = {})
       : Cliente(servidor.direccion(), servidor.huella(), std::move(nombre), codigo, std::move(opciones)) {}

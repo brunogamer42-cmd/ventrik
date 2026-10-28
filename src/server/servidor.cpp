@@ -4,11 +4,13 @@
 #include <array>
 #include <future>
 #include <optional>
+#include <set>
 #include <utility>
 #include <variant>
 
 #include <winsock2.h>
 
+#include "common/cifrado/clave.h"
 #include "common/texto.h"
 
 namespace ventrik::servidor {
@@ -27,6 +29,9 @@ constexpr std::size_t kDatagramasPorVuelta = 256;
 constexpr std::chrono::milliseconds kCadaCuantoRevisarVoz{100};
 constexpr std::size_t kMaximoHistorial = protocolo::kMaximoCuerpo - 64;
 constexpr std::chrono::seconds kEntreAvisos{1};
+constexpr std::chrono::hours kVentanaDeIdentidadesNuevas{1};
+constexpr std::size_t kMaximoIpsAnotadas = 4096;
+constexpr std::chrono::hours kCadaCuantoVencer{1};
 
 enum class Estado { cifrando, saludando, presentando, conectada, cerrando };
 
@@ -55,6 +60,7 @@ struct Servidor::Conexion {
   }
   bool tiene_limite() const { return pendiente() || estado == Estado::cerrando; }
   Persona persona() const { return Persona{dueno, canal}; }
+  protocolo::UsuarioInfo info() const { return {id, nombre, canal, silencio, dueno}; }
   std::size_t por_enviar() const { return salida.size() - enviado; }
 
   red::Socket socket;
@@ -70,7 +76,8 @@ struct Servidor::Conexion {
   bool quiere_escribir = false;
   bool datos_guardados = false;
   bool terminar = false;
-  int intentos_de_presentacion = 0;
+  std::uint16_t protocolo = 0;
+  ClaveDeUsuario clave{};
   std::uint32_t id = 0;
   std::string nombre;
   std::wstring comparable;
@@ -105,16 +112,36 @@ bool Servidor::escuchar() {
       !base_.arrancar(opciones_.archivo_base, opciones_.nombre_general, despertador_)) {
     return false;
   }
-  std::promise<std::pair<std::vector<protocolo::CanalInfo>, Retencion>> cargado;
+  struct Cargado {
+    std::vector<protocolo::CanalInfo> canales;
+    Retencion retencion = Retencion::siempre;
+    std::optional<std::vector<UsuarioGuardado>> usuarios;
+    std::string nombre;
+    bool bien = false;
+  };
+  std::promise<Cargado> cargado;
   auto futuro = cargado.get_future();
-  if (!base_.pedir([&cargado](Base& base) -> std::function<void()> {
-        cargado.set_value({base.canales(), base.retencion()});
+  if (!base_.pedir([&cargado, this](Base& base) -> std::function<void()> {
+        const bool bien = (!opciones_.quitar_dueno || base.quitar_dueno()) &&
+                          (opciones_.liberar_nombre.empty() || base.liberar_nombre(opciones_.liberar_nombre)) &&
+                          (!es_nombre_valido(opciones_.nombre_servidor) ||
+                           base.guardar_texto("nombre", opciones_.nombre_servidor));
+        cargado.set_value({base.canales(), base.retencion(), base.usuarios(ahora_ms()), base.texto_guardado("nombre"),
+                           bien});
         return {};
       })) {
     return false;
   }
-  auto [canales, retencion] = futuro.get();
+  auto [canales, retencion, usuarios, nombre, bien] = futuro.get();
+  if (!bien || !usuarios) {
+    return false;
+  }
   retencion_ = retencion;
+  nombre_ = es_nombre_valido(nombre) ? nombre : opciones_.nombre_de_fabrica;
+  for (auto& usuario : *usuarios) {
+    std::wstring comparable = nombre_para_comparar(usuario.nombre);
+    registrados_.push_back(Registrado{std::move(usuario), std::move(comparable)});
+  }
   for (auto& canal : canales) {
     canales_.push_back(Canal{canal.id, canal.nombre, nombre_para_comparar(canal.nombre),
                              canal.tipo, canal.solo_admins, canal.contador});
@@ -221,6 +248,7 @@ void Servidor::correr(const std::atomic<bool>& seguir) {
       atender_udp();
     }
     renovar_claves();
+    vencer_identidades();
     base_.atender_respuestas();
     for (std::size_t i = 0; i < conexiones_.size(); ++i) {
       auto& conexion = *conexiones_[i];
@@ -254,6 +282,11 @@ void Servidor::correr(const std::atomic<bool>& seguir) {
     }
     quitar_terminadas();
   }
+  for (const auto& conexion : conexiones_) {
+    if (conexion->estado == Estado::conectada) {
+      anotar_salida(conexion->clave);
+    }
+  }
   conexiones_.clear();
 }
 
@@ -263,6 +296,7 @@ void Servidor::quitar_terminadas() {
     if (conexion->terminar && conexion->estado == Estado::conectada) {
       se_fueron.push_back(conexion->id);
       avisar(Evento::salio, *conexion);
+      anotar_salida(conexion->clave);
     }
   }
   conexiones_.erase(std::remove_if(conexiones_.begin(), conexiones_.end(),
@@ -489,6 +523,7 @@ void Servidor::atender_hola(Conexion& conexion, const protocolo::Marco& marco) {
       return;
     }
     encolar_bytes(conexion, marco_bienvenida);
+    conexion.protocolo = bienvenida->protocolo;
     conexion.estado = Estado::presentando;
     conexion.ensamblador.cambiar_maximo(protocolo::kMaximoCuerpoPresentacion);
     avisar(Evento::conectada, conexion.origen);
@@ -520,39 +555,68 @@ void Servidor::atender_presentacion(Conexion& conexion, const protocolo::Marco& 
     conexion.terminar = true;
     return;
   }
-  if (presentacion->codigo_dueno) {
-    const bool correcto = opciones_.codigo_dueno &&
-                          *opciones_.codigo_dueno == cifrado::CodigoDueno(*presentacion->codigo_dueno);
-    if (!correcto) {
-      encolar(conexion, protocolo::PresentacionRechazada{
-                            protocolo::MotivoPresentacion::codigo_incorrecto});
-      cerrar_con_respuesta(conexion);
-      avisar(Evento::codigo_incorrecto, conexion.origen);
-      falla(conexion);
-      return;
-    }
+  std::array<std::uint8_t, protocolo::kBytesValorDeConexion> valor{};
+  const auto firmado = conexion.tls->valor_para_identidad(valor)
+                           ? protocolo::lo_que_se_firma(*presentacion, conexion.protocolo,
+                                                        identidad_.huella().bytes(), valor)
+                           : std::vector<std::uint8_t>();
+  if (firmado.empty() || !cifrado::verificar_firma(presentacion->clave, firmado, presentacion->firma)) {
+    rechazar_presentacion(conexion, protocolo::MotivoPresentacion::firma_invalida);
+    avisar(Evento::firma_invalida, conexion.origen);
+    falla(conexion);
+    return;
   }
   const std::wstring comparable = nombre_para_comparar(presentacion->nombre);
-  const bool en_uso =
-      comparable.empty() ||
-      std::any_of(conexiones_.begin(), conexiones_.end(), [&comparable](const auto& otra) {
-        return otra->estado == Estado::conectada && !otra->terminar &&
-               otra->comparable == comparable;
-      });
-  if (en_uso) {
-    encolar(conexion,
-            protocolo::PresentacionRechazada{protocolo::MotivoPresentacion::nombre_en_uso});
-    if (++conexion.intentos_de_presentacion >= opciones_.intentos_de_presentacion) {
-      cerrar_con_respuesta(conexion);
-    }
+  if (comparable.empty() ||
+      std::any_of(registrados_.begin(), registrados_.end(), [&](const Registrado& registrado) {
+        return registrado.comparable == comparable && registrado.guardado.clave != presentacion->clave;
+      })) {
+    rechazar_presentacion(conexion, protocolo::MotivoPresentacion::nombre_en_uso);
     return;
+  }
+  auto yo = std::find_if(registrados_.begin(), registrados_.end(), [&presentacion](const Registrado& registrado) {
+    return registrado.guardado.clave == presentacion->clave;
+  });
+  const bool ya_es_dueno = yo != registrados_.end() && yo->guardado.dueno;
+  const bool reclama = presentacion->codigo_dueno && !ya_es_dueno;
+  if (reclama && (tiene_dueno() || !opciones_.codigo_dueno ||
+                  !(*opciones_.codigo_dueno == cifrado::CodigoDueno(*presentacion->codigo_dueno)))) {
+    rechazar_presentacion(conexion, protocolo::MotivoPresentacion::codigo_incorrecto);
+    avisar(Evento::codigo_incorrecto, conexion.origen);
+    falla(conexion);
+    return;
+  }
+  bool nueva = false;
+  if (!admitir_identidad(conexion, *presentacion, yo, reclama, nueva)) {
+    return;
+  }
+  UsuarioGuardado actualizado = yo->guardado;
+  actualizado.nombre = presentacion->nombre;
+  actualizado.dueno = actualizado.dueno || reclama;
+  const std::uint64_t hoy = ahora_ms();
+  const bool otro_dia = nueva || hoy >= actualizado.visto_ms + kMsPorDia;
+  actualizado.visto_ms = std::max(actualizado.visto_ms, hoy);
+  actualizado.creado_ms = nueva ? actualizado.visto_ms : actualizado.creado_ms;
+  actualizado.entradas = otro_dia ? std::max(actualizado.entradas, actualizado.entradas + 1) : actualizado.entradas;
+  if (!guardar(actualizado, presentacion->equipo)) {
+    if (nueva) {
+      registrados_.erase(yo);
+    }
+    rechazar_presentacion(conexion, protocolo::MotivoPresentacion::lleno);
+    return;
+  }
+  yo->guardado = std::move(actualizado);
+  yo->comparable = comparable;
+  if (reclama) {
+    opciones_.codigo_dueno.reset();
   }
 
   const auto ahora = Reloj::now();
   conexion.id = proximo_id_++;
+  conexion.clave = presentacion->clave;
   conexion.nombre = presentacion->nombre;
   conexion.comparable = comparable;
-  conexion.dueno = presentacion->codigo_dueno.has_value();
+  conexion.dueno = yo->guardado.dueno;
   conexion.estado = Estado::conectada;
   conexion.ultimo_dato = ahora;
   conexion.chat = Cubeta(opciones_.rafaga_chat, opciones_.chat_por_segundo, ahora);
@@ -564,20 +628,22 @@ void Servidor::atender_presentacion(Conexion& conexion, const protocolo::Marco& 
   protocolo::Presentado presentado;
   presentado.tu_id = conexion.id;
   presentado.dueno = conexion.dueno;
+  presentado.servidor = nombre_;
   for (const Canal& canal : canales_) {
     presentado.canales.push_back(info_de(canal));
   }
   for (const auto& otra : conexiones_) {
     if (otra->estado == Estado::conectada && !otra->terminar) {
-      presentado.usuarios.push_back(protocolo::UsuarioInfo{otra->id, otra->nombre, otra->canal, otra->silencio});
+      presentado.usuarios.push_back(otra->info());
     }
   }
   encolar(conexion, presentado);
-  difundir(protocolo::UsuarioEntro{protocolo::UsuarioInfo{conexion.id, conexion.nombre,
-                                                         conexion.canal, conexion.silencio}},
-           conexion.id);
+  difundir(protocolo::UsuarioEntro{conexion.info()}, conexion.id);
   proteccion_.saludo_completo(conexion.origen.ipv4, ahora);
   avisar(Evento::presentada, conexion);
+  if (reclama) {
+    avisar(Evento::dueno_reclamado, conexion);
+  }
 }
 
 void Servidor::atender_pedido(Conexion& conexion, const protocolo::Marco& marco) {
@@ -950,6 +1016,166 @@ void Servidor::error_de_protocolo(Conexion& conexion) {
 
 void Servidor::negar(Conexion& conexion, TipoMensaje pedido, MotivoNegado motivo) {
   encolar(conexion, protocolo::Negado{pedido, motivo});
+}
+
+bool Servidor::tiene_dueno() const {
+  return std::any_of(registrados_.begin(), registrados_.end(),
+                     [](const Registrado& registrado) { return registrado.guardado.dueno; });
+}
+
+void Servidor::rechazar_presentacion(Conexion& conexion, protocolo::MotivoPresentacion motivo) {
+  encolar(conexion, protocolo::PresentacionRechazada{motivo});
+  cerrar_con_respuesta(conexion);
+}
+
+bool Servidor::admitir_identidad(Conexion& conexion, const protocolo::Presentarse& presentacion,
+                                 std::vector<Registrado>::iterator& yo, bool reclama, bool& nueva) {
+  const auto ahora = Reloj::now();
+  if (yo == registrados_.end()) {
+    if (nuevas_por_ip_.size() >= kMaximoIpsAnotadas) {
+      for (auto anotada = nuevas_por_ip_.begin(); anotada != nuevas_por_ip_.end();) {
+        anotada = ahora - anotada->second.first >= kVentanaDeIdentidadesNuevas ? nuevas_por_ip_.erase(anotada)
+                                                                                : std::next(anotada);
+      }
+    }
+    auto desde_la_ip = nuevas_por_ip_.find(conexion.origen.ipv4);
+    const bool sin_lugar_para_la_ip = desde_la_ip == nuevas_por_ip_.end() && nuevas_por_ip_.size() >= kMaximoIpsAnotadas;
+    if (desde_la_ip != nuevas_por_ip_.end() && ahora - desde_la_ip->second.first >= kVentanaDeIdentidadesNuevas) {
+      desde_la_ip->second = {ahora, 0};
+    }
+    if (ahora - nuevas_en_total_.first >= kVentanaDeIdentidadesNuevas) {
+      nuevas_en_total_ = {ahora, 0};
+    }
+    const bool cerca_del_tope = registrados_.size() * 2 >= opciones_.maximo_identidades;
+    const bool demasiadas = sin_lugar_para_la_ip ||
+                            (cerca_del_tope && nuevas_en_total_.second >= opciones_.identidades_nuevas_por_hora) ||
+                            (desde_la_ip != nuevas_por_ip_.end() &&
+                             desde_la_ip->second.second >= opciones_.identidades_nuevas_por_ip);
+    if (!reclama && demasiadas) {
+      rechazar_presentacion(conexion, protocolo::MotivoPresentacion::demasiadas);
+      return false;
+    }
+    if (registrados_.size() >= opciones_.maximo_identidades && !desalojar_una() && !reclama) {
+      rechazar_presentacion(conexion, protocolo::MotivoPresentacion::lleno);
+      return false;
+    }
+    if (!reclama) {
+      ++nuevas_en_total_.second;
+      ++nuevas_por_ip_.emplace(conexion.origen.ipv4, std::make_pair(ahora, 0)).first->second.second;
+    }
+    registrados_.push_back(Registrado{UsuarioGuardado{presentacion.clave}});
+    yo = std::prev(registrados_.end());
+    nueva = true;
+    return true;
+  }
+  const auto anterior = std::find_if(conexiones_.begin(), conexiones_.end(), [&presentacion](const auto& otra) {
+    return otra->estado == Estado::conectada && !otra->terminar && otra->clave == presentacion.clave;
+  });
+  if (anterior == conexiones_.end()) {
+    return true;
+  }
+  if (ahora - yo->desde_reemplazos >= opciones_.ventana_de_reemplazos) {
+    yo->desde_reemplazos = ahora;
+    yo->reemplazos = 0;
+  }
+  if (yo->reemplazos >= opciones_.reemplazos_por_identidad) {
+    rechazar_presentacion(conexion, protocolo::MotivoPresentacion::demasiadas);
+    return false;
+  }
+  ++yo->reemplazos;
+  desplazar(**anterior);
+  return true;
+}
+
+bool Servidor::conectada(const ClaveDeUsuario& clave) const {
+  return std::any_of(conexiones_.begin(), conexiones_.end(), [&clave](const auto& conexion) {
+    return conexion->estado == Estado::conectada && !conexion->terminar && conexion->clave == clave;
+  });
+}
+
+bool Servidor::desalojar_una() {
+  const std::uint64_t ahora = ahora_ms();
+  auto elegido = registrados_.end();
+  for (auto registrado = registrados_.begin(); registrado != registrados_.end(); ++registrado) {
+    if (se_puede_desalojar(registrado->guardado, ahora) && !conectada(registrado->guardado.clave) &&
+        (elegido == registrados_.end() || registrado->guardado.visto_ms < elegido->guardado.visto_ms)) {
+      elegido = registrado;
+    }
+  }
+  if (elegido == registrados_.end() ||
+      !base_.pedir([clave = elegido->guardado.clave](Base& base) -> std::function<void()> {
+        base.borrar_usuarios({clave});
+        return {};
+      })) {
+    return false;
+  }
+  registrados_.erase(elegido);
+  return true;
+}
+
+bool Servidor::guardar(const UsuarioGuardado& usuario, const std::optional<Equipo>& equipo) {
+  return base_.pedir([this, usuario, equipo](Base& base) -> std::function<void()> {
+    const bool bien = base.guardar_usuario(usuario) && (!equipo || base.anotar_equipo(usuario.clave, *equipo, usuario.visto_ms));
+    if (bien) {
+      return {};
+    }
+    return [this] { avisar(Evento::error_base, red::Direccion{}); };
+  });
+}
+
+void Servidor::anotar_salida(const ClaveDeUsuario& clave) {
+  const auto registrado = std::find_if(registrados_.begin(), registrados_.end(),
+                                       [&clave](const Registrado& cual) { return cual.guardado.clave == clave; });
+  if (registrado != registrados_.end()) {
+    registrado->guardado.visto_ms = std::max(registrado->guardado.visto_ms, ahora_ms());
+    guardar(registrado->guardado, std::nullopt);
+  }
+}
+
+void Servidor::vencer_identidades() {
+  const auto ahora = Reloj::now();
+  if (ahora < proxima_limpieza_) {
+    return;
+  }
+  proxima_limpieza_ = ahora + kCadaCuantoVencer;
+  const std::uint64_t hoy = ahora_ms();
+  const bool reloj_atrasado = std::any_of(registrados_.begin(), registrados_.end(), [hoy](const Registrado& registrado) {
+    return registrado.guardado.visto_ms > hoy;
+  });
+  if (reloj_atrasado) {
+    return;
+  }
+  std::set<ClaveDeUsuario> conectadas;
+  for (const auto& conexion : conexiones_) {
+    if (conexion->estado == Estado::conectada) {
+      conectadas.insert(conexion->clave);
+    }
+  }
+  const auto vence = [hoy, &conectadas](const Registrado& registrado) {
+    return esta_vencido(registrado.guardado, hoy) && conectadas.count(registrado.guardado.clave) == 0;
+  };
+  std::vector<ClaveDeUsuario> vencidas;
+  for (const Registrado& registrado : registrados_) {
+    if (vence(registrado)) {
+      vencidas.push_back(registrado.guardado.clave);
+    }
+  }
+  if (vencidas.empty() || !base_.pedir([vencidas](Base& base) -> std::function<void()> {
+        base.borrar_usuarios(vencidas);
+        return {};
+      })) {
+    return;
+  }
+  registrados_.erase(std::remove_if(registrados_.begin(), registrados_.end(), vence), registrados_.end());
+}
+
+void Servidor::desplazar(Conexion& conexion) {
+  const std::uint32_t id = conexion.id;
+  encolar(conexion, protocolo::Desplazado{});
+  avisar(Evento::desplazada, conexion);
+  cerrar_con_respuesta(conexion);
+  voz_->baja(id);
+  difundir(protocolo::UsuarioSalio{id});
 }
 
 void Servidor::cerrar_con_respuesta(Conexion& conexion) {

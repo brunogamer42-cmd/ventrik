@@ -41,6 +41,7 @@ enum class TipoMensaje : std::uint16_t {
   clave_voz = 42,
   mensajes_nuevos = 43,
   usuario_silencio = 44,
+  desplazado = 45,
   medio_subida = 50,
   medio_bajada = 51,
 };

@@ -1,4 +1,5 @@
 #include <atomic>
+#include <climits>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -12,6 +13,7 @@
 #include "common/cifrado/inicio.h"
 #include "common/proceso.h"
 #include "common/red/red.h"
+#include "common/texto.h"
 #include "common/textos.h"
 #include "common/utf.h"
 #include "common/version.h"
@@ -62,6 +64,10 @@ ventrik::Clave clave_de(ventrik::servidor::Evento evento) {
     case Evento::no_lee: return Clave::servidor_no_lee;
     case Evento::codigo_incorrecto: return Clave::servidor_codigo_incorrecto;
     case Evento::voz_conectada: return Clave::servidor_voz_conectada;
+    case Evento::firma_invalida: return Clave::servidor_firma_invalida;
+    case Evento::dueno_reclamado: return Clave::servidor_dueno_reclamado;
+    case Evento::desplazada: return Clave::servidor_desplazada;
+    case Evento::error_base: return Clave::servidor_error_guardar;
   }
   return Clave::servidor_conectada;
 }
@@ -122,11 +128,26 @@ int wmain(int cantidad, wchar_t** argumentos) {
   std::uint16_t puerto = ventrik::red::kPuertoPredeterminado;
   bool solo_huella = false;
   bool local = false;
+  bool nuevo_codigo = false;
+  std::string nombre;
+  std::string liberar;
   for (int i = 1; i < cantidad; ++i) {
     const std::wstring_view opcion = argumentos[i];
     const bool hay_valor = i + 1 < cantidad;
     if (opcion == L"--carpeta" && hay_valor) {
       carpeta = argumentos[++i];
+      continue;
+    }
+    if (opcion == L"--nombre" && hay_valor && ventrik::es_nombre_valido(ventrik::a_utf8(argumentos[i + 1]))) {
+      nombre = ventrik::a_utf8(argumentos[++i]);
+      continue;
+    }
+    if (opcion == L"--liberar-nombre" && hay_valor && ventrik::es_nombre_valido(ventrik::a_utf8(argumentos[i + 1]))) {
+      liberar = ventrik::a_utf8(argumentos[++i]);
+      continue;
+    }
+    if (opcion == L"--nuevo-codigo-dueno") {
+      nuevo_codigo = true;
       continue;
     }
     if (opcion == L"--puerto" && hay_valor && leer_puerto(argumentos[i + 1], puerto)) {
@@ -144,6 +165,9 @@ int wmain(int cantidad, wchar_t** argumentos) {
     escribir_linea(texto(ventrik::Clave::servidor_uso));
     escribir_linea(texto(ventrik::Clave::servidor_uso_huella));
     escribir_linea(texto(ventrik::Clave::servidor_uso_local));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_nombre));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_nuevo_codigo));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_liberar));
     return 2;
   }
   if (carpeta.empty()) {
@@ -207,23 +231,30 @@ int wmain(int cantidad, wchar_t** argumentos) {
   opciones.escuchar = {local ? 0x7F000001u : 0u, puerto};
   opciones.archivo_base = carpeta + L"\\ventrik.db";
   opciones.nombre_general = texto(ventrik::Clave::canal_general);
-  bool codigo_creado = false;
-  opciones.codigo_dueno = cargar_o_crear_codigo(archivo_codigo, codigo_creado);
-  if (!opciones.codigo_dueno) {
+  opciones.nombre_servidor = nombre;
+  opciones.nombre_de_fabrica = texto(ventrik::Clave::servidor_nombre_de_fabrica);
+  opciones.quitar_dueno = nuevo_codigo;
+  opciones.liberar_nombre = liberar;
+  if (local) {
+    opciones.identidades_nuevas_por_ip = opciones.identidades_nuevas_por_hora = INT_MAX;
+  }
+  if (nuevo_codigo && !DeleteFileW(archivo_codigo.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
     escribir_linea(texto(ventrik::Clave::servidor_error_codigo) + " " + ventrik::a_utf8(archivo_codigo));
     return 1;
   }
-  escribir_linea(codigo_creado ? texto(ventrik::Clave::servidor_codigo_dueno)
-                               : texto(ventrik::Clave::servidor_codigo_dueno_en));
-  escribir_linea("    " + (codigo_creado ? opciones.codigo_dueno->a_texto()
-                                         : ventrik::a_utf8(archivo_codigo)));
-  escribir_linea("");
   ventrik::servidor::Registro registro(escribir_linea,
                                       texto(ventrik::Clave::servidor_avisos_perdidos));
-  const auto avisar = [&texto, &registro](ventrik::servidor::Evento evento,
-                                          const ventrik::red::Direccion& origen,
-                                          const std::string& nombre) {
+  const auto avisar = [&texto, &registro, &archivo_codigo](ventrik::servidor::Evento evento,
+                                                           const ventrik::red::Direccion& origen,
+                                                           const std::string& nombre) {
     if (evento == ventrik::servidor::Evento::conectada) {
+      return;
+    }
+    if (evento == ventrik::servidor::Evento::dueno_reclamado) {
+      DeleteFileW(archivo_codigo.c_str());
+    }
+    if (evento == ventrik::servidor::Evento::error_base) {
+      registro.agregar(texto(clave_de(evento)));
       return;
     }
     const std::string ip = ventrik::red::a_texto(origen);
@@ -237,6 +268,22 @@ int wmain(int cantidad, wchar_t** argumentos) {
                        : texto(ventrik::Clave::servidor_error_base) + " " + ventrik::a_utf8(opciones.archivo_base));
     return 1;
   }
+  escribir_linea(texto(ventrik::Clave::servidor_nombre) + " " + servidor.nombre());
+  if (servidor.tiene_dueno()) {
+    DeleteFileW(archivo_codigo.c_str());
+  } else {
+    bool codigo_creado = false;
+    const auto codigo = cargar_o_crear_codigo(archivo_codigo, codigo_creado);
+    if (!codigo) {
+      escribir_linea(texto(ventrik::Clave::servidor_error_codigo) + " " + ventrik::a_utf8(archivo_codigo));
+      return 1;
+    }
+    servidor.codigo_para_reclamar(codigo);
+    escribir_linea(codigo_creado ? texto(ventrik::Clave::servidor_codigo_dueno)
+                                 : texto(ventrik::Clave::servidor_codigo_dueno_en));
+    escribir_linea("    " + (codigo_creado ? codigo->a_texto() : ventrik::a_utf8(archivo_codigo)));
+  }
+  escribir_linea("");
   escribir_linea(texto(ventrik::Clave::servidor_puerto) + " " + std::to_string(servidor.puerto()));
   escribir_linea(texto(ventrik::Clave::servidor_salir));
   SetConsoleCtrlHandler(al_cortar, TRUE);

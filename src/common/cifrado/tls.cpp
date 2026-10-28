@@ -37,6 +37,7 @@ const std::uint16_t kFirmas[] = {MBEDTLS_TLS1_3_SIG_ECDSA_SECP256R1_SHA256,
                                  MBEDTLS_TLS1_3_SIG_NONE};
 
 constexpr char kEtiquetaVoz[] = "EXPERIMENTAL ventrik voz";
+constexpr char kEtiquetaIdentidad[] = "EXPERIMENTAL ventrik identidad";
 constexpr std::size_t kPresupuestoPorLlamada = 32 * 1024;
 constexpr int kLecturasPorLlamada = 64;
 
@@ -232,6 +233,11 @@ bool SesionTls::exportar(gsl::span<const std::uint8_t> contexto, gsl::span<std::
   return ok_ && mbedtls_ssl_export_keying_material(&ssl_, salida.data(), salida.size(), kEtiquetaVoz,
                                                    sizeof(kEtiquetaVoz) - 1, contexto.data(),
                                                    contexto.size(), 1) == 0;
+}
+
+bool SesionTls::valor_para_identidad(gsl::span<std::uint8_t> salida) {
+  return ok_ && mbedtls_ssl_export_keying_material(&ssl_, salida.data(), salida.size(), kEtiquetaIdentidad,
+                                                   sizeof(kEtiquetaIdentidad) - 1, nullptr, 0, 0) == 0;
 }
 
 Trafico trafico() {

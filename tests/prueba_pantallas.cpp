@@ -239,6 +239,7 @@ ventrik::cliente::Sala sala_llena(bool dueno, std::size_t canales, std::size_t p
 ui::PantallaServidor pantalla_servidor() {
   ui::PantallaServidor pantalla;
   pantalla.direccion = "203.0.113.20:7700";
+  pantalla.nombre_servidor = "203.0.113.20:7700";
   pantalla.hablando = {2};
   pantalla.personas = {{"Persona con nombre largo 3", 50, true}, {"Persona con nombre largo 2", 150, false}};
   pantalla.transmitiendo = true;

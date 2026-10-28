@@ -88,6 +88,7 @@ struct PantallaServidor {
   Idioma idioma{};
   ImTextureID logo{};
   std::string direccion;
+  std::string nombre_servidor;
   bool calidad_alta = true;
   bool hay_audio = true;
   std::uint8_t tecla = 0;

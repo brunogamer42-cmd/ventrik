@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -48,5 +49,7 @@ bool guardar_apartando_la_vieja(const std::wstring& carpeta, const cifrado::Clav
 std::optional<cifrado::Secreto> leer_archivo_de_equipo(gsl::span<const std::uint8_t> archivo);
 
 std::string identidad_corta(const cifrado::Huella& huella);
+std::array<std::uint8_t, kBytesSecretoDeEquipo> codigo_de_equipo(const cifrado::Secreto& secreto,
+                                                                 const cifrado::Huella& huella);
 
 }  // namespace ventrik::cliente

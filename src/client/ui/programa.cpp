@@ -663,12 +663,15 @@ class Programa {
     identidad_cargada_ = true;
     cliente::MiIdentidad cargada = cliente::cargar_o_crear_mi_identidad(carpeta_);
     estado_identidad_ = cargada.estado;
-    identidad_ = std::move(cargada.clave);
+    identidad_ = cargada.clave ? std::make_shared<const cifrado::Clave>(std::move(*cargada.clave)) : nullptr;
+    if (auto secreto = cliente::secreto_de_equipo(carpeta_)) {
+      equipo_ = std::make_shared<const cifrado::Secreto>(std::move(*secreto));
+    }
     aplicar_identidad();
   }
 
   void aplicar_identidad() {
-    const bool lista = identidad_.has_value();
+    const bool lista = identidad_ != nullptr;
     ajustes_.estado_identidad = !identidad_cargada_ ? EstadoDeIdentidad::cargando
                                 : lista             ? EstadoDeIdentidad::lista
                                 : estado_identidad_ == cliente::EstadoIdentidad::danada ? EstadoDeIdentidad::danada
@@ -840,7 +843,7 @@ class Programa {
       avisar_identidad(Clave::seguridad_no_se_guardo, true);
       return;
     }
-    identidad_ = std::move(nueva);
+    identidad_ = std::make_shared<const cifrado::Clave>(std::move(nueva));
     estado_identidad_ = cliente::EstadoIdentidad::lista;
     cliente::poner_texto(guardados_, cliente::Ajuste::copia_de_identidad,
                          desde_copia ? identidad_->huella().a_texto() : std::string());
@@ -1220,6 +1223,11 @@ class Programa {
   void entrar(const red::Direccion& direccion, const cifrado::Huella& huella, cliente::Presentacion quien,
               bool desde_formulario) {
     cerrar();
+    if (!identidad_cargada_) {
+      cargar_identidad();
+    }
+    quien.identidad = identidad_;
+    quien.equipo = equipo_;
     canal_del_aviso_ = 0;
     pantalla_.intento = {direccion, desde_formulario, Fase::conectando, {}};
     pendiente_ = {direccion, huella.bytes(), quien.nombre, 0, {}, 0};
@@ -1262,6 +1270,7 @@ class Programa {
     servidor_.idioma = pantalla_.idioma;
     servidor_.logo = pantalla_.logo;
     servidor_.direccion = red::a_texto(pendiente_.direccion);
+    servidor_.nombre_servidor = intento.presentado->servidor;
     servidor_.calidad_alta = calidad_.frecuencia == cliente::Calidad{}.frecuencia;
     servidor_.tecla = guardados_.tecla_hablar;
     servidor_.por_voz = guardados_.por_voz;
@@ -1492,7 +1501,8 @@ class Programa {
   PantallaAjustes ajustes_;
   cliente::EstadoIdentidad estado_identidad_ = cliente::EstadoIdentidad::error;
   bool identidad_cargada_ = false;
-  std::optional<cifrado::Clave> identidad_;
+  std::shared_ptr<const cifrado::Clave> identidad_;
+  std::shared_ptr<const cifrado::Secreto> equipo_;
   std::optional<cifrado::Clave> por_reemplazar_;
   std::wstring ruta_de_copia_;
   cifrado::Secreto copia_leida_;

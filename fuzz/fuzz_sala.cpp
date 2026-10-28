@@ -76,6 +76,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   Lector lector(gsl::make_span(datos, largo));
   Presentado presentado;
   presentado.tu_id = 1;
+  presentado.servidor = "Servidor";
   const std::uint8_t inicio = lector.leer_u8();
   presentado.dueno = (inicio & 1) != 0;
   presentado.canales = {{1, "General"}, {2, "charla", TipoCanal::texto, false, 3},

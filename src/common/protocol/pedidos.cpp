@@ -112,6 +112,7 @@ void escribir_usuario(Escritor& escritor, const UsuarioInfo& usuario) {
   escribir_nombre(escritor, usuario.nombre);
   escritor.escribir_u32(usuario.canal);
   escritor.escribir_u8(usuario.silencio);
+  escritor.escribir_booleano(usuario.admin);
 }
 
 void leer_usuario(Lector& lector, UsuarioInfo& usuario) {
@@ -119,6 +120,7 @@ void leer_usuario(Lector& lector, UsuarioInfo& usuario) {
   leer_nombre(lector, usuario.nombre);
   usuario.canal = lector.leer_u32();
   usuario.silencio = leer_silencio(lector);
+  usuario.admin = lector.leer_booleano();
 }
 
 bool medio_valido(TipoFlujo tipo, std::uint8_t flujo, std::uint8_t nivel, std::size_t largo) {
@@ -195,7 +197,7 @@ bool es_lugar_de_susurro(std::uint8_t lugar) { return lugar >= 1 && lugar <= kLu
 
 }
 
-void escribir(Escritor& escritor, const Presentarse& mensaje) {
+void escribir_sin_firma(Escritor& escritor, const Presentarse& mensaje) {
   escribir_nombre(escritor, mensaje.nombre);
   if (mensaje.codigo_dueno) {
     escritor.escribir_u8(static_cast<std::uint8_t>(mensaje.codigo_dueno->size()));
@@ -203,27 +205,64 @@ void escribir(Escritor& escritor, const Presentarse& mensaje) {
   } else {
     escritor.escribir_u8(0);
   }
+  escritor.escribir_bytes(mensaje.clave);
+  escritor.escribir_bytes(mensaje.equipo);
+}
+
+std::vector<std::uint8_t> lo_que_se_firma(const Presentarse& mensaje, std::uint16_t protocolo,
+                                          gsl::span<const std::uint8_t> huella,
+                                          gsl::span<const std::uint8_t> valor_de_conexion) {
+  constexpr char kEtiqueta[] = "ventrik presentarse v5";
+  Escritor escritor;
+  escritor.escribir_bytes(gsl::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(kEtiqueta),
+                                                        sizeof(kEtiqueta) - 1));
+  escritor.escribir_u16(protocolo);
+  escritor.escribir_bytes(huella);
+  escritor.escribir_bytes(valor_de_conexion);
+  escribir_sin_firma(escritor, mensaje);
+  return escritor.ok() ? std::move(escritor).soltar() : std::vector<std::uint8_t>();
+}
+
+void escribir(Escritor& escritor, const Presentarse& mensaje) {
+  escribir_sin_firma(escritor, mensaje);
+  if (mensaje.firma.empty() || mensaje.firma.size() > kMaximoFirma) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u8(static_cast<std::uint8_t>(mensaje.firma.size()));
+  escritor.escribir_bytes(mensaje.firma);
 }
 
 void leer(Lector& lector, Presentarse& mensaje) {
   leer_nombre(lector, mensaje.nombre);
   const std::size_t largo = lector.leer_u8();
-  if (largo == 0) {
-    return;
+  if (largo != 0) {
+    std::array<std::uint8_t, 16> codigo{};
+    const auto bytes = lector.leer_bytes(codigo.size());
+    if (largo != codigo.size() || !lector.ok()) {
+      lector.marcar_error();
+      return;
+    }
+    std::copy(bytes.begin(), bytes.end(), codigo.begin());
+    mensaje.codigo_dueno = codigo;
   }
-  std::array<std::uint8_t, 16> codigo{};
-  if (largo != codigo.size()) {
+  const auto clave = lector.leer_bytes(mensaje.clave.size());
+  const auto equipo = lector.leer_bytes(mensaje.equipo.size());
+  const std::size_t largo_firma = lector.leer_u8();
+  const auto firma = lector.leer_bytes(largo_firma);
+  if (!lector.ok() || largo_firma == 0 || largo_firma > kMaximoFirma) {
     lector.marcar_error();
     return;
   }
-  const auto bytes = lector.leer_bytes(largo);
-  std::copy(bytes.begin(), bytes.end(), codigo.begin());
-  mensaje.codigo_dueno = codigo;
+  std::copy(clave.begin(), clave.end(), mensaje.clave.begin());
+  std::copy(equipo.begin(), equipo.end(), mensaje.equipo.begin());
+  mensaje.firma.assign(firma.begin(), firma.end());
 }
 
 void escribir(Escritor& escritor, const Presentado& mensaje) {
   escritor.escribir_u32(mensaje.tu_id);
   escritor.escribir_booleano(mensaje.dueno);
+  escribir_nombre(escritor, mensaje.servidor);
   escribir_lista(escritor, mensaje.canales, kMaximoCanalesEnLista,
                  [&escritor](const CanalInfo& canal) { escribir_canal(escritor, canal); });
   escribir_lista(escritor, mensaje.usuarios, kMaximoUsuariosEnLista,
@@ -233,6 +272,7 @@ void escribir(Escritor& escritor, const Presentado& mensaje) {
 void leer(Lector& lector, Presentado& mensaje) {
   mensaje.tu_id = lector.leer_u32();
   mensaje.dueno = lector.leer_booleano();
+  leer_nombre(lector, mensaje.servidor);
   leer_lista(lector, mensaje.canales, kMaximoCanalesEnLista,
              [&lector](CanalInfo& canal) { leer_canal(lector, canal); });
   leer_lista(lector, mensaje.usuarios, kMaximoUsuariosEnLista,
@@ -246,7 +286,7 @@ void escribir(Escritor& escritor, const PresentacionRechazada& mensaje) {
 void leer(Lector& lector, PresentacionRechazada& mensaje) {
   const std::uint8_t motivo = lector.leer_u8();
   if (motivo < static_cast<std::uint8_t>(MotivoPresentacion::nombre_invalido) ||
-      motivo > static_cast<std::uint8_t>(MotivoPresentacion::lleno)) {
+      motivo > static_cast<std::uint8_t>(MotivoPresentacion::demasiadas)) {
     lector.marcar_error();
     return;
   }
@@ -530,6 +570,10 @@ void leer(Lector& lector, Negado& mensaje) {
   mensaje.pedido = static_cast<TipoMensaje>(pedido);
   mensaje.motivo = static_cast<MotivoNegado>(motivo);
 }
+
+void escribir(Escritor&, const Desplazado&) {}
+
+void leer(Lector&, Desplazado&) {}
 
 void escribir(Escritor& escritor, const Ping& mensaje) {
   escritor.escribir_u64(mensaje.marca);

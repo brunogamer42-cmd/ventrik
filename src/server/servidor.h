@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,13 +42,21 @@ struct Opciones {
   double historial_por_segundo = 1;
   double rafaga_entrar_a_la_voz = 5;
   double entrar_a_la_voz_por_segundo = 0.5;
-  int intentos_de_presentacion = 5;
+  std::size_t maximo_identidades = kMaximoUsuariosGuardados;
+  int identidades_nuevas_por_ip = 5;
+  int identidades_nuevas_por_hora = 30;
+  int reemplazos_por_identidad = 6;
+  std::chrono::minutes ventana_de_reemplazos{10};
   OpcionesProteccion proteccion;
   OpcionesVoz voz;
   protocolo::ConfigServidor protocolo;
   std::wstring archivo_base;
   std::string nombre_general;
   std::optional<cifrado::CodigoDueno> codigo_dueno;
+  bool quitar_dueno = false;
+  std::string liberar_nombre;
+  std::string nombre_servidor;
+  std::string nombre_de_fabrica = "Ventrik";
 };
 
 enum class Evento {
@@ -69,6 +78,10 @@ enum class Evento {
   no_lee,
   codigo_incorrecto,
   voz_conectada,
+  firma_invalida,
+  dueno_reclamado,
+  desplazada,
+  error_base,
 };
 
 using Avisar = std::function<void(Evento, const red::Direccion&, const std::string&)>;
@@ -83,11 +96,20 @@ class Servidor {
   bool escuchar();
   std::uint16_t puerto() const { return puerto_; }
   bool base_abierta() const { return !canales_.empty(); }
+  bool tiene_dueno() const;
+  void codigo_para_reclamar(std::optional<cifrado::CodigoDueno> codigo) { opciones_.codigo_dueno = codigo; }
+  const std::string& nombre() const { return nombre_; }
 
   void correr(const std::atomic<bool>& seguir);
 
  private:
   struct Conexion;
+  struct Registrado {
+    UsuarioGuardado guardado;
+    std::wstring comparable;
+    std::chrono::steady_clock::time_point desde_reemplazos{};
+    int reemplazos = 0;
+  };
 
   void aceptar_nuevas();
   void avanzar(Conexion& conexion);
@@ -105,6 +127,15 @@ class Servidor {
   void cambiar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void mirar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void borrar_canal(Conexion& conexion, const protocolo::Marco& marco);
+  void rechazar_presentacion(Conexion& conexion, protocolo::MotivoPresentacion motivo);
+  bool admitir_identidad(Conexion& conexion, const protocolo::Presentarse& presentacion,
+                         std::vector<Registrado>::iterator& yo, bool reclama, bool& nueva);
+  bool desalojar_una();
+  bool guardar(const UsuarioGuardado& usuario, const std::optional<Equipo>& equipo);
+  void anotar_salida(const ClaveDeUsuario& clave);
+  void vencer_identidades();
+  bool conectada(const ClaveDeUsuario& clave) const;
+  void desplazar(Conexion& conexion);
   void error_de_protocolo(Conexion& conexion);
   void negar(Conexion& conexion, protocolo::TipoMensaje pedido, protocolo::MotivoNegado motivo);
   void cerrar_con_respuesta(Conexion& conexion);
@@ -143,6 +174,11 @@ class Servidor {
   std::size_t canales_pedidos_ = 0;
   Retencion retencion_ = Retencion::siempre;
   std::uint32_t proximo_id_ = 1;
+  std::vector<Registrado> registrados_;
+  std::map<std::uint32_t, std::pair<std::chrono::steady_clock::time_point, int>> nuevas_por_ip_;
+  std::pair<std::chrono::steady_clock::time_point, int> nuevas_en_total_{};
+  std::chrono::steady_clock::time_point proxima_limpieza_{};
+  std::string nombre_;
   std::uint64_t proximo_mensaje_sin_guardar_ = 1;
   ServicioBase base_;
 };

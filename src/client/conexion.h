@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "common/cifrado/clave.h"
 #include "common/cifrado/codigo_dueno.h"
 #include "common/cifrado/huella.h"
 #include "common/cifrado/tls.h"
@@ -20,6 +21,8 @@ namespace ventrik::cliente {
 struct Presentacion {
   std::string nombre;
   std::optional<cifrado::CodigoDueno> codigo_dueno;
+  std::shared_ptr<const cifrado::Clave> identidad;
+  std::shared_ptr<const cifrado::Secreto> equipo;
 };
 
 struct OpcionesConexion {
@@ -43,6 +46,9 @@ enum class EstadoConexion {
   nombre_en_uso,
   codigo_incorrecto,
   servidor_lleno,
+  firma_rechazada,
+  demasiadas,
+  sin_identidad,
   error_interno,
 };
 

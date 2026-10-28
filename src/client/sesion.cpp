@@ -47,6 +47,9 @@ std::string explicar(Idioma idioma, const IntentoDeConexion& intento) {
     case EstadoConexion::nombre_en_uso: return std::string(texto(idioma, Clave::conectar_nombre_en_uso));
     case EstadoConexion::codigo_incorrecto: return std::string(texto(idioma, Clave::conectar_codigo_incorrecto));
     case EstadoConexion::servidor_lleno: return std::string(texto(idioma, Clave::conectar_servidor_lleno));
+    case EstadoConexion::firma_rechazada: return std::string(texto(idioma, Clave::conectar_firma_rechazada));
+    case EstadoConexion::demasiadas: return std::string(texto(idioma, Clave::conectar_demasiadas));
+    case EstadoConexion::sin_identidad: return std::string(texto(idioma, Clave::conectar_sin_identidad));
     default: return std::string(texto(idioma, Clave::conectar_error_interno));
   }
 }
@@ -55,6 +58,7 @@ std::string explicar(Idioma idioma, const Fin& fin) {
   return std::string(texto(idioma, fin.motivo == MotivoFin::sin_respuesta     ? Clave::fin_sin_respuesta
                                    : fin.motivo == MotivoFin::mensaje_ilegible ? Clave::fin_ilegible
                                    : fin.motivo == MotivoFin::desbordada       ? Clave::fin_desbordada
+                                   : fin.motivo == MotivoFin::desplazada       ? Clave::fin_desplazada
                                                                                : Clave::fin_cortado));
 }
 
@@ -210,6 +214,9 @@ bool Sesion::procesar(const protocolo::Marco& marco) {
       return publicar_si(protocolo::Historial{});
     case TipoMensaje::negado:
       return publicar_si(protocolo::Negado{});
+    case TipoMensaje::desplazado:
+      desplazada_ = protocolo::leer_mensaje<protocolo::Desplazado>(marco.cuerpo).has_value();
+      return false;
     case TipoMensaje::clave_voz:
       clave_ = protocolo::leer_mensaje<protocolo::ClaveVoz>(marco.cuerpo);
       usar_clave();
@@ -265,7 +272,7 @@ void Sesion::correr() {
     return !abierta.ensamblador().error();
   };
   if (!procesar_bytes(abierta.sobrante())) {
-    publicar(Fin{desbordada_ ? MotivoFin::desbordada : MotivoFin::mensaje_ilegible});
+    publicar(Fin{desplazada_ ? MotivoFin::desplazada : desbordada_ ? MotivoFin::desbordada : MotivoFin::mensaje_ilegible});
     return;
   }
 
@@ -317,7 +324,7 @@ void Sesion::correr() {
       if (paso == cifrado::Paso::listo) {
         ultimo_dato = Reloj::now();
         if (!procesar_bytes(gsl::span<const std::uint8_t>(recibido).first(leidos))) {
-          publicar(Fin{desbordada_ ? MotivoFin::desbordada : MotivoFin::mensaje_ilegible});
+          publicar(Fin{desplazada_ ? MotivoFin::desplazada : desbordada_ ? MotivoFin::desbordada : MotivoFin::mensaje_ilegible});
           return;
         }
         continue;

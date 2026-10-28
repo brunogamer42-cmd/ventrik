@@ -6,6 +6,7 @@
 
 #include "client/sala.h"
 #include "client/vigia.h"
+#include "identidad_de_prueba.h"
 #include "servidor_de_prueba.h"
 #include <doctest/doctest.h>
 
@@ -614,7 +615,7 @@ TEST_CASE("Con un servidor de verdad, la sala vuelve a pedir lo que soltó hacia
   opciones.rafaga_historial = opciones.historial_por_segundo = 1000;
   opciones.proteccion.rafaga_chat_por_ip = opciones.proteccion.chat_por_segundo_por_ip = 1000;
   prueba::ServidorDePrueba servidor(opciones);
-  ventrik::cliente::Sesion sesion(servidor.direccion(), servidor.huella(), {"Ana", std::nullopt});
+  ventrik::cliente::Sesion sesion(servidor.direccion(), servidor.huella(), prueba::presentacion("Ana"));
   std::optional<Sala> sala;
   const auto ordenar = [&](std::vector<Orden> ordenes) {
     for (auto& orden : ordenes) {

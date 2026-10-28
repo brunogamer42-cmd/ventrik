@@ -102,6 +102,23 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       exigir(!sana || nuevo.id != canal.id || nuevo.contador >= canal.contador);
     }
   }
+  if (const auto usuarios = base->usuarios(UINT64_MAX / 4)) {
+    exigir(usuarios->size() <= ventrik::servidor::kMaximoUsuariosGuardados);
+    for (const auto& usuario : *usuarios) {
+      exigir(usuario.clave[0] == 0x04 && ventrik::es_nombre_valido(usuario.nombre));
+    }
+  }
+  ventrik::servidor::UsuarioGuardado nuevo;
+  nuevo.clave.fill(4);
+  nuevo.nombre = "Ana";
+  nuevo.visto_ms = 1;
+  base->guardar_usuario(nuevo);
+  base->anotar_equipo(nuevo.clave, {}, 1);
+  base->guardar_texto("nombre", "Taberna");
+  base->texto_guardado("nombre");
+  base->quitar_dueno();
+  base->liberar_nombre("Ana");
+  base->borrar_usuarios({nuevo.clave});
   base->borrar_viejos(UINT64_MAX / 2);
   return 0;
 }

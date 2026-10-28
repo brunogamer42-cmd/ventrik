@@ -20,6 +20,7 @@
 #include "common/cifrado/tls.h"
 #include "common/red/red.h"
 #include "server/servidor.h"
+#include "identidad_de_prueba.h"
 #include "servidor_de_prueba.h"
 #include <doctest/doctest.h>
 
@@ -36,7 +37,7 @@ ventrik::cliente::ResultadoConexion entrar(const ventrik::red::Direccion& destin
                                            const ventrik::cifrado::Huella& huella,
                                            const ventrik::cliente::OpcionesConexion& opciones = {}) {
   static std::atomic<int> numero{0};
-  return ventrik::cliente::conectar(destino, huella, {"Prueba " + std::to_string(++numero), {}},
+  return ventrik::cliente::conectar(destino, huella, presentacion("Prueba " + std::to_string(++numero)),
                                     opciones);
 }
 
@@ -444,6 +445,7 @@ TEST_CASE("Un servidor demasiado viejo se avisa como tal") {
 TEST_CASE("Varios programas se conectan a la vez") {
   ventrik::servidor::Opciones opciones;
   opciones.pendientes_por_ip = 8;
+  opciones.identidades_nuevas_por_ip = 8;
   ServidorDePrueba servidor(opciones);
   std::array<std::atomic<bool>, 8> conectados{};
   std::vector<std::thread> hilos;

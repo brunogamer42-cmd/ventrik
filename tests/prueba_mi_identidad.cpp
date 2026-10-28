@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -241,4 +242,20 @@ TEST_CASE("La identidad corta son los primeros cuatro grupos de la huella") {
   CHECK(corta[4] == '-');
   CHECK(corta[9] == '-');
   CHECK(corta[14] == '-');
+}
+
+TEST_CASE("Cuánto cuesta verificar la firma de una presentación") {
+  const auto clave = Clave::crear_nueva();
+  REQUIRE(clave);
+  const std::vector<std::uint8_t> datos(220, 7);
+  const auto firma = clave->firmar(datos);
+  REQUIRE(firma);
+  constexpr int kVeces = 10;
+  const auto antes = std::chrono::steady_clock::now();
+  for (int vez = 0; vez < kVeces; ++vez) {
+    REQUIRE(ventrik::cifrado::verificar_firma(clave->publica(), datos, *firma));
+  }
+  const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - antes).count() / kVeces;
+  MESSAGE("verificar una firma de identidad: " << ms << " ms");
+  CHECK(ms < 500);
 }
