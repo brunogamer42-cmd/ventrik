@@ -39,6 +39,8 @@ struct OpcionesProteccion {
   std::size_t ips_recordadas = 4096;
 };
 
+OpcionesProteccion proteccion_para(unsigned nucleos);
+
 enum class Decision { aceptar, demasiado_rapido, bloqueada, ocupado };
 
 struct Veredicto {

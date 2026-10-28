@@ -235,6 +235,9 @@ int wmain(int cantidad, wchar_t** argumentos) {
   opciones.nombre_de_fabrica = texto(ventrik::Clave::servidor_nombre_de_fabrica);
   opciones.quitar_dueno = nuevo_codigo;
   opciones.liberar_nombre = liberar;
+  SYSTEM_INFO sistema = {};
+  GetSystemInfo(&sistema);
+  opciones.proteccion = ventrik::servidor::proteccion_para(sistema.dwNumberOfProcessors);
   if (local) {
     opciones.identidades_nuevas_por_ip = opciones.identidades_nuevas_por_hora = INT_MAX;
   }

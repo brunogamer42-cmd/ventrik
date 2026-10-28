@@ -171,3 +171,15 @@ TEST_CASE("El chat tiene un tope por IP, sumando todas sus conexiones") {
   CHECK(proteccion.puede_chatear(kUna, kInicio + 1s));
   CHECK_FALSE(proteccion.puede_chatear(kUna, kInicio + 1s));
 }
+
+TEST_CASE("En una PC de un solo núcleo el servidor acepta la mitad de saludos por segundo") {
+  const OpcionesProteccion normal = ventrik::servidor::proteccion_para(4);
+  const OpcionesProteccion un_nucleo = ventrik::servidor::proteccion_para(1);
+  CHECK(normal.saludos_por_segundo_total == OpcionesProteccion{}.saludos_por_segundo_total);
+  CHECK(normal.reserva_por_segundo == OpcionesProteccion{}.reserva_por_segundo);
+  CHECK(un_nucleo.saludos_por_segundo_total == 10);
+  CHECK(un_nucleo.rafaga_total == 20);
+  CHECK(un_nucleo.reserva_por_segundo == 5);
+  CHECK(un_nucleo.rafaga_reserva == 10);
+  CHECK(un_nucleo.fallas_para_bloquear == normal.fallas_para_bloquear);
+}

@@ -115,6 +115,17 @@ void Proteccion::saludo_completo(std::uint32_t ip, Instante ahora) {
   registro_de(ip, ahora).conocida_hasta = ahora + opciones_.conocida_por;
 }
 
+OpcionesProteccion proteccion_para(unsigned nucleos) {
+  OpcionesProteccion opciones;
+  if (nucleos <= 1) {
+    opciones.saludos_por_segundo_total /= 2;
+    opciones.rafaga_total /= 2;
+    opciones.reserva_por_segundo /= 2;
+    opciones.rafaga_reserva /= 2;
+  }
+  return opciones;
+}
+
 bool Proteccion::puede_chatear(std::uint32_t ip, Instante ahora) {
   return registro_de(ip, ahora).chat.tomar(ahora);
 }
