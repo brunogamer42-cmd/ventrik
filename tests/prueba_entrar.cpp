@@ -16,6 +16,7 @@
 #include "common/cifrado/tls.h"
 #include "common/protocol/marcos.h"
 #include "common/version.h"
+#include "server/contrasena.h"
 #include <doctest/doctest.h>
 
 using namespace prueba;
@@ -74,10 +75,14 @@ class Manual {
 
   bool cerrada() { return !leer(); }
 
-  std::optional<MotivoPresentacion> presentar(const Presentarse& presentarse) {
+  void mandar(const Presentarse& presentarse) {
     std::vector<std::uint8_t> marco;
     REQUIRE(armar_mensaje(presentarse, marco));
     enviar(marco);
+  }
+
+  std::optional<MotivoPresentacion> presentar(const Presentarse& presentarse) {
+    mandar(presentarse);
     const auto respuesta = leer();
     REQUIRE(respuesta);
     if (respuesta->tipo == static_cast<std::uint16_t>(TipoMensaje::presentado)) {
@@ -522,4 +527,25 @@ TEST_CASE("--liberar-nombre suelta el nombre de alguien que no es el dueño") {
     CHECK(estado_de(nueva) == EstadoConexion::conectado);
   }
   borrar_base(archivo);
+}
+
+TEST_CASE("Cortar la conexión mientras se calcula la contraseña no saltea la espera") {
+  ventrik::servidor::Opciones opciones;
+  opciones.poner_contrasena = ventrik::servidor::guardar_contrasena("sésamo", ventrik::cifrado::Argon2{32 * 1024, 3});
+  REQUIRE(opciones.poner_contrasena);
+  ServidorDePrueba servidor(opciones);
+  const auto intruso = identidad_nueva_de_prueba();
+  {
+    Manual manual(servidor);
+    Presentarse presentarse{"Intruso", {}};
+    presentarse.clave = intruso->publica();
+    presentarse.contrasena = "mala";
+    manual.firmar(presentarse, *intruso, servidor.huella().bytes());
+    manual.mandar(presentarse);
+  }
+  CHECK(esperar_que([&] { return servidor.cuantos(Evento::contrasena_incorrecta) == 1; }));
+  const auto resultado = ventrik::cliente::conectar(servidor.direccion(), servidor.huella(),
+                                                    {"Intruso", {}, intruso, nullptr, secreto_de("sésamo")});
+  CHECK(resultado.estado == EstadoConexion::esperar);
+  CHECK(resultado.espera >= 1);
 }

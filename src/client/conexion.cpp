@@ -141,6 +141,20 @@ void interpretar_presentacion(const protocolo::Marco& marco, ResultadoConexion& 
     case protocolo::MotivoPresentacion::demasiadas:
       resultado.estado = EstadoConexion::demasiadas;
       break;
+    case protocolo::MotivoPresentacion::falta_contrasena:
+      resultado.estado = EstadoConexion::falta_contrasena;
+      break;
+    case protocolo::MotivoPresentacion::contrasena_incorrecta:
+      resultado.estado = EstadoConexion::contrasena_incorrecta;
+      resultado.espera = rechazo->espera;
+      break;
+    case protocolo::MotivoPresentacion::ocupado:
+      resultado.estado = EstadoConexion::ocupado;
+      break;
+    case protocolo::MotivoPresentacion::esperar:
+      resultado.estado = EstadoConexion::esperar;
+      resultado.espera = rechazo->espera;
+      break;
   }
 }
 
@@ -225,10 +239,19 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   if (quien.equipo) {
     presentarse.equipo = codigo_de_equipo(*quien.equipo, huella);
   }
+  if (quien.contrasena) {
+    presentarse.contrasena.assign(reinterpret_cast<const char*>(quien.contrasena->bytes().data()),
+                                  quien.contrasena->size());
+  }
   std::array<std::uint8_t, protocolo::kBytesValorDeConexion> valor{};
-  const auto firmado = tls.valor_para_identidad(valor)
-                           ? protocolo::lo_que_se_firma(presentarse, resultado.protocolo, huella.bytes(), valor)
-                           : std::vector<std::uint8_t>();
+  auto firmado = tls.valor_para_identidad(valor)
+                     ? protocolo::lo_que_se_firma(presentarse, resultado.protocolo, huella.bytes(), valor)
+                     : std::vector<std::uint8_t>();
+  const auto borrar = gsl::finally([&presentarse, &firmado, &salida] {
+    mbedtls_platform_zeroize(&presentarse.contrasena[0], presentarse.contrasena.size());
+    mbedtls_platform_zeroize(firmado.data(), firmado.size());
+    mbedtls_platform_zeroize(salida.data(), salida.size());
+  });
   auto firma = firmado.empty() ? std::nullopt : quien.identidad->firmar(firmado);
   if (!firma) {
     return resultado;

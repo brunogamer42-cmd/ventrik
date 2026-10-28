@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <climits>
 #include <cstdint>
@@ -68,6 +70,8 @@ ventrik::Clave clave_de(ventrik::servidor::Evento evento) {
     case Evento::dueno_reclamado: return Clave::servidor_dueno_reclamado;
     case Evento::desplazada: return Clave::servidor_desplazada;
     case Evento::error_base: return Clave::servidor_error_guardar;
+    case Evento::contrasena_incorrecta: return Clave::servidor_contrasena_incorrecta;
+    case Evento::no_se_pudo_comprobar: return Clave::servidor_no_se_pudo_comprobar;
   }
   return Clave::servidor_conectada;
 }
@@ -88,6 +92,39 @@ std::optional<ventrik::cifrado::CodigoDueno> cargar_o_crear_codigo(const std::ws
   const auto bytes = gsl::make_span(reinterpret_cast<const std::uint8_t*>(texto.data()), texto.size());
   creado = ventrik::escribir_archivo_nuevo(archivo, bytes) == ventrik::EscrituraNueva::escrito;
   return creado ? nuevo : std::nullopt;
+}
+
+std::optional<ventrik::cifrado::Secreto> pedir_contrasena(std::string_view pregunta) {
+  const HANDLE entrada = GetStdHandle(STD_INPUT_HANDLE);
+  DWORD modo = 0;
+  if (GetConsoleMode(entrada, &modo) == 0) {
+    return std::nullopt;
+  }
+  escribir_linea(pregunta);
+  if (SetConsoleMode(entrada, (modo & ~static_cast<DWORD>(ENABLE_ECHO_INPUT)) | ENABLE_LINE_INPUT) == 0) {
+    return std::nullopt;
+  }
+  std::array<wchar_t, ventrik::protocolo::kMaximoBytesContrasena + 2> letras{};
+  DWORD leidas = 0;
+  bool bien = ReadConsoleW(entrada, letras.data(), static_cast<DWORD>(letras.size()), &leidas, nullptr) != 0;
+  const std::wstring_view leido(letras.data(), bien ? std::min<std::size_t>(leidas, letras.size()) : 0);
+  const std::wstring_view linea = leido.substr(0, leido.find_first_of(L"\r\n"));
+  const int largo = static_cast<int>(linea.size());
+  const int bytes = largo == 0 ? 0 : WideCharToMultiByte(CP_UTF8, 0, linea.data(), largo, nullptr, 0, nullptr, nullptr);
+  std::optional<ventrik::cifrado::Secreto> escrita;
+  if (bien && (largo == 0 || bytes > 0)) {
+    escrita.emplace(static_cast<std::size_t>(bytes));
+    WideCharToMultiByte(CP_UTF8, 0, linea.data(), largo, reinterpret_cast<char*>(escrita->bytes().data()), bytes,
+                        nullptr, nullptr);
+  }
+  for (bool termino = leido.find(L'\n') != std::wstring_view::npos; bien && !termino;) {
+    bien = ReadConsoleW(entrada, letras.data(), static_cast<DWORD>(letras.size()), &leidas, nullptr) != 0;
+    termino = std::wstring_view(letras.data(), std::min<std::size_t>(leidas, letras.size())).find(L'\n') !=
+              std::wstring_view::npos;
+  }
+  SetConsoleMode(entrada, modo);
+  mbedtls_platform_zeroize(letras.data(), sizeof(letras));
+  return escrita;
 }
 
 bool leer_puerto(std::wstring_view texto, std::uint16_t& puerto) {
@@ -129,6 +166,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
   bool solo_huella = false;
   bool local = false;
   bool nuevo_codigo = false;
+  bool cambiar_contrasena = false;
   std::string nombre;
   std::string liberar;
   for (int i = 1; i < cantidad; ++i) {
@@ -150,6 +188,10 @@ int wmain(int cantidad, wchar_t** argumentos) {
       nuevo_codigo = true;
       continue;
     }
+    if (opcion == L"--contrasena") {
+      cambiar_contrasena = true;
+      continue;
+    }
     if (opcion == L"--puerto" && hay_valor && leer_puerto(argumentos[i + 1], puerto)) {
       ++i;
       continue;
@@ -168,6 +210,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
     escribir_linea(texto(ventrik::Clave::servidor_uso_nombre));
     escribir_linea(texto(ventrik::Clave::servidor_uso_nuevo_codigo));
     escribir_linea(texto(ventrik::Clave::servidor_uso_liberar));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_contrasena));
     return 2;
   }
   if (carpeta.empty()) {
@@ -226,8 +269,30 @@ int wmain(int cantidad, wchar_t** argumentos) {
   }
   escribir_linea("");
 
-  const std::wstring archivo_codigo = carpeta + L"\\codigo_dueno.txt";
   ventrik::servidor::Opciones opciones;
+  if (cambiar_contrasena) {
+    const auto primera = pedir_contrasena(texto(ventrik::Clave::servidor_pedir_contrasena));
+    const auto segunda = primera ? pedir_contrasena(texto(ventrik::Clave::servidor_repetir_contrasena)) : std::nullopt;
+    if (!primera || !segunda) {
+      escribir_linea(texto(ventrik::Clave::servidor_contrasena_sin_consola));
+      return 1;
+    }
+    if (!std::equal(primera->bytes().begin(), primera->bytes().end(), segunda->bytes().begin(),
+                    segunda->bytes().end())) {
+      escribir_linea(texto(ventrik::Clave::servidor_contrasenas_distintas));
+      return 1;
+    }
+    opciones.poner_contrasena =
+        primera->size() == 0
+            ? std::optional<std::string>(std::string())
+            : ventrik::servidor::guardar_contrasena(
+                  std::string_view(reinterpret_cast<const char*>(primera->bytes().data()), primera->size()));
+    if (!opciones.poner_contrasena) {
+      escribir_linea(texto(ventrik::Clave::servidor_error_contrasena));
+      return 1;
+    }
+  }
+  const std::wstring archivo_codigo = carpeta + L"\\codigo_dueno.txt";
   opciones.escuchar = {local ? 0x7F000001u : 0u, puerto};
   opciones.archivo_base = carpeta + L"\\ventrik.db";
   opciones.nombre_general = texto(ventrik::Clave::canal_general);
@@ -269,9 +334,14 @@ int wmain(int cantidad, wchar_t** argumentos) {
     escribir_linea(servidor.base_abierta()
                        ? texto(ventrik::Clave::servidor_error_puerto) + " " + std::to_string(puerto)
                        : texto(ventrik::Clave::servidor_error_base) + " " + ventrik::a_utf8(opciones.archivo_base));
+    if (servidor.base_abierta() && opciones.poner_contrasena) {
+      escribir_linea(texto(ventrik::Clave::servidor_contrasena_guardada));
+    }
     return 1;
   }
   escribir_linea(texto(ventrik::Clave::servidor_nombre) + " " + servidor.nombre());
+  escribir_linea(texto(servidor.pide_contrasena() ? ventrik::Clave::servidor_con_contrasena
+                                                  : ventrik::Clave::servidor_sin_contrasena));
   if (servidor.tiene_dueno()) {
     DeleteFileW(archivo_codigo.c_str());
   } else {

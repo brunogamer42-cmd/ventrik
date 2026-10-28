@@ -161,7 +161,7 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
   target_sources(fuzz_identidad PRIVATE src/client/mi_identidad.cpp)
   target_sources(fuzz_sala PRIVATE src/client/avisos.cpp src/client/guardados.cpp src/client/sala.cpp
                                    src/client/silencios.cpp)
-  target_sources(fuzz_textos PRIVATE src/client/avisos.cpp src/client/silencios.cpp)
+  target_sources(fuzz_textos PRIVATE src/client/avisos.cpp src/client/silencios.cpp src/server/contrasena.cpp)
   target_link_libraries(fuzz_base PRIVATE sqlite)
   target_sources(fuzz_voz_servidor PRIVATE src/server/proteccion.cpp src/server/voz.cpp)
   target_sources(fuzz_voz PRIVATE src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/limpieza.cpp
@@ -177,7 +177,8 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
 endif()
 
 add_library(ventrik_servidor_base STATIC
-  src/server/base.cpp src/server/permisos.cpp src/server/proteccion.cpp src/server/registro.cpp
+  src/server/base.cpp src/server/comprobador.cpp src/server/contrasena.cpp src/server/permisos.cpp
+  src/server/proteccion.cpp src/server/registro.cpp
   src/server/servidor.cpp src/server/voz.cpp)
 target_link_libraries(ventrik_servidor_base PUBLIC ventrik_comun sqlite)
 target_compile_definitions(ventrik_servidor_base PRIVATE FD_SETSIZE=1024)
@@ -224,6 +225,7 @@ add_executable(ventrik_pruebas
   tests/prueba_base32.cpp
   tests/prueba_combinaciones.cpp
   tests/prueba_conexion.cpp
+  tests/prueba_contrasena.cpp
   tests/prueba_dtls.cpp
   tests/prueba_entrar.cpp
   tests/prueba_estres.cpp

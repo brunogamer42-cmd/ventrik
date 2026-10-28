@@ -207,6 +207,7 @@ void escribir_sin_firma(Escritor& escritor, const Presentarse& mensaje) {
   }
   escritor.escribir_bytes(mensaje.clave);
   escritor.escribir_bytes(mensaje.equipo);
+  escritor.escribir_texto(mensaje.contrasena, kMaximoBytesContrasena);
 }
 
 std::vector<std::uint8_t> lo_que_se_firma(const Presentarse& mensaje, std::uint16_t protocolo,
@@ -248,6 +249,7 @@ void leer(Lector& lector, Presentarse& mensaje) {
   }
   const auto clave = lector.leer_bytes(mensaje.clave.size());
   const auto equipo = lector.leer_bytes(mensaje.equipo.size());
+  mensaje.contrasena = lector.leer_texto(kMaximoBytesContrasena);
   const std::size_t largo_firma = lector.leer_u8();
   const auto firma = lector.leer_bytes(largo_firma);
   if (!lector.ok() || largo_firma == 0 || largo_firma > kMaximoFirma) {
@@ -281,16 +283,18 @@ void leer(Lector& lector, Presentado& mensaje) {
 
 void escribir(Escritor& escritor, const PresentacionRechazada& mensaje) {
   escritor.escribir_u8(static_cast<std::uint8_t>(mensaje.motivo));
+  escritor.escribir_u16(mensaje.espera);
 }
 
 void leer(Lector& lector, PresentacionRechazada& mensaje) {
   const std::uint8_t motivo = lector.leer_u8();
   if (motivo < static_cast<std::uint8_t>(MotivoPresentacion::nombre_invalido) ||
-      motivo > static_cast<std::uint8_t>(MotivoPresentacion::demasiadas)) {
+      motivo > static_cast<std::uint8_t>(MotivoPresentacion::esperar)) {
     lector.marcar_error();
     return;
   }
   mensaje.motivo = static_cast<MotivoPresentacion>(motivo);
+  mensaje.espera = lector.leer_u16();
 }
 
 void escribir(Escritor& escritor, const UsuarioEntro& mensaje) {

@@ -1,11 +1,14 @@
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "client/conexion.h"
@@ -31,6 +34,13 @@ inline std::shared_ptr<const ventrik::cifrado::Clave> identidad_de(const std::st
     lugar = identidad_nueva_de_prueba();
   }
   return lugar;
+}
+
+inline std::shared_ptr<const ventrik::cifrado::Secreto> secreto_de(std::string_view texto) {
+  auto secreto = std::make_shared<ventrik::cifrado::Secreto>(texto.size());
+  std::transform(texto.begin(), texto.end(), secreto->bytes().begin(),
+                 [](char letra) { return static_cast<std::uint8_t>(letra); });
+  return secreto;
 }
 
 inline ventrik::cliente::Presentacion presentacion(std::string nombre,

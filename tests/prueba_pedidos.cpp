@@ -57,7 +57,7 @@ Presentarse presentarse(std::optional<std::array<std::uint8_t, 16>> codigo = {})
 Bytes cola_de_presentarse() {
   Bytes cola(kBytesClavePublica, 4);
   cola.insert(cola.end(), kBytesEquipo, 5);
-  cola.insert(cola.end(), {3, 1, 2, 3});
+  cola.insert(cola.end(), {0, 0, 3, 1, 2, 3});
   return cola;
 }
 }
@@ -73,6 +73,14 @@ TEST_CASE("Los pedidos nuevos tienen bytes fijos") {
   con_codigo.insert(con_codigo.end(), codigo.begin(), codigo.end());
   con_codigo.insert(con_codigo.end(), cola.begin(), cola.end());
   CHECK(en_bytes(presentarse(codigo)) == con_codigo);
+  Presentarse con_contrasena = presentarse();
+  con_contrasena.contrasena = "abc";
+  Bytes con_contrasena_bytes = {3, 0, 'A', 'n', 'a', 0};
+  con_contrasena_bytes.insert(con_contrasena_bytes.end(), kBytesClavePublica, 4);
+  con_contrasena_bytes.insert(con_contrasena_bytes.end(), kBytesEquipo, 5);
+  con_contrasena_bytes.insert(con_contrasena_bytes.end(), {3, 0, 'a', 'b', 'c', 3, 1, 2, 3});
+  CHECK(en_bytes(con_contrasena) == con_contrasena_bytes);
+  CHECK(en_bytes(PresentacionRechazada{MotivoPresentacion::contrasena_incorrecta, 0x0102}) == Bytes{8, 2, 1});
   CHECK(en_bytes(Desplazado{}).empty());
   CHECK(en_bytes(MensajeChat{0x0102030405060708u, 2, 9, 3, "Ana", 0x10, "hola"}) ==
         Bytes{8, 7, 6, 5, 4, 3, 2, 1, 2, 0, 0, 0, 9, 0, 0, 0, 3, 0, 0, 0, 3, 0, 'A', 'n', 'a',
@@ -140,6 +148,15 @@ TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con byte
   ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::nombre_en_uso});
   ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::firma_invalida});
   ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::demasiadas});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::falta_contrasena});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::contrasena_incorrecta, 300});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::ocupado});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::esperar, 65535});
+  Presentarse con_contrasena = presentarse();
+  con_contrasena.contrasena.assign(kMaximoBytesContrasena, 'a');
+  ida_y_vuelta(con_contrasena);
+  con_contrasena.contrasena.push_back('a');
+  CHECK_FALSE(se_escribe(con_contrasena));
   ida_y_vuelta(UsuarioEntro{{8, "Beto", 1}});
   ida_y_vuelta(UsuarioSalio{8});
   ida_y_vuelta(UsuarioCambioCanal{8, 2});
@@ -174,10 +191,16 @@ TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con byte
 
 TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Presentarse>(Bytes{3, 0, 'A', 'n', 'a', 5, 1, 2, 3, 4, 5}));
-  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{0}));
-  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{7}));
+  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{0, 0, 0}));
+  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{11, 0, 0}));
   Bytes sin_firma = {3, 0, 'A', 'n', 'a', 0};
   sin_firma.insert(sin_firma.end(), kBytesClavePublica + kBytesEquipo, 1);
+  Bytes contrasena_larga = sin_firma;
+  contrasena_larga.insert(contrasena_larga.end(), {kMaximoBytesContrasena + 1, 0});
+  contrasena_larga.insert(contrasena_larga.end(), kMaximoBytesContrasena + 1, 'a');
+  contrasena_larga.insert(contrasena_larga.end(), {3, 1, 2, 3});
+  CHECK_FALSE(leer_mensaje<Presentarse>(contrasena_larga));
+  sin_firma.insert(sin_firma.end(), {0, 0});
   Bytes firma_larga = sin_firma;
   sin_firma.push_back(0);
   CHECK_FALSE(leer_mensaje<Presentarse>(sin_firma));

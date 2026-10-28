@@ -30,15 +30,15 @@ constexpr bool operator<(const VersionPrograma& a, const VersionPrograma& b) {
   return a.parche < b.parche;
 }
 
-constexpr VersionPrograma kVersionPrograma{0, 5, 0};
+constexpr VersionPrograma kVersionPrograma{0, 5, 1};
 
 inline std::string a_texto(const VersionPrograma& version) {
   return std::to_string(version.mayor) + "." + std::to_string(version.menor) + "." +
          std::to_string(version.parche);
 }
 
-constexpr std::uint16_t kProtocoloMinimo = 5;
-constexpr std::uint16_t kProtocoloMaximo = 5;
+constexpr std::uint16_t kProtocoloMinimo = 6;
+constexpr std::uint16_t kProtocoloMaximo = 6;
 
 constexpr VersionPrograma kPrimeraVersionDelProtocolo[] = {
     {0, 1, 0},
@@ -46,8 +46,9 @@ constexpr VersionPrograma kPrimeraVersionDelProtocolo[] = {
     {0, 3, 0},
     {0, 4, 0},
     {0, 5, 0},
+    {0, 5, 1},
 };
 static_assert(std::size(kPrimeraVersionDelProtocolo) == kProtocoloMaximo,
               "Falta la primera version del protocolo nuevo");
 
-}  // namespace ventrik
+}

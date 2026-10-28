@@ -10,6 +10,7 @@
 #include "common/cifrado/huella.h"
 #include "common/red/red.h"
 #include "common/texto.h"
+#include "server/contrasena.h"
 
 namespace {
 
@@ -34,6 +35,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   if (const auto codigo = ventrik::cifrado::leer_codigo_dueno(texto)) {
     const auto otra_vez = ventrik::cifrado::leer_codigo_dueno(codigo->a_texto());
     exigir(otra_vez && *otra_vez == *codigo);
+  }
+
+  if (const auto contrasena = ventrik::servidor::leer_contrasena(texto)) {
+    exigir(ventrik::cifrado::es_argon2_valido(contrasena->argon2));
   }
 
   if (const auto direccion = ventrik::red::leer_direccion(texto)) {

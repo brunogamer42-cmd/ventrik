@@ -24,6 +24,7 @@ constexpr std::size_t kBytesClavePublica = 65;
 constexpr std::size_t kBytesEquipo = 32;
 constexpr std::size_t kMaximoFirma = 72;
 constexpr std::size_t kBytesValorDeConexion = 32;
+constexpr std::size_t kMaximoBytesContrasena = 127;
 constexpr std::uint32_t kCanalGeneral = 1;
 constexpr std::size_t kMaximoCanales = 60;
 constexpr std::uint8_t kSilencioMicrofono = 1;
@@ -42,6 +43,7 @@ struct Presentarse {
   std::optional<std::array<std::uint8_t, 16>> codigo_dueno;
   std::array<std::uint8_t, kBytesClavePublica> clave{};
   std::array<std::uint8_t, kBytesEquipo> equipo{};
+  std::string contrasena;
   std::vector<std::uint8_t> firma;
 };
 
@@ -85,11 +87,16 @@ enum class MotivoPresentacion : std::uint8_t {
   lleno = 4,
   firma_invalida = 5,
   demasiadas = 6,
+  falta_contrasena = 7,
+  contrasena_incorrecta = 8,
+  ocupado = 9,
+  esperar = 10,
 };
 
 struct PresentacionRechazada {
   static constexpr TipoMensaje kTipo = TipoMensaje::presentacion_rechazada;
   MotivoPresentacion motivo = MotivoPresentacion::nombre_invalido;
+  std::uint16_t espera = 0;
 };
 
 struct UsuarioEntro {

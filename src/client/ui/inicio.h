@@ -38,7 +38,9 @@ struct PantallaInicio {
   Campo huella{};
   Campo nombre{};
   Campo codigo{};
+  Campo contrasena{};
   bool enfocar_codigo = false;
+  bool enfocar_contrasena = false;
   std::optional<red::Direccion> avisos_de;
   bool abrir_avisos = false;
   Copia copia = Copia::sin_saber;

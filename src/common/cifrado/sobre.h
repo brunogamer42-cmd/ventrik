@@ -28,8 +28,13 @@ struct Argon2 {
   std::uint8_t vueltas = 0;
 };
 
+bool es_argon2_valido(const Argon2& valores);
+
 bool derivar_argon2(std::string_view contrasena, gsl::span<const std::uint8_t> sal, const Argon2& valores,
                     gsl::span<std::uint8_t> salida);
+
+std::optional<Argon2> derivar_a_tiempo(std::string_view contrasena, gsl::span<const std::uint8_t> sal,
+                                       std::uint32_t milisegundos, gsl::span<std::uint8_t> salida);
 
 Argon2 memoria_para_esta_pc();
 

@@ -44,11 +44,6 @@ std::uint64_t memoria_libre() {
                                         : std::uint64_t{kMaximoMemoriaArgon2} * 2048;
 }
 
-bool es_argon2_valido(const Argon2& valores) {
-  return valores.memoria_kib >= kMinimoMemoriaArgon2 && valores.memoria_kib <= kMaximoMemoriaArgon2 &&
-         valores.vueltas >= 1 && valores.vueltas <= kMaximoVueltasArgon2;
-}
-
 std::vector<std::uint8_t> cabecera(std::string_view marca, const Argon2& valores, gsl::span<const std::uint8_t> sal) {
   protocolo::Escritor escritor;
   escritor.escribir_bytes(gsl::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(marca.data()), marca.size()));
@@ -60,6 +55,29 @@ std::vector<std::uint8_t> cabecera(std::string_view marca, const Argon2& valores
 }
 
 }  // namespace
+
+bool es_argon2_valido(const Argon2& valores) {
+  return valores.memoria_kib >= kMinimoMemoriaArgon2 && valores.memoria_kib <= kMaximoMemoriaArgon2 &&
+         valores.vueltas >= 1 && valores.vueltas <= kMaximoVueltasArgon2;
+}
+
+std::optional<Argon2> derivar_a_tiempo(std::string_view contrasena, gsl::span<const std::uint8_t> sal,
+                                       std::uint32_t milisegundos, gsl::span<std::uint8_t> salida) {
+  Argon2 valores = memoria_para_esta_pc();
+  const auto antes = std::chrono::steady_clock::now();
+  if (!derivar_argon2(contrasena, sal, valores, salida)) {
+    return std::nullopt;
+  }
+  const auto tardo = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - antes);
+  const auto ms = static_cast<std::uint32_t>(std::max<std::chrono::milliseconds::rep>(tardo.count(), 1));
+  if (ms < milisegundos) {
+    valores.vueltas = static_cast<std::uint8_t>(std::min<std::uint32_t>(kMaximoVueltasArgon2, (milisegundos + ms - 1) / ms));
+    if (valores.vueltas > 1 && !derivar_argon2(contrasena, sal, valores, salida)) {
+      return std::nullopt;
+    }
+  }
+  return valores;
+}
 
 bool derivar_argon2(std::string_view contrasena, gsl::span<const std::uint8_t> sal, const Argon2& valores,
                     gsl::span<std::uint8_t> salida) {
@@ -138,23 +156,15 @@ std::optional<std::vector<std::uint8_t>> cerrar_sobre(std::string_view marca, gs
                                                       std::string_view contrasena, std::optional<Argon2> fijos) {
   std::array<std::uint8_t, kBytesSal> sal{};
   Secreto clave(kBytesClaveSimetrica);
-  Argon2 valores = fijos.value_or(memoria_para_esta_pc());
   if (marca.size() != kBytesMarca || aleatorio(nullptr, sal.data(), sal.size()) != 0) {
     return std::nullopt;
   }
-  const auto antes = std::chrono::steady_clock::now();
-  if (!derivar_argon2(contrasena, sal, valores, clave.bytes())) {
+  const auto valores = fijos ? (derivar_argon2(contrasena, sal, *fijos, clave.bytes()) ? fijos : std::nullopt)
+                             : derivar_a_tiempo(contrasena, sal, kMilisegundosArgon2, clave.bytes());
+  if (!valores) {
     return std::nullopt;
   }
-  const auto tardo = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - antes);
-  const auto ms = static_cast<std::uint32_t>(std::max<std::chrono::milliseconds::rep>(tardo.count(), 1));
-  if (!fijos && ms < kMilisegundosArgon2) {
-    valores.vueltas = static_cast<std::uint8_t>(std::min<std::uint32_t>(kMaximoVueltasArgon2, (kMilisegundosArgon2 + ms - 1) / ms));
-    if (valores.vueltas > 1 && !derivar_argon2(contrasena, sal, valores, clave.bytes())) {
-      return std::nullopt;
-    }
-  }
-  std::vector<std::uint8_t> sobre = cabecera(marca, valores, sal);
+  std::vector<std::uint8_t> sobre = cabecera(marca, *valores, sal);
   const auto sellado = sellar(clave.bytes(), sobre, contenido);
   if (!sellado) {
     return std::nullopt;

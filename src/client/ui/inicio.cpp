@@ -306,15 +306,19 @@ class Dibujo {
            {std::make_tuple("##direccion", Clave::inicio_direccion, &pantalla_.direccion),
             std::make_tuple("##huella", Clave::inicio_huella, &pantalla_.huella),
             std::make_tuple("##nombre", Clave::inicio_nombre, &pantalla_.nombre),
+            std::make_tuple("##contrasena", Clave::inicio_contrasena, &pantalla_.contrasena),
             std::make_tuple("##codigo", Clave::inicio_codigo, &pantalla_.codigo)}) {
         const bool es_codigo = campo_texto == &pantalla_.codigo;
+        const bool es_contrasena = campo_texto == &pantalla_.contrasena;
         ImGui::SetCursorScreenPos(ImVec2(x, y));
-        if (es_codigo && pantalla_.enfocar_codigo) {
+        bool& enfocar = es_codigo ? pantalla_.enfocar_codigo : pantalla_.enfocar_contrasena;
+        if ((es_codigo || es_contrasena) && enfocar) {
           ImGui::SetKeyboardFocusHere();
-          pantalla_.enfocar_codigo = false;
+          enfocar = false;
         }
         enter |= campo(id, t(pista), *campo_texto, ImVec2(interior, px(medida::alto_campo)), Icono::ninguno,
-                       ImGuiInputTextFlags_EnterReturnsTrue | (es_codigo ? ImGuiInputTextFlags_Password : 0));
+                       ImGuiInputTextFlags_EnterReturnsTrue |
+                           (es_codigo || es_contrasena ? ImGuiInputTextFlags_Password : 0));
         y += px(medida::alto_campo + 8);
       }
       const Intento& intento = pantalla_.intento;

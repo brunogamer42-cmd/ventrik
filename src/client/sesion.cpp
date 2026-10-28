@@ -49,6 +49,12 @@ std::string explicar(Idioma idioma, const IntentoDeConexion& intento) {
     case EstadoConexion::servidor_lleno: return std::string(texto(idioma, Clave::conectar_servidor_lleno));
     case EstadoConexion::firma_rechazada: return std::string(texto(idioma, Clave::conectar_firma_rechazada));
     case EstadoConexion::demasiadas: return std::string(texto(idioma, Clave::conectar_demasiadas));
+    case EstadoConexion::falta_contrasena: return std::string(texto(idioma, Clave::conectar_falta_contrasena));
+    case EstadoConexion::contrasena_incorrecta:
+      return con_datos(texto(idioma, Clave::conectar_contrasena_incorrecta), {std::to_string(intento.espera)});
+    case EstadoConexion::esperar:
+      return con_datos(texto(idioma, Clave::conectar_esperar), {std::to_string(intento.espera)});
+    case EstadoConexion::ocupado: return std::string(texto(idioma, Clave::conectar_ocupado));
     case EstadoConexion::sin_identidad: return std::string(texto(idioma, Clave::conectar_sin_identidad));
     default: return std::string(texto(idioma, Clave::conectar_error_interno));
   }
@@ -243,8 +249,9 @@ void Sesion::correr() {
   OpcionesConexion conexion = opciones_.conexion;
   conexion.cancelar = &cancelar_.socket();
   auto resultado = conectar(destino_, huella_, quien_, conexion);
+  quien_.contrasena.reset();
   publicar(IntentoDeConexion{resultado.estado, resultado.version_pedida, resultado.cifrado,
-                             resultado.presentado});
+                             resultado.presentado, resultado.espera});
   if (resultado.estado != EstadoConexion::conectado || !resultado.abierta) {
     return;
   }

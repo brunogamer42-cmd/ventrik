@@ -19,6 +19,8 @@
 #include "common/protocol/pedidos.h"
 #include "common/red/red.h"
 #include "server/base.h"
+#include "server/comprobador.h"
+#include "server/contrasena.h"
 #include "server/permisos.h"
 #include "server/proteccion.h"
 #include "server/voz.h"
@@ -47,6 +49,9 @@ struct Opciones {
   int identidades_nuevas_por_hora = 30;
   int reemplazos_por_identidad = 6;
   std::chrono::minutes ventana_de_reemplazos{10};
+  std::size_t comprobaciones_en_cola = 4;
+  std::chrono::milliseconds espera_tras_fallo{1000};
+  std::chrono::seconds espera_maxima{300};
   OpcionesProteccion proteccion;
   OpcionesVoz voz;
   protocolo::ConfigServidor protocolo;
@@ -54,6 +59,7 @@ struct Opciones {
   std::string nombre_general;
   std::optional<cifrado::CodigoDueno> codigo_dueno;
   bool quitar_dueno = false;
+  std::optional<std::string> poner_contrasena;
   std::string liberar_nombre;
   std::string nombre_servidor;
   std::string nombre_de_fabrica = "Ventrik";
@@ -82,6 +88,8 @@ enum class Evento {
   dueno_reclamado,
   desplazada,
   error_base,
+  contrasena_incorrecta,
+  no_se_pudo_comprobar,
 };
 
 using Avisar = std::function<void(Evento, const red::Direccion&, const std::string&)>;
@@ -99,11 +107,16 @@ class Servidor {
   bool tiene_dueno() const;
   void codigo_para_reclamar(std::optional<cifrado::CodigoDueno> codigo) { opciones_.codigo_dueno = codigo; }
   const std::string& nombre() const { return nombre_; }
+  bool pide_contrasena() const { return contrasena_.has_value(); }
 
   void correr(const std::atomic<bool>& seguir);
 
  private:
   struct Conexion;
+  struct Espera {
+    int fallas = 0;
+    std::chrono::steady_clock::time_point hasta{};
+  };
   struct Registrado {
     UsuarioGuardado guardado;
     std::wstring comparable;
@@ -127,7 +140,13 @@ class Servidor {
   void cambiar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void mirar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void borrar_canal(Conexion& conexion, const protocolo::Marco& marco);
-  void rechazar_presentacion(Conexion& conexion, protocolo::MotivoPresentacion motivo);
+  void rechazar_presentacion(Conexion& conexion, protocolo::MotivoPresentacion motivo, std::uint16_t espera = 0);
+  void continuar_presentacion(Conexion& conexion, protocolo::Presentarse presentacion,
+                              std::optional<cifrado::Secreto> contrasena);
+  void comprobar_contrasena(Conexion& conexion, protocolo::Presentarse presentacion, cifrado::Secreto contrasena);
+  void terminar_comprobaciones();
+  std::uint16_t segundos_de_espera(std::uint32_t ip, const ClaveDeUsuario& clave) const;
+  std::uint16_t anotar_fallo(std::uint32_t ip, const ClaveDeUsuario& clave);
   bool admitir_identidad(Conexion& conexion, const protocolo::Presentarse& presentacion,
                          std::vector<Registrado>::iterator& yo, bool reclama, bool& nueva);
   bool desalojar_una();
@@ -148,7 +167,7 @@ class Servidor {
   void revisar_lo_recibido(Conexion& conexion);
   void avisar(Evento evento, const Conexion& conexion);
   void avisar(Evento evento, const red::Direccion& origen);
-  void falla(const Conexion& conexion);
+  void falla(const red::Direccion& origen);
   Conexion* buscar_conectada(std::uint32_t id);
 
   template <typename Mensaje>
@@ -178,8 +197,13 @@ class Servidor {
   std::map<std::uint32_t, std::pair<std::chrono::steady_clock::time_point, int>> nuevas_por_ip_;
   std::pair<std::chrono::steady_clock::time_point, int> nuevas_en_total_{};
   std::chrono::steady_clock::time_point proxima_limpieza_{};
+  std::optional<ContrasenaGuardada> contrasena_;
+  std::uint64_t proxima_marca_ = 0;
+  std::map<std::uint32_t, Espera> esperas_por_ip_;
+  std::map<ClaveDeUsuario, Espera> esperas_por_clave_;
   std::string nombre_;
   std::uint64_t proximo_mensaje_sin_guardar_ = 1;
+  Comprobador comprobador_;
   ServicioBase base_;
 };
 

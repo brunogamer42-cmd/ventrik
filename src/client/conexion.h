@@ -23,6 +23,7 @@ struct Presentacion {
   std::optional<cifrado::CodigoDueno> codigo_dueno;
   std::shared_ptr<const cifrado::Clave> identidad;
   std::shared_ptr<const cifrado::Secreto> equipo;
+  std::shared_ptr<const cifrado::Secreto> contrasena;
 };
 
 struct OpcionesConexion {
@@ -48,6 +49,10 @@ enum class EstadoConexion {
   servidor_lleno,
   firma_rechazada,
   demasiadas,
+  falta_contrasena,
+  contrasena_incorrecta,
+  esperar,
+  ocupado,
   sin_identidad,
   error_interno,
 };
@@ -78,6 +83,7 @@ struct ResultadoConexion {
   std::uint16_t protocolo = 0;
   std::string cifrado;
   int codigo = 0;
+  std::uint16_t espera = 0;
   std::optional<protocolo::Presentado> presentado;
   std::unique_ptr<ConexionAbierta> abierta;
 };

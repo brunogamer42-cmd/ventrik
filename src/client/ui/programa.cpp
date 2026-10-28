@@ -135,6 +135,7 @@ class Programa {
   }
 
   ~Programa() {
+    mbedtls_platform_zeroize(pantalla_.contrasena.data(), pantalla_.contrasena.size());
     borrar_contrasenas();
     cerrar();
     soltar_clics_de_windows();
@@ -1214,10 +1215,20 @@ class Programa {
       pantalla_.error_formulario = texto(pantalla_.idioma, problema);
       return;
     }
+    const std::string_view contrasena(pantalla_.contrasena.data());
+    if (!contrasena.empty()) {
+      auto secreto = std::make_shared<cifrado::Secreto>(contrasena.size());
+      std::transform(contrasena.begin(), contrasena.end(), secreto->bytes().begin(),
+                     [](char letra) { return static_cast<std::uint8_t>(letra); });
+      quien.contrasena = std::move(secreto);
+      mbedtls_platform_zeroize(pantalla_.contrasena.data(), pantalla_.contrasena.size());
+      olvidar_lo_escrito();
+    }
     entrar(*direccion, *huella, std::move(quien), true);
   }
 
   void entrar_a(const cliente::ServidorGuardado& servidor) {
+    mbedtls_platform_zeroize(pantalla_.contrasena.data(), pantalla_.contrasena.size());
     entrar(servidor.direccion, cifrado::Huella(servidor.huella), {servidor.nombre, std::nullopt}, false);
   }
 
@@ -1240,6 +1251,15 @@ class Programa {
 
   void conectado(const cliente::IntentoDeConexion& intento) {
     if (intento.estado != cliente::EstadoConexion::conectado || !intento.presentado) {
+      if (intento.estado == cliente::EstadoConexion::falta_contrasena ||
+          intento.estado == cliente::EstadoConexion::contrasena_incorrecta ||
+          intento.estado == cliente::EstadoConexion::esperar || intento.estado == cliente::EstadoConexion::ocupado) {
+        poner(pantalla_.direccion, red::a_texto(pendiente_.direccion));
+        poner(pantalla_.huella, cifrado::Huella(pendiente_.huella).a_texto());
+        poner(pantalla_.nombre, pendiente_.nombre);
+        pantalla_.enfocar_contrasena = true;
+        pantalla_.intento.desde_formulario = true;
+      }
       terminar(cliente::explicar(pantalla_.idioma, intento));
       return;
     }
