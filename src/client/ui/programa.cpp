@@ -1152,7 +1152,12 @@ class Programa {
       return;
     }
     if (en_hostear_) {
-      en_hostear_ = !dibujar_hostear(hostear_).cerrar;
+      const PedidoHostear pedido = dibujar_hostear(hostear_);
+      en_hostear_ = !pedido.cerrar;
+      if (pedido.seguridad && sala_ && hostear_.configurando && !hostear_.en_esta_pc) {
+        hostear_.error.clear();
+        ordenar({protocolo::CambiarConfigSeguridad{*pedido.seguridad}});
+      }
       return;
     }
     if (sala_) {
@@ -1214,6 +1219,7 @@ class Programa {
       }
       if (pedido.configurar) {
         abrir_hostear(configuracion(servidor_.idioma, servidor_.nombre_servidor, false));
+        ordenar({protocolo::PedirConfigSeguridad{}});
       }
       return;
     }
@@ -1359,6 +1365,13 @@ class Programa {
     } else if (negado != nullptr && negado->pedido == protocolo::TipoMensaje::segundo_paso &&
                servidor_.dialogo == Dialogo::segundo_paso) {
       servidor_.error_dialogo = cliente::explicar(pantalla_.idioma, negado->motivo);
+    } else if (negado != nullptr && (negado->pedido == protocolo::TipoMensaje::pedir_config_seguridad ||
+                                     negado->pedido == protocolo::TipoMensaje::cambiar_config_seguridad)) {
+      hostear_.error = cliente::explicar(pantalla_.idioma, negado->motivo);
+    } else if (const auto* config = std::get_if<protocolo::ConfigSeguridad>(&novedad);
+               config != nullptr && en_hostear_ && hostear_.configurando && !hostear_.en_esta_pc) {
+      hostear_.seguridad = config->seguridad;
+      hostear_.xp = config->xp;
     }
   }
 

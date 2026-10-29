@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include <mbedtls/ssl.h>
@@ -236,4 +237,27 @@ TEST_CASE("Una cookie dada a una dirección no sirve para otra") {
   REQUIRE(servidor.reiniciar(banco.programa));
   servidor.entregar(copia);
   CHECK(servidor.apreton() == Paso::esperar_lectura);
+}
+
+TEST_CASE("Con un solo algoritmo permitido, la voz que ofrece solo el otro no se arma") {
+  using ventrik::Algoritmo;
+  for (const auto& [servidor_permite, programa_ofrece, nombre] :
+       {std::make_tuple(Algoritmo::solo_chacha20, Algoritmo::solo_aes_gcm, ""),
+        std::make_tuple(Algoritmo::solo_aes_gcm, Algoritmo::solo_chacha20, ""),
+        std::make_tuple(Algoritmo::solo_chacha20, Algoritmo::automatico, "CHACHA20"),
+        std::make_tuple(Algoritmo::solo_aes_gcm, Algoritmo::automatico, "AES")}) {
+    Banco banco;
+    const auto config_servidor = ConfigTls::para_voz_servidor(
+        [](SesionTls&, gsl::span<const std::uint8_t>) { return gsl::span<const std::uint8_t>(kClave); }, servidor_permite);
+    const auto config_programa = ConfigTls::para_voz_programa(kIdentidad, kClave, programa_ofrece);
+    REQUIRE(config_servidor);
+    REQUIRE(config_programa);
+    SesionTls programa(*config_programa, banco.udp_programa.get());
+    SesionTls servidor(*config_servidor, banco.enviar, banco.programa);
+    const bool armada = banco.saludar(programa, servidor);
+    CHECK(armada == (std::string(nombre) != ""));
+    if (armada) {
+      CHECK(servidor.cifrado().find(nombre) != std::string::npos);
+    }
+  }
 }

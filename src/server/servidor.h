@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -65,6 +66,7 @@ struct Opciones {
   std::optional<Seguridad> seguridad;
   std::string quitar_segundo_paso;
   std::string permitir_segundo_paso;
+  bool en_xp = false;
   std::string liberar_nombre;
   std::string nombre_servidor;
   std::string nombre_de_fabrica = "Ventrik";
@@ -105,6 +107,8 @@ enum class Evento {
   segundo_paso_bloqueado,
   segundo_paso_configurado,
   segundo_paso_quitado,
+  config_cambiada,
+  maximo_en_xp,
 };
 
 using Avisar = std::function<void(Evento, const red::Direccion&, const std::string&)>;
@@ -129,6 +133,7 @@ class Servidor {
   const std::string& segundo_paso_quitado() const { return segundo_paso_quitado_; }
   const std::string& segundo_paso_permitido() const { return segundo_paso_permitido_; }
   const Seguridad& seguridad() const { return seguridad_; }
+  bool maximo_en_xp() const { return opciones_.en_xp && seguridad_.nivel == Nivel::maximo; }
 
   void correr(const std::atomic<bool>& seguir);
 
@@ -166,6 +171,10 @@ class Servidor {
   void liberar_nombre(Conexion& conexion, const protocolo::Marco& marco);
   void segundo_paso(Conexion& conexion, const protocolo::Marco& marco);
   void quitar_segundo_paso(Conexion& conexion, const protocolo::Marco& marco);
+  void pedir_config_seguridad(Conexion& conexion, const protocolo::Marco& marco);
+  void cambiar_config_seguridad(Conexion& conexion, const protocolo::Marco& marco);
+  void aplicar_seguridad(const Seguridad& nueva);
+  void renovar(const std::vector<std::uint32_t>& ids);
   bool pide_segundo_paso(const UsuarioGuardado& usuario, bool reclama = false) const;
   bool comprobar_segundo_paso(Conexion& conexion, Registrado& yo, const protocolo::Presentarse& presentacion);
   void revisar_segundo_paso(Conexion& conexion);
@@ -214,8 +223,9 @@ class Servidor {
   cifrado::IdentidadServidor& identidad_;
   Opciones opciones_;
   Avisar avisar_;
-  std::unique_ptr<cifrado::ConfigTls> config_;
+  std::array<std::unique_ptr<cifrado::ConfigTls>, 3> configs_;
   std::vector<std::uint8_t> marco_cadena_;
+  VersionPrograma programa_minimo_fijo_;
   red::Socket escucha_;
   red::Socket udp_;
   red::Despertador despertador_;

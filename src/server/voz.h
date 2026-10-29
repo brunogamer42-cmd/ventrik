@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <optional>
@@ -44,7 +45,10 @@ class Voz {
   Voz(const Voz&) = delete;
   Voz& operator=(const Voz&) = delete;
 
-  bool ok() const { return config_ != nullptr; }
+  bool ok() const {
+    return std::all_of(configs_.begin(), configs_.end(), [](const auto& config) { return config != nullptr; });
+  }
+  void ajustar(std::chrono::seconds rotacion, Algoritmo algoritmo, bool fija, Instante ahora);
   std::optional<protocolo::ClaveVoz> alta(std::uint32_t id, std::uint32_t ip, std::uint32_t canal,
                                           Instante ahora, const Derivar& derivar);
   std::optional<protocolo::ClaveVoz> renovar(std::uint32_t id, Instante ahora,
@@ -98,7 +102,9 @@ class Voz {
 
   OpcionesVoz opciones_;
   cifrado::EnviarDatagrama enviar_;
-  std::unique_ptr<cifrado::ConfigTls> config_;
+  std::array<std::unique_ptr<cifrado::ConfigTls>, 3> configs_;
+  std::size_t algoritmo_ = 0;
+  bool fija_ = false;
   std::unique_ptr<cifrado::SesionTls> escucha_;
   Cubeta cubeta_escucha_;
   std::vector<Persona> personas_;

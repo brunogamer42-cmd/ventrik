@@ -83,6 +83,8 @@ ventrik::Clave clave_de(ventrik::servidor::Evento evento) {
     case Evento::segundo_paso_bloqueado: return Clave::servidor_segundo_paso_bloqueado;
     case Evento::segundo_paso_configurado: return Clave::servidor_segundo_paso_configurado;
     case Evento::segundo_paso_quitado: return Clave::servidor_segundo_paso_quitado;
+    case Evento::config_cambiada: return Clave::servidor_config_cambiada;
+    case Evento::maximo_en_xp: return Clave::servidor_maximo_xp;
   }
   return Clave::servidor_conectada;
 }
@@ -539,6 +541,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
   opciones.segundo_paso = segundo_paso;
   opciones.quitar_segundo_paso = quitar_segundo_paso;
   opciones.permitir_segundo_paso = permitir_segundo_paso;
+  opciones.en_xp = ventrik::es_windows_xp();
   opciones.nombre_general = texto(ventrik::Clave::canal_general);
   opciones.nombre_servidor = nombre;
   opciones.nombre_de_fabrica = texto(ventrik::Clave::servidor_nombre_de_fabrica);
@@ -566,7 +569,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
     if (evento == ventrik::servidor::Evento::dueno_reclamado) {
       DeleteFileW(archivo_codigo.c_str());
     }
-    if (evento == ventrik::servidor::Evento::error_base) {
+    if (evento == ventrik::servidor::Evento::error_base || evento == ventrik::servidor::Evento::maximo_en_xp) {
       registro.agregar(texto(clave_de(evento)));
       return;
     }
@@ -598,6 +601,9 @@ int wmain(int cantidad, wchar_t** argumentos) {
                                              ventrik::Clave::servidor_segundo_paso_admins,
                                              ventrik::Clave::servidor_segundo_paso_todos};
   escribir_linea(texto(kSegundoPaso[servidor.seguridad().opciones[ventrik::Opcion::segundo_paso] % 3]));
+  if (servidor.maximo_en_xp()) {
+    escribir_linea(texto(ventrik::Clave::servidor_maximo_xp));
+  }
   if (!quitar_segundo_paso.empty()) {
     escribir_linea(servidor.segundo_paso_quitado().empty()
                        ? ventrik::con_datos(texto(ventrik::Clave::servidor_sin_segundo_paso_que_quitar), {quitar_segundo_paso})

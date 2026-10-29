@@ -44,14 +44,16 @@ using Novedad = std::variant<IntentoDeConexion, protocolo::UsuarioEntro, protoco
                              protocolo::CanalCambiado, protocolo::CanalBorrado,
                              protocolo::MensajeChat, protocolo::MensajesNuevos,
                              protocolo::Historial, protocolo::Negado, protocolo::UsuarioRol,
-                             protocolo::AvisoDeSeguridad, protocolo::ConfigurarSegundoPaso, PingMedido, Fin>;
+                             protocolo::AvisoDeSeguridad, protocolo::ConfigurarSegundoPaso,
+                             protocolo::ConfigSeguridad, PingMedido, Fin>;
 
 using Orden = std::variant<protocolo::EntrarACanal, protocolo::EnviarChat,
                            protocolo::PedirHistorial, protocolo::CrearCanal,
                            protocolo::CambiarCanal, protocolo::MirarCanal,
                            protocolo::BorrarCanal, protocolo::Silenciar, protocolo::SilenciarPersonas,
                            protocolo::DestinosDeSusurro, protocolo::NombrarAdmin, protocolo::LiberarNombre,
-                           protocolo::SegundoPaso, protocolo::QuitarSegundoPaso>;
+                           protocolo::SegundoPaso, protocolo::QuitarSegundoPaso, protocolo::PedirConfigSeguridad,
+                           protocolo::CambiarConfigSeguridad>;
 
 struct OpcionesSesion {
   OpcionesConexion conexion;

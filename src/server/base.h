@@ -171,7 +171,7 @@ class ServicioBase {
 
   bool arrancar(std::wstring archivo, std::string nombre_general, const red::Despertador& despertador,
                 cifrado::Secreto clave_historial = {});
-  bool pedir(Trabajo trabajo);
+  bool pedir(Trabajo trabajo, bool sola = false);
   void atender_respuestas();
 
  private:
@@ -181,7 +181,7 @@ class ServicioBase {
   std::mutex candado_;
   std::condition_variable hay_pedidos_;
   std::condition_variable abierta_;
-  std::deque<Trabajo> pedidos_;
+  std::deque<std::pair<Trabajo, bool>> pedidos_;
   std::deque<std::function<void()>> respuestas_;
   std::optional<bool> pudo_abrir_;
   bool terminar_ = false;

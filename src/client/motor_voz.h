@@ -144,6 +144,7 @@ class MotorVoz {
   std::uint64_t capturadas_total_ = 0;
   bool hay_anterior_ = false;
   bool abierto_ = false;
+  bool tamano_fijo_ = false;
   int restante_ = 0;
   std::array<Voz, kVoces> voces_;
   std::array<float, 960> mezcla_{};

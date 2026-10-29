@@ -405,3 +405,19 @@ TEST_CASE("Un medio de un tipo o flujo que el servidor no conoce se descarta sin
   REQUIRE(b.recibidas.size() == 1);
   CHECK(b.recibidas[0].medio.numero == 2);
 }
+
+TEST_CASE("Ajustar la voz acerca la próxima renovación, marca el tamaño fijo en la clave y cambia el algoritmo de las sesiones nuevas") {
+  Banco banco;
+  const ClaveVoz primera = alta(banco, 1, 0x0A000001, 1);
+  CHECK_FALSE(primera.voz_fija);
+  CHECK(banco.voz.revisar(banco.ahora + std::chrono::minutes(20)).empty());
+  banco.voz.ajustar(std::chrono::minutes(15), ventrik::Algoritmo::solo_chacha20, true, banco.ahora);
+  const auto vencidas = banco.voz.revisar(banco.ahora + std::chrono::minutes(16));
+  REQUIRE(vencidas.size() == 1);
+  CHECK(vencidas[0] == 1);
+  const auto renovada = banco.voz.renovar(1, banco.ahora, derivar);
+  REQUIRE(renovada);
+  CHECK(renovada->voz_fija);
+  CHECK(alta(banco, 2, 0x0A000002, 1).voz_fija);
+  CHECK(banco.voz.ok());
+}

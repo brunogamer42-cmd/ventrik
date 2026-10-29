@@ -40,11 +40,26 @@ bool solo_datos_cifrados(gsl::span<const std::uint8_t> datagrama) {
 Voz::Voz(OpcionesVoz opciones, cifrado::EnviarDatagrama enviar)
     : opciones_(opciones),
       enviar_(std::move(enviar)),
-      config_(cifrado::ConfigTls::para_voz_servidor(
-          [this](cifrado::SesionTls& sesion, gsl::span<const std::uint8_t> identidad) {
-            return elegir(sesion, identidad);
-          })),
-      cubeta_escucha_(opciones_.rafaga_escucha, opciones_.escucha_por_segundo) {}
+      cubeta_escucha_(opciones_.rafaga_escucha, opciones_.escucha_por_segundo) {
+  for (std::size_t cual = 0; cual < configs_.size(); ++cual) {
+    configs_[cual] = cifrado::ConfigTls::para_voz_servidor(
+        [this](cifrado::SesionTls& sesion, gsl::span<const std::uint8_t> identidad) { return elegir(sesion, identidad); },
+        static_cast<Algoritmo>(cual));
+  }
+}
+
+void Voz::ajustar(std::chrono::seconds rotacion, Algoritmo algoritmo, bool fija, Instante ahora) {
+  opciones_.rotacion = rotacion;
+  fija_ = fija;
+  const std::size_t elegido = static_cast<std::size_t>(algoritmo) % configs_.size();
+  if (elegido != algoritmo_) {
+    algoritmo_ = elegido;
+    escucha_.reset();
+  }
+  for (auto& persona : personas_) {
+    persona.rotar_en = std::min(persona.rotar_en, ahora + rotacion);
+  }
+}
 
 std::optional<protocolo::ClaveVoz> Voz::alta(std::uint32_t id, std::uint32_t ip,
                                              std::uint32_t canal, Instante ahora,
@@ -163,7 +178,7 @@ std::optional<protocolo::ClaveVoz> Voz::nueva_clave(Persona& persona, Instante a
     return std::nullopt;
   }
   persona.rotar_en = ahora + periodo * 9 / 10 + periodo * azar / 1275;
-  return protocolo::ClaveVoz{persona.identidad};
+  return protocolo::ClaveVoz{persona.identidad, fija_};
 }
 
 gsl::span<const std::uint8_t> Voz::elegir(cifrado::SesionTls& sesion,
@@ -277,7 +292,7 @@ std::optional<std::uint32_t> Voz::saludar(gsl::span<const std::uint8_t> datagram
     return std::nullopt;
   }
   if (!escucha_) {
-    escucha_ = std::make_unique<cifrado::SesionTls>(*config_, enviar_, origen);
+    escucha_ = std::make_unique<cifrado::SesionTls>(*configs_[algoritmo_], enviar_, origen);
   }
   if (!escucha_->reiniciar(origen)) {
     escucha_.reset();

@@ -152,6 +152,9 @@ void Sesion::cambiar_voz() {
 }
 
 void Sesion::usar_clave() {
+  if (clave_ && puente_) {
+    puente_->voz_fija = clave_->voz_fija;
+  }
   cifrado::Secreto secreto(32);
   if (clave_ && canal_voz_ && tls_->exportar(clave_->identidad, secreto.bytes())) {
     canal_voz_->clave(*clave_, std::move(secreto));
@@ -232,6 +235,8 @@ bool Sesion::procesar(const protocolo::Marco& marco) {
       return publicar_si(protocolo::AvisoDeSeguridad{});
     case TipoMensaje::configurar_segundo_paso:
       return publicar_si(protocolo::ConfigurarSegundoPaso{});
+    case TipoMensaje::config_seguridad:
+      return publicar_si(protocolo::ConfigSeguridad{});
     case TipoMensaje::desplazado:
       desplazada_ = protocolo::leer_mensaje<protocolo::Desplazado>(marco.cuerpo).has_value();
       return false;

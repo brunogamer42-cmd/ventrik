@@ -216,7 +216,7 @@ bool sigue(Sentido sentido, std::uint64_t anterior, std::uint64_t id) {
 
 bool es_pedido(std::uint16_t tipo) {
   return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
-         tipo <= static_cast<std::uint16_t>(TipoMensaje::quitar_segundo_paso);
+         tipo <= static_cast<std::uint16_t>(TipoMensaje::cambiar_config_seguridad);
 }
 
 bool son_ids_validos(const std::vector<std::uint32_t>& usuarios) {
@@ -225,6 +225,24 @@ bool son_ids_validos(const std::vector<std::uint32_t>& usuarios) {
 }
 
 bool es_lugar_de_susurro(std::uint8_t lugar) { return lugar >= 1 && lugar <= kLugaresDeSusurro; }
+
+void escribir_seguridad(Escritor& escritor, const ventrik::Seguridad& seguridad) {
+  if (!es_valida(seguridad)) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u8(static_cast<std::uint8_t>(seguridad.nivel));
+  escritor.escribir_bytes(seguridad.opciones.valores);
+}
+
+void leer_seguridad(Lector& lector, ventrik::Seguridad& seguridad) {
+  seguridad.nivel = static_cast<Nivel>(lector.leer_u8());
+  const auto valores = lector.leer_bytes(seguridad.opciones.valores.size());
+  std::copy(valores.begin(), valores.end(), seguridad.opciones.valores.begin());
+  if (lector.ok() && !es_valida(seguridad)) {
+    lector.marcar_error();
+  }
+}
 
 }
 
@@ -722,11 +740,31 @@ void leer(Lector& lector, Pong& mensaje) {
 
 void escribir(Escritor& escritor, const ClaveVoz& mensaje) {
   escritor.escribir_bytes(mensaje.identidad);
+  escritor.escribir_booleano(mensaje.voz_fija);
 }
 
 void leer(Lector& lector, ClaveVoz& mensaje) {
   const auto identidad = lector.leer_bytes(mensaje.identidad.size());
   std::copy(identidad.begin(), identidad.end(), mensaje.identidad.begin());
+  mensaje.voz_fija = lector.leer_booleano();
+}
+
+void escribir(Escritor&, const PedirConfigSeguridad&) {}
+
+void leer(Lector&, PedirConfigSeguridad&) {}
+
+void escribir(Escritor& escritor, const CambiarConfigSeguridad& mensaje) { escribir_seguridad(escritor, mensaje.seguridad); }
+
+void leer(Lector& lector, CambiarConfigSeguridad& mensaje) { leer_seguridad(lector, mensaje.seguridad); }
+
+void escribir(Escritor& escritor, const ConfigSeguridad& mensaje) {
+  escribir_seguridad(escritor, mensaje.seguridad);
+  escritor.escribir_booleano(mensaje.xp);
+}
+
+void leer(Lector& lector, ConfigSeguridad& mensaje) {
+  leer_seguridad(lector, mensaje.seguridad);
+  mensaje.xp = lector.leer_booleano();
 }
 
 void escribir(Escritor& escritor, const MedioSubida& mensaje) { escribir_medio(escritor, mensaje.medio); }

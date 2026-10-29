@@ -10,6 +10,7 @@
 
 #include "client/guardados.h"
 #include "common/pendiente.h"
+#include "common/proceso.h"
 #include "common/sistema.h"
 #include "common/utf.h"
 
@@ -32,14 +33,6 @@ constexpr std::size_t kLugaresDeSalida = kSalidaMs / kPeriodoMs;
 constexpr std::uint32_t kMaximoEnEsperaMs = 120;
 constexpr std::uint32_t kTopeEnEsperaMs = 250;
 constexpr int kCasiSilencio = 1000;
-
-bool es_windows_xp() {
-  OSVERSIONINFOEXW pedido = {};
-  pedido.dwOSVersionInfoSize = sizeof(pedido);
-  pedido.dwMajorVersion = 6;
-  return VerifyVersionInfoW(&pedido, VER_MAJORVERSION,
-                            VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL)) == FALSE;
-}
 
 bool en_cola(const WAVEHDR& cabecera) {
   return (*static_cast<const volatile DWORD*>(&cabecera.dwFlags) & WHDR_INQUEUE) != 0;

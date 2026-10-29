@@ -30,6 +30,10 @@ const int kVozAesPrimero[] = {MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256,
 const int kVozChachaPrimero[] = {MBEDTLS_TLS_PSK_WITH_CHACHA20_POLY1305_SHA256,
                                  MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256,
                                  MBEDTLS_TLS_PSK_WITH_AES_256_GCM_SHA384, 0};
+const int kSoloAes[] = {MBEDTLS_TLS1_3_AES_128_GCM_SHA256, MBEDTLS_TLS1_3_AES_256_GCM_SHA384, 0};
+const int kSoloChacha[] = {MBEDTLS_TLS1_3_CHACHA20_POLY1305_SHA256, 0};
+const int kVozSoloAes[] = {MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256, MBEDTLS_TLS_PSK_WITH_AES_256_GCM_SHA384, 0};
+const int kVozSoloChacha[] = {MBEDTLS_TLS_PSK_WITH_CHACHA20_POLY1305_SHA256, 0};
 const std::uint16_t kGrupos[] = {MBEDTLS_SSL_IANA_TLS_GROUP_X25519,
                                  MBEDTLS_SSL_IANA_TLS_GROUP_SECP256R1,
                                  MBEDTLS_SSL_IANA_TLS_GROUP_NONE};
@@ -68,6 +72,17 @@ int error_de_winsock(int si_espera) {
   }
 }
 
+const int* cifrados(Algoritmo algoritmo, bool voz, bool aes_primero) {
+  if (algoritmo == Algoritmo::solo_aes_gcm) {
+    return voz ? kVozSoloAes : kSoloAes;
+  }
+  if (algoritmo == Algoritmo::solo_chacha20) {
+    return voz ? kVozSoloChacha : kSoloChacha;
+  }
+  return voz ? (aes_primero ? kVozAesPrimero : kVozChachaPrimero)
+             : (aes_primero ? kCifradosAesPrimero : kCifradosChachaPrimero);
+}
+
 bool preparar(mbedtls_ssl_config* config, int lado, const int* cifrados, bool datagrama = false) {
   if (mbedtls_ssl_config_defaults(config, lado,
                                   datagrama ? MBEDTLS_SSL_TRANSPORT_DATAGRAM
@@ -102,14 +117,14 @@ ConfigTls::~ConfigTls() {
   mbedtls_ssl_config_free(&config_);
 }
 
-std::unique_ptr<ConfigTls> ConfigTls::para_servidor(IdentidadServidor& identidad) {
-  return para_servidor(identidad.certificado(), identidad.clave());
+std::unique_ptr<ConfigTls> ConfigTls::para_servidor(IdentidadServidor& identidad, Algoritmo algoritmo) {
+  return para_servidor(identidad.certificado(), identidad.clave(), algoritmo);
 }
 
-std::unique_ptr<ConfigTls> ConfigTls::para_servidor(mbedtls_x509_crt* certificado,
-                                                    mbedtls_pk_context* clave) {
+std::unique_ptr<ConfigTls> ConfigTls::para_servidor(mbedtls_x509_crt* certificado, mbedtls_pk_context* clave,
+                                                    Algoritmo algoritmo) {
   auto config = std::make_unique<ConfigTls>();
-  if (!preparar(config->crudo(), MBEDTLS_SSL_IS_SERVER, kCifradosAesPrimero) ||
+  if (!preparar(config->crudo(), MBEDTLS_SSL_IS_SERVER, cifrados(algoritmo, false, true)) ||
       mbedtls_ssl_conf_own_cert(config->crudo(), certificado, clave) != 0) {
     return nullptr;
   }
@@ -117,10 +132,9 @@ std::unique_ptr<ConfigTls> ConfigTls::para_servidor(mbedtls_x509_crt* certificad
   return config;
 }
 
-std::unique_ptr<ConfigTls> ConfigTls::para_programa() {
+std::unique_ptr<ConfigTls> ConfigTls::para_programa(Algoritmo algoritmo) {
   auto config = std::make_unique<ConfigTls>();
-  if (!preparar(config->crudo(), MBEDTLS_SSL_IS_CLIENT,
-                procesador_acelera_aes() ? kCifradosAesPrimero : kCifradosChachaPrimero)) {
+  if (!preparar(config->crudo(), MBEDTLS_SSL_IS_CLIENT, cifrados(algoritmo, false, procesador_acelera_aes()))) {
     return nullptr;
   }
   mbedtls_ssl_conf_authmode(config->crudo(), MBEDTLS_SSL_VERIFY_OPTIONAL);
@@ -128,14 +142,14 @@ std::unique_ptr<ConfigTls> ConfigTls::para_programa() {
   return config;
 }
 
-std::unique_ptr<ConfigTls> ConfigTls::para_voz_servidor(ElegirClave elegir) {
+std::unique_ptr<ConfigTls> ConfigTls::para_voz_servidor(ElegirClave elegir, Algoritmo algoritmo) {
   if (!elegir) {
     return nullptr;
   }
   auto config = std::make_unique<ConfigTls>();
   config->datagrama_ = true;
   config->elegir_ = std::move(elegir);
-  if (!preparar(config->crudo(), MBEDTLS_SSL_IS_SERVER, kVozAesPrimero, true) ||
+  if (!preparar(config->crudo(), MBEDTLS_SSL_IS_SERVER, cifrados(algoritmo, true, true), true) ||
       mbedtls_ssl_cookie_setup(&config->cookies_, aleatorio, nullptr) != 0) {
     return nullptr;
   }
@@ -147,11 +161,10 @@ std::unique_ptr<ConfigTls> ConfigTls::para_voz_servidor(ElegirClave elegir) {
 }
 
 std::unique_ptr<ConfigTls> ConfigTls::para_voz_programa(gsl::span<const std::uint8_t> identidad,
-                                                        gsl::span<const std::uint8_t> clave) {
+                                                        gsl::span<const std::uint8_t> clave, Algoritmo algoritmo) {
   auto config = std::make_unique<ConfigTls>();
   config->datagrama_ = true;
-  if (!preparar(config->crudo(), MBEDTLS_SSL_IS_CLIENT,
-                procesador_acelera_aes() ? kVozAesPrimero : kVozChachaPrimero, true) ||
+  if (!preparar(config->crudo(), MBEDTLS_SSL_IS_CLIENT, cifrados(algoritmo, true, procesador_acelera_aes()), true) ||
       mbedtls_ssl_conf_psk(config->crudo(), clave.data(), clave.size(), identidad.data(),
                            identidad.size()) != 0) {
     return nullptr;

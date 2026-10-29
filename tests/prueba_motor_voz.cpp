@@ -1008,3 +1008,49 @@ TEST_CASE("Hacia los parlantes se tira solo lo callado, salvo con mucha espera")
   CHECK_FALSE(tirar_pedazo(240, voz));
   CHECK(tirar_pedazo(250, voz));
 }
+
+TEST_CASE("Con la voz de tamaño fijo todos los paquetes con voz miden lo mismo y en silencio no sale ninguno") {
+  for (const Calidad calidad : {Calidad{}, Calidad{16000, 0, 20}}) {
+    for (const bool fija : {true, false}) {
+      CAPTURE(calidad.frecuencia);
+      CAPTURE(fija);
+      PuenteVoz puente;
+      puente.voz_fija = fija;
+      MotorVoz motor(puente, calidad);
+      REQUIRE(motor.ok());
+      motor.transmitir(true);
+      const std::size_t por_tanda = calidad.frecuencia / 100;
+      std::vector<std::int16_t> entrada(por_tanda);
+      std::vector<std::int16_t> salida(por_tanda);
+      std::set<std::uint16_t> largos;
+      std::size_t paquetes = 0;
+      std::uint32_t azar = 1;
+      PaqueteVoz sacado;
+      for (std::size_t tanda = 0; tanda < 300; ++tanda) {
+        for (std::size_t i = 0; i < por_tanda; ++i) {
+          azar = azar * 1103515245u + 12345u;
+          const double t = static_cast<double>(tanda * por_tanda + i) / calidad.frecuencia;
+          const double tono = std::sin(2 * 3.14159265 * (200 + 150 * std::sin(2 * 3.14159265 * 0.7 * t)) * t);
+          entrada[i] = static_cast<std::int16_t>(6000 * tono * (0.3 + 0.7 * std::abs(std::sin(2 * 3.14159265 * 3 * t))) +
+                                                 static_cast<double>((azar >> 16) % 2000) - 1000);
+        }
+        motor.procesar(entrada, salida);
+        while (puente.subida.sacar(sacado)) {
+          largos.insert(sacado.largo);
+          ++paquetes;
+        }
+      }
+      CHECK(paquetes > 100);
+      CHECK((largos.size() == 1) == fija);
+      std::fill(entrada.begin(), entrada.end(), std::int16_t{0});
+      std::size_t en_silencio = 0;
+      for (std::size_t tanda = 0; tanda < 300; ++tanda) {
+        motor.procesar(entrada, salida);
+        while (puente.subida.sacar(sacado)) {
+          en_silencio += tanda >= 100 ? 1 : 0;
+        }
+      }
+      CHECK(en_silencio == 0);
+    }
+  }
+}

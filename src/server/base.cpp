@@ -625,7 +625,7 @@ void Base::borrar_viejos(std::uint64_t ahora) {
       dias = 7;
       break;
     case Retencion::no_guardar:
-      dias = 0;
+      ahora = kMaximoMs;
       break;
   }
   const std::uint64_t limite = ahora > dias * kMsPorDia ? ahora - dias * kMsPorDia : 0;
@@ -1027,13 +1027,13 @@ bool ServicioBase::arrancar(std::wstring archivo, std::string nombre_general, co
   return *pudo_abrir_;
 }
 
-bool ServicioBase::pedir(Trabajo trabajo) {
+bool ServicioBase::pedir(Trabajo trabajo, bool sola) {
   {
     const std::lock_guard<std::mutex> candado(candado_);
     if (pedidos_.size() >= kMaximoPedidosEnCola) {
       return false;
     }
-    pedidos_.push_back(std::move(trabajo));
+    pedidos_.emplace_back(std::move(trabajo), sola);
   }
   hay_pedidos_.notify_one();
   return true;
@@ -1087,9 +1087,13 @@ void ServicioBase::trabajar(std::wstring archivo, std::string nombre_general, ci
       continue;
     }
     tanda.clear();
-    while (!pedidos_.empty() && tanda.size() < kPedidosPorTanda) {
-      tanda.push_back(std::move(pedidos_.front()));
+    while (!pedidos_.empty() && tanda.size() < kPedidosPorTanda && (tanda.empty() || !pedidos_.front().second)) {
+      const bool sola = pedidos_.front().second;
+      tanda.push_back(std::move(pedidos_.front().first));
       pedidos_.pop_front();
+      if (sola) {
+        break;
+      }
     }
     candado.unlock();
     listas.clear();

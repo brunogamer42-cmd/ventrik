@@ -10,6 +10,7 @@
 #include <gsl/gsl>
 
 #include "common/cifrado/cadena.h"
+#include "common/niveles.h"
 #include "common/protocol/bytes.h"
 #include "common/protocol/marcos.h"
 #include "common/protocol/mensajes.h"
@@ -298,9 +299,10 @@ enum class Seguridad : std::uint8_t {
   ip_bloqueada = 7,
   segundo_paso_configurado = 8,
   segundo_paso_quitado = 9,
+  config_cambiada = 10,
 };
 
-constexpr Seguridad kUltimaSeguridad = Seguridad::segundo_paso_quitado;
+constexpr Seguridad kUltimaSeguridad = Seguridad::config_cambiada;
 
 struct SegundoPaso {
   static constexpr TipoMensaje kTipo = TipoMensaje::segundo_paso;
@@ -315,6 +317,21 @@ struct QuitarSegundoPaso {
 struct ConfigurarSegundoPaso {
   static constexpr TipoMensaje kTipo = TipoMensaje::configurar_segundo_paso;
   std::array<std::uint8_t, kBytesSecretoSegundoPaso> secreto{};
+};
+
+struct PedirConfigSeguridad {
+  static constexpr TipoMensaje kTipo = TipoMensaje::pedir_config_seguridad;
+};
+
+struct CambiarConfigSeguridad {
+  static constexpr TipoMensaje kTipo = TipoMensaje::cambiar_config_seguridad;
+  ventrik::Seguridad seguridad;
+};
+
+struct ConfigSeguridad {
+  static constexpr TipoMensaje kTipo = TipoMensaje::config_seguridad;
+  ventrik::Seguridad seguridad;
+  bool xp = false;
 };
 
 struct AvisoDeSeguridad {
@@ -343,6 +360,7 @@ struct Pong {
 struct ClaveVoz {
   static constexpr TipoMensaje kTipo = TipoMensaje::clave_voz;
   std::array<std::uint8_t, 16> identidad{};
+  bool voz_fija = false;
 };
 
 enum class TipoFlujo : std::uint8_t { voz = 1 };
@@ -406,6 +424,9 @@ VENTRIK_MENSAJE(CadenaDeClaves)
 VENTRIK_MENSAJE(SegundoPaso)
 VENTRIK_MENSAJE(QuitarSegundoPaso)
 VENTRIK_MENSAJE(ConfigurarSegundoPaso)
+VENTRIK_MENSAJE(PedirConfigSeguridad)
+VENTRIK_MENSAJE(CambiarConfigSeguridad)
+VENTRIK_MENSAJE(ConfigSeguridad)
 VENTRIK_MENSAJE(Ping)
 VENTRIK_MENSAJE(Pong)
 VENTRIK_MENSAJE(ClaveVoz)

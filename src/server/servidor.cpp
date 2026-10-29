@@ -74,6 +74,20 @@ std::string solo_letras(std::string_view texto) {
   return letras;
 }
 
+bool aplicar_en_la_base(Base& base, const Seguridad& seguridad) {
+  const bool sin_historial = seguridad.opciones[Opcion::sin_historial] != 0;
+  const Retencion antes = base.retencion();
+  const Retencion retencion = sin_historial                     ? Retencion::no_guardar
+                              : antes == Retencion::no_guardar ? Retencion::siempre
+                                                               : antes;
+  const bool bien = base.cifrar_historial(seguridad.opciones[Opcion::historial_cifrado] != 0) &&
+                    (retencion == antes || base.cambiar_retencion(retencion));
+  if (bien && retencion != antes && sin_historial) {
+    base.borrar_viejos(ahora_ms());
+  }
+  return bien;
+}
+
 bool es_identidad_corta(const ClaveDeUsuario& clave, std::string_view texto) {
   constexpr std::size_t kLetrasCortas = 16;
   const auto huella = cifrado::huella_de_publica(clave);
@@ -142,6 +156,7 @@ Servidor::Servidor(cifrado::IdentidadServidor& identidad, Opciones opciones, Avi
       avisar_(std::move(avisar)),
       proteccion_(opciones_.proteccion),
       comprobador_(despertador_, opciones_.comprobaciones_en_cola) {
+  programa_minimo_fijo_ = opciones_.protocolo.programa_minimo;
   opciones_.conexiones_maximas =
       std::min(opciones_.conexiones_maximas, static_cast<std::size_t>(FD_SETSIZE - 3));
 }
@@ -149,8 +164,10 @@ Servidor::Servidor(cifrado::IdentidadServidor& identidad, Opciones opciones, Avi
 Servidor::~Servidor() = default;
 
 bool Servidor::escuchar() {
-  config_ = cifrado::ConfigTls::para_servidor(identidad_);
-  if (!config_ || !despertador_.ok() ||
+  for (std::size_t cual = 0; cual < configs_.size(); ++cual) {
+    configs_[cual] = cifrado::ConfigTls::para_servidor(identidad_, static_cast<Algoritmo>(cual));
+  }
+  if (std::any_of(configs_.begin(), configs_.end(), [](const auto& config) { return !config; }) || !despertador_.ok() ||
       (!opciones_.cadena.empty() &&
        !protocolo::armar_mensaje(protocolo::CadenaDeClaves{opciones_.cadena}, marco_cadena_)) ||
       !base_.arrancar(opciones_.archivo_base, opciones_.nombre_general, despertador_, std::move(clave_historial_))) {
@@ -178,17 +195,19 @@ bool Servidor::escuchar() {
                     (!es_nombre_valido(opciones_.nombre_servidor) ||
                      base.guardar_texto("nombre", opciones_.nombre_servidor)) &&
                     (!opciones_.poner_contrasena || base.guardar_texto("contrasena", *opciones_.poner_contrasena)) &&
-                    (!opciones_.cifrar_historial || base.cifrar_historial(*opciones_.cifrar_historial)) &&
                     base.leer_seguridad(guardada);
         Seguridad seguridad = opciones_.seguridad ? *opciones_.seguridad : guardada.value_or(Seguridad{});
         if (!guardada && !opciones_.seguridad) {
           cambiar_opcion(seguridad, Opcion::sin_historial, base.retencion() == Retencion::no_guardar);
+          cambiar_opcion(seguridad, Opcion::historial_cifrado, base.historial_cifrado());
         }
         if (opciones_.segundo_paso) {
           cambiar_opcion(seguridad, Opcion::segundo_paso, static_cast<std::uint8_t>(*opciones_.segundo_paso));
         }
-        cambiar_opcion(seguridad, Opcion::historial_cifrado, base.historial_cifrado());
-        bien = bien && base.guardar_seguridad(seguridad);
+        if (opciones_.cifrar_historial) {
+          cambiar_opcion(seguridad, Opcion::historial_cifrado, *opciones_.cifrar_historial);
+        }
+        bien = bien && aplicar_en_la_base(base, seguridad) && base.guardar_seguridad(seguridad);
         auto usuarios = base.usuarios(ahora_ms());
         std::string quitado;
         std::string permitido;
@@ -260,6 +279,7 @@ bool Servidor::escuchar() {
     escucha_ = red::Socket();
     return false;
   }
+  aplicar_seguridad(seguridad_);
   return true;
 }
 
@@ -449,7 +469,8 @@ void Servidor::aceptar_nuevas() {
     auto conexion = std::make_unique<Conexion>();
     conexion->socket = std::move(aceptada->first);
     conexion->origen = origen;
-    conexion->tls = std::make_unique<cifrado::SesionTls>(*config_, conexion->socket.get());
+    conexion->tls = std::make_unique<cifrado::SesionTls>(*configs_[seguridad_.opciones[Opcion::algoritmo] % configs_.size()],
+                                                         conexion->socket.get());
     conexion->limite = Reloj::now() + opciones_.tiempo_para_saludar;
     if (conexion->tls->ok()) {
       conexiones_.push_back(std::move(conexion));
@@ -479,10 +500,14 @@ void Servidor::renovar_claves() {
     return;
   }
   revisar_voz_en_ = ahora + kCadaCuantoRevisarVoz;
-  for (const std::uint32_t id : voz_->revisar(ahora)) {
+  renovar(voz_->revisar(ahora));
+}
+
+void Servidor::renovar(const std::vector<std::uint32_t>& ids) {
+  const auto ahora = Reloj::now();
+  for (const std::uint32_t id : ids) {
     Conexion* conexion = buscar_conectada(id);
-    const auto clave = conexion != nullptr ? voz_->renovar(id, ahora, derivar_de(*conexion->tls))
-                                           : std::nullopt;
+    const auto clave = conexion != nullptr ? voz_->renovar(id, ahora, derivar_de(*conexion->tls)) : std::nullopt;
     if (clave) {
       encolar(*conexion, *clave);
     }
@@ -815,6 +840,12 @@ void Servidor::atender_pedido(Conexion& conexion, const protocolo::Marco& marco)
     case TipoMensaje::quitar_segundo_paso:
       quitar_segundo_paso(conexion, marco);
       return;
+    case TipoMensaje::pedir_config_seguridad:
+      pedir_config_seguridad(conexion, marco);
+      return;
+    case TipoMensaje::cambiar_config_seguridad:
+      cambiar_config_seguridad(conexion, marco);
+      return;
     case TipoMensaje::ping:
       if (const auto ping = protocolo::leer_mensaje<protocolo::Ping>(marco.cuerpo)) {
         encolar(conexion, protocolo::Pong{ping->marca});
@@ -1142,7 +1173,7 @@ void Servidor::borrar_canal(Conexion& conexion, const protocolo::Marco& marco) {
           if (Conexion* conexion = buscar_conectada(quien)) {
             avisar(Evento::canal_borrado, *conexion);
           }
-          if (!del_dueno) {
+          if (!del_dueno && seguridad_.opciones[Opcion::avisos_de_admins] != 0) {
             avisar_al_dueno(aviso);
           }
         });
@@ -1407,6 +1438,87 @@ void Servidor::quitar_segundo_paso(Conexion& conexion, const protocolo::Marco& m
       difundir(protocolo::UsuarioRol{otra->id, otra->rol()});
     }
   }
+}
+
+void Servidor::pedir_config_seguridad(Conexion& conexion, const protocolo::Marco& marco) {
+  if (!protocolo::leer_mensaje<protocolo::PedirConfigSeguridad>(marco.cuerpo)) {
+    error_de_protocolo(conexion);
+    return;
+  }
+  if (!conexion.es_dueno()) {
+    negar(conexion, TipoMensaje::pedir_config_seguridad, MotivoNegado::sin_permiso);
+    return;
+  }
+  encolar(conexion, protocolo::ConfigSeguridad{seguridad_, opciones_.en_xp});
+}
+
+void Servidor::cambiar_config_seguridad(Conexion& conexion, const protocolo::Marco& marco) {
+  const auto pedido = protocolo::leer_mensaje<protocolo::CambiarConfigSeguridad>(marco.cuerpo);
+  if (!pedido) {
+    error_de_protocolo(conexion);
+    return;
+  }
+  if (!conexion.es_dueno()) {
+    negar(conexion, TipoMensaje::cambiar_config_seguridad, MotivoNegado::sin_permiso);
+    return;
+  }
+  const std::uint32_t quien = conexion.id;
+  const protocolo::AvisoDeSeguridad aviso{protocolo::Seguridad::config_cambiada, ahora_ms(), conexion.nombre, {}};
+  const auto trabajo = [this, quien, aviso, nueva = pedido->seguridad](Base& base) -> std::function<void()> {
+    const bool hecho = aplicar_en_la_base(base, nueva) && base.guardar_seguridad(nueva) && base.anotar(aviso);
+    return [this, quien, nueva, hecho, retencion = base.retencion(), cifra = base.historial_cifrado()] {
+      retencion_ = retencion;
+      historial_cifrado_ = cifra;
+      Conexion* conexion = buscar_conectada(quien);
+      if (!hecho) {
+        avisar(Evento::error_base, red::Direccion{});
+        if (conexion != nullptr) {
+          negar(*conexion, TipoMensaje::cambiar_config_seguridad, MotivoNegado::lleno);
+        }
+        return;
+      }
+      aplicar_seguridad(nueva);
+      if (conexion != nullptr) {
+        avisar(Evento::config_cambiada, *conexion);
+      }
+      if (maximo_en_xp()) {
+        avisar(Evento::maximo_en_xp, red::Direccion{});
+      }
+      for (auto& otra : conexiones_) {
+        if (otra->estado == Estado::conectada && !otra->terminar && otra->es_dueno()) {
+          encolar(*otra, protocolo::ConfigSeguridad{seguridad_, opciones_.en_xp});
+        }
+      }
+    };
+  };
+  if (!base_.pedir(trabajo, true)) {
+    negar(conexion, TipoMensaje::cambiar_config_seguridad, MotivoNegado::lleno);
+  }
+}
+
+void Servidor::aplicar_seguridad(const Seguridad& nueva) {
+  const bool fija_antes = seguridad_.opciones[Opcion::voz_fija] != 0;
+  const bool fija = nueva.opciones[Opcion::voz_fija] != 0;
+  seguridad_ = nueva;
+  opciones_.protocolo.programa_minimo = std::max(programa_minimo_fijo_, version_minima(nueva.opciones));
+  const bool rotacion_propia = opciones_.voz.rotacion != OpcionesVoz{}.rotacion;
+  voz_->ajustar(rotacion_propia ? opciones_.voz.rotacion : std::chrono::seconds(segundos_de_renovacion(nueva.opciones)),
+                static_cast<Algoritmo>(nueva.opciones[Opcion::algoritmo]), fija, Reloj::now());
+  std::vector<std::uint32_t> con_voz;
+  for (auto& conexion : conexiones_) {
+    if (conexion->estado != Estado::conectada || conexion->terminar) {
+      continue;
+    }
+    const protocolo::Rol antes = conexion->rol();
+    revisar_segundo_paso(*conexion);
+    if (conexion->rol() != antes) {
+      difundir(protocolo::UsuarioRol{conexion->id, conexion->rol()});
+    }
+    if (conexion->canal != 0 && fija != fija_antes) {
+      con_voz.push_back(conexion->id);
+    }
+  }
+  renovar(con_voz);
 }
 
 void Servidor::avisar_al_dueno(const protocolo::AvisoDeSeguridad& aviso) {

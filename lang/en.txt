@@ -868,3 +868,6 @@ segundo_paso_cuenta = {1} on {2}
 servidor_uso_permitir_segundo_paso = With --permitir-segundo-paso <short identity> that identity can turn on two-step from any of the devices it already joined from (for example, if it moved to a new PC). Use it only if you are sure those devices are theirs.
 servidor_segundo_paso_permitido_a = {1} will be able to turn on two-step next time they join from one of their devices.
 servidor_sin_identidad_que_permitir = There is no identity {1}. Nothing was changed.
+servidor_config_cambiada = Changed the security settings: {1} ({2})
+servidor_maximo_xp = This server runs on Windows XP: the Maximum level only works behind the relay, which arrives in stage 6.
+seguridad_aviso_config_cambiada = {1} changed the server's security settings ({2}).

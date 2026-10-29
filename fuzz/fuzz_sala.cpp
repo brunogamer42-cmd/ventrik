@@ -164,7 +164,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
         break;
       }
       case 9: {
-        const Negado negado{static_cast<TipoMensaje>(10 + c % 16), static_cast<MotivoNegado>(1 + b % 9)};
+        const Negado negado{static_cast<TipoMensaje>(10 + c % 18), static_cast<MotivoNegado>(1 + b % 9)};
         if (negado.pedido == TipoMensaje::pedir_historial && avisos.pidiendo() && !sala.esperando()) {
           avisos.negado();
         } else {
@@ -195,6 +195,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
         ConfigurarSegundoPaso oferta;
         oferta.secreto.fill(static_cast<std::uint8_t>(a));
         exigir(sala.aplicar(oferta).empty());
+        ventrik::Seguridad seguridad;
+        ventrik::elegir_nivel(seguridad, static_cast<ventrik::Nivel>(b % ventrik::kNiveles));
+        exigir(sala.aplicar(ConfigSeguridad{seguridad, (c & 1) != 0}).empty());
         break;
       }
       case 24: {

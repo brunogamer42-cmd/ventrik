@@ -592,6 +592,8 @@ TEST_CASE("Si un admin borra un canal, al dueño le llega el aviso al momento o 
   REQUIRE(codigo);
   ventrik::servidor::Opciones opciones;
   opciones.codigo_dueno = codigo;
+  opciones.seguridad = ventrik::Seguridad{};
+  REQUIRE(ventrik::cambiar_opcion(*opciones.seguridad, ventrik::Opcion::avisos_de_admins, 1));
   ServidorDePrueba servidor(opciones);
   std::optional<Cliente> ana;
   ana.emplace(servidor, "Ana", codigo);

@@ -868,3 +868,6 @@ segundo_paso_cuenta = {1} en {2}
 servidor_uso_permitir_segundo_paso = Con --permitir-segundo-paso <identidad corta> esa identidad puede activar el segundo paso desde cualquiera de los equipos con que ya entró (por ejemplo, si pasó su identidad a una PC nueva). Usalo solo si estás seguro de que esos equipos son suyos.
 servidor_segundo_paso_permitido_a = {1} va a poder activar el segundo paso la próxima vez que entre desde uno de sus equipos.
 servidor_sin_identidad_que_permitir = No hay ninguna identidad {1}. No se cambió nada.
+servidor_config_cambiada = Cambió la configuración de seguridad: {1} ({2})
+servidor_maximo_xp = Este servidor corre en Windows XP: el nivel Máximo solo funciona detrás del relay, que llega en la etapa 6.
+seguridad_aviso_config_cambiada = {1} cambió la configuración de seguridad del servidor ({2}).
