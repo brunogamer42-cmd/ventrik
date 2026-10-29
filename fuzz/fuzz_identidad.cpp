@@ -4,10 +4,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 
 #include <gsl/gsl>
 
 #include "client/mi_identidad.h"
+#include "common/cifrado/boveda.h"
 #include "common/cifrado/clave.h"
 #include "common/cifrado/huella.h"
 #include "common/cifrado/identidad.h"
@@ -61,6 +63,32 @@ void sobre(gsl::span<const std::uint8_t> datos) {
   }
 }
 
+void boveda(gsl::span<const std::uint8_t> datos) {
+  const auto abierta = ventrik::cifrado::abrir_boveda(datos, std::nullopt);
+  exigir(abierta.boveda.has_value() == (abierta.resultado == ventrik::cifrado::AperturaBoveda::abierta));
+  if (abierta.boveda) {
+    const auto otra_vez = abierta.boveda->armar_archivo(std::nullopt);
+    exigir(otra_vez && ventrik::cifrado::abrir_boveda(*otra_vez, std::nullopt).boveda.has_value());
+    exigir(abierta.boveda->derivar(ventrik::cifrado::kEtiquetaHistorial).has_value());
+  }
+}
+
+void clave_cifrada(gsl::span<const std::uint8_t> datos) {
+  static const ventrik::cifrado::Boveda fija = [] {
+    ventrik::cifrado::Secreto clave(ventrik::cifrado::kBytesBoveda);
+    std::fill(clave.bytes().begin(), clave.bytes().end(), std::uint8_t{7});
+    return ventrik::cifrado::Boveda(std::move(clave));
+  }();
+  const auto identidad = ventrik::cifrado::abrir_clave(datos, fija);
+  if (!identidad) {
+    return;
+  }
+  const auto cerrada = ventrik::cifrado::cerrar_clave(*identidad, fija);
+  exigir(cerrada.has_value());
+  const auto otra_vez = ventrik::cifrado::abrir_clave(*cerrada, fija);
+  exigir(otra_vez && otra_vez->huella() == identidad->huella());
+}
+
 void publica_y_firma(gsl::span<const std::uint8_t> datos) {
   if (datos.size() <= ventrik::cifrado::kBytesClavePublica) {
     return;
@@ -76,7 +104,7 @@ void publica_y_firma(gsl::span<const std::uint8_t> datos) {
   }
 }
 
-}  // namespace
+}
 
 extern "C" int LLVMFuzzerInitialize(int*, char***) {
   cifrado = std::make_unique<ventrik::cifrado::Inicio>();
@@ -90,6 +118,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   contenido_de_copia(entrada);
   sobre(entrada);
   publica_y_firma(entrada);
+  boveda(entrada);
+  clave_cifrada(entrada);
   const auto mia = ventrik::cliente::leer_archivo_de_identidad(entrada);
   if (mia.clave) {
     exigir(ventrik::cifrado::huella_de_publica(mia.clave->publica()).has_value());

@@ -4,12 +4,14 @@
 #include <array>
 #include <utility>
 
+#include <windows.h>
+
 #include <mbedtls/ecp.h>
 #include <mbedtls/x509_crt.h>
 
 #include "common/archivos.h"
 #include "common/cifrado/inicio.h"
-#include "common/pendiente.h"
+#include "common/cifrado/sobre.h"
 
 namespace ventrik::cifrado {
 
@@ -55,7 +57,7 @@ bool armar_certificado(mbedtls_pk_context& clave, mbedtls_x509_crt& certificado)
   return mbedtls_x509_crt_parse_der(&certificado, escrito.data(), escrito.size()) == 0;
 }
 
-}  // namespace
+}
 
 IdentidadServidor::IdentidadServidor(std::unique_ptr<Datos> datos) : datos_(std::move(datos)) {}
 IdentidadServidor::IdentidadServidor(IdentidadServidor&&) noexcept = default;
@@ -99,57 +101,144 @@ mbedtls_x509_crt* IdentidadServidor::certificado() {
 
 namespace {
 
-IdentidadCargada cargar(const std::wstring& archivo, bool& no_existe) {
-  IdentidadCargada cargada;
+constexpr std::array<std::uint8_t, 5> kCabeceraClave = {'V', 'K', 'C', 'S', 1};
+
+struct Leido {
+  std::wstring ruta;
+  LecturaArchivo lectura = LecturaArchivo::error;
   Secreto contenido;
-  no_existe = false;
-  switch (leer_archivo(archivo, kMaximoArchivoClave, contenido)) {
-    case LecturaArchivo::leido:
-      cargada.identidad = IdentidadServidor::desde_der(contenido.bytes());
-      cargada.resultado =
-          cargada.identidad ? ResultadoIdentidad::cargada : ResultadoIdentidad::archivo_invalido;
-      return cargada;
-    case LecturaArchivo::demasiado_grande:
-      cargada.resultado = ResultadoIdentidad::archivo_invalido;
-      return cargada;
-    case LecturaArchivo::error:
-      cargada.resultado = ResultadoIdentidad::error_lectura;
-      return cargada;
-    case LecturaArchivo::no_existe:
-      no_existe = true;
-      break;
-  }
+  bool existe() const { return lectura != LecturaArchivo::no_existe; }
+};
+
+Leido leer(std::wstring ruta, std::size_t maximo) {
+  borrar_temporales_de(ruta);
+  Leido leido;
+  leido.lectura = leer_archivo(ruta, maximo, leido.contenido);
+  leido.ruta = std::move(ruta);
+  return leido;
+}
+
+IdentidadCargada fallo(ResultadoIdentidad resultado, const std::wstring& archivo) {
+  IdentidadCargada cargada;
+  cargada.resultado = resultado;
+  cargada.archivo = archivo;
   return cargada;
 }
 
-}  // namespace
+ResultadoIdentidad resultado_de(AperturaBoveda apertura) {
+  switch (apertura) {
+    case AperturaBoveda::falta_contrasena: return ResultadoIdentidad::falta_contrasena;
+    case AperturaBoveda::contrasena: return ResultadoIdentidad::contrasena_incorrecta;
+    case AperturaBoveda::sin_memoria: return ResultadoIdentidad::sin_memoria;
+    case AperturaBoveda::otro_windows: return ResultadoIdentidad::boveda_de_otro_windows;
+    case AperturaBoveda::abierta:
+    case AperturaBoveda::danada: break;
+  }
+  return ResultadoIdentidad::boveda_danada;
+}
 
-IdentidadCargada cargar_o_crear_identidad(const std::wstring& archivo) {
-  borrar_temporales_de(archivo);
-  bool no_existe = false;
-  IdentidadCargada cargada = cargar(archivo, no_existe);
-  if (!no_existe) {
-    return cargada;
-  }
+bool misma_clave(const std::optional<IdentidadServidor>& una, const IdentidadServidor& otra) {
+  return una && una->huella() == otra.huella();
+}
 
-  auto nueva = IdentidadServidor::crear_nueva();
-  if (!nueva) {
-    cargada.resultado = ResultadoIdentidad::error_cifrado;
+}
+
+std::optional<std::vector<std::uint8_t>> cerrar_clave(const IdentidadServidor& identidad, const Boveda& boveda) {
+  const auto der = identidad.clave_der();
+  const auto clave = boveda.derivar(kEtiquetaClaveServidor);
+  auto sellado = der && clave ? sellar(clave->bytes(), kCabeceraClave, der->bytes()) : std::nullopt;
+  if (sellado) {
+    sellado->insert(sellado->begin(), kCabeceraClave.begin(), kCabeceraClave.end());
+  }
+  return sellado;
+}
+
+std::optional<IdentidadServidor> abrir_clave(gsl::span<const std::uint8_t> archivo, const Boveda& boveda) {
+  const auto clave = boveda.derivar(kEtiquetaClaveServidor);
+  if (!clave || archivo.size() < kCabeceraClave.size() ||
+      !std::equal(kCabeceraClave.begin(), kCabeceraClave.end(), archivo.begin())) {
+    return std::nullopt;
+  }
+  const auto der =
+      abrir_sellado(clave->bytes(), archivo.first(kCabeceraClave.size()), archivo.subspan(kCabeceraClave.size()));
+  return der ? IdentidadServidor::desde_der(der->bytes()) : std::nullopt;
+}
+
+IdentidadCargada cargar_o_crear_identidad(const std::wstring& carpeta, std::optional<std::string_view> contrasena,
+                                          bool base_con_dueno) {
+  const Leido boveda = leer(carpeta + kArchivoBoveda, kMaximoArchivoBoveda);
+  const Leido clave = leer(carpeta + kArchivoClave, kMaximoArchivoClave);
+  const Leido vieja = leer(carpeta + kArchivoClaveVieja, kMaximoArchivoClave);
+  for (const Leido* leido : {&boveda, &clave, &vieja}) {
+    if (leido->lectura == LecturaArchivo::error) {
+      return fallo(ResultadoIdentidad::error_lectura, leido->ruta);
+    }
+  }
+  IdentidadCargada cargada;
+  if (boveda.existe()) {
+    BovedaAbierta abierta = abrir_boveda(boveda.contenido.bytes(), contrasena);
+    const ResultadoIdentidad resultado = resultado_de(abierta.resultado);
+    if (!abierta.boveda) {
+      const bool del_archivo =
+          resultado == ResultadoIdentidad::boveda_danada || resultado == ResultadoIdentidad::boveda_de_otro_windows;
+      return fallo(resultado, del_archivo ? boveda.ruta : std::wstring());
+    }
+    cargada.boveda = std::move(abierta.boveda);
+  } else if (clave.existe()) {
+    return fallo(ResultadoIdentidad::falta_boveda, boveda.ruta);
+  } else if (!vieja.existe() && base_con_dueno) {
+    return fallo(ResultadoIdentidad::falta_clave, clave.ruta);
+  } else {
+    cargada.boveda = Boveda::crear_nueva();
+    const auto archivo = cargada.boveda ? cargada.boveda->armar_archivo(std::nullopt) : std::nullopt;
+    if (!archivo || escribir_archivo_nuevo(boveda.ruta, *archivo) != EscrituraNueva::escrito) {
+      return fallo(ResultadoIdentidad::error_escritura, boveda.ruta);
+    }
+  }
+  if (clave.existe()) {
+    cargada.identidad = abrir_clave(clave.contenido.bytes(), *cargada.boveda);
+    if (!cargada.identidad) {
+      return fallo(ResultadoIdentidad::archivo_invalido, clave.ruta);
+    }
+    if (vieja.existe() && !misma_clave(IdentidadServidor::desde_der(vieja.contenido.bytes()), *cargada.identidad)) {
+      return fallo(ResultadoIdentidad::claves_distintas, vieja.ruta);
+    }
+    if (vieja.existe()) {
+      borrar_con_ceros(vieja.ruta);
+    }
+    cargada.resultado = ResultadoIdentidad::cargada;
     return cargada;
   }
-  VENTRIK_PENDIENTE("clave del servidor sin cifrar en disco: DPAPI o contrasena en la etapa 4");
-  const auto der = nueva->clave_der();
-  const auto escritura = der ? escribir_archivo_nuevo(archivo, der->bytes()) : EscrituraNueva::error;
-  if (escritura == EscrituraNueva::ya_existe) {
-    return cargar(archivo, no_existe);
+  if (boveda.existe() && !vieja.existe()) {
+    return fallo(ResultadoIdentidad::falta_clave, clave.ruta);
   }
-  if (escritura != EscrituraNueva::escrito) {
-    cargada.resultado = ResultadoIdentidad::error_escritura;
-    return cargada;
+  const auto fallar = [&boveda](ResultadoIdentidad resultado, const std::wstring& archivo) {
+    if (!boveda.existe()) {
+      DeleteFileW(boveda.ruta.c_str());
+    }
+    return fallo(resultado, archivo);
+  };
+  cargada.identidad = vieja.existe() ? IdentidadServidor::desde_der(vieja.contenido.bytes()) : IdentidadServidor::crear_nueva();
+  if (!cargada.identidad) {
+    return vieja.existe() ? fallar(ResultadoIdentidad::archivo_invalido, vieja.ruta)
+                          : fallar(ResultadoIdentidad::error_cifrado, std::wstring());
   }
-  cargada.identidad = std::move(nueva);
-  cargada.resultado = ResultadoIdentidad::creada;
+  const auto cerrada = cerrar_clave(*cargada.identidad, *cargada.boveda);
+  const EscrituraNueva escrita = cerrada ? escribir_archivo_nuevo(clave.ruta, *cerrada) : EscrituraNueva::error;
+  Secreto releida;
+  if (escrita != EscrituraNueva::escrito ||
+      leer_archivo(clave.ruta, kMaximoArchivoClave, releida) != LecturaArchivo::leido ||
+      !misma_clave(abrir_clave(releida.bytes(), *cargada.boveda), *cargada.identidad)) {
+    if (escrita == EscrituraNueva::escrito) {
+      DeleteFileW(clave.ruta.c_str());
+    }
+    return fallar(ResultadoIdentidad::error_escritura, clave.ruta);
+  }
+  if (vieja.existe()) {
+    borrar_con_ceros(vieja.ruta);
+  }
+  cargada.resultado = vieja.existe() ? ResultadoIdentidad::convertida : ResultadoIdentidad::creada;
   return cargada;
 }
 
-}  // namespace ventrik::cifrado
+}

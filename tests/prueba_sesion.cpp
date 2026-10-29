@@ -12,6 +12,7 @@
 #include "client/sesion.h"
 #include "common/cifrado/codigo_dueno.h"
 #include "cliente_de_prueba.h"
+#include "proceso_de_prueba.h"
 #include <doctest/doctest.h>
 
 using namespace prueba;
@@ -298,6 +299,49 @@ TEST_CASE("Sin guardar, el chat sale una sola vez y el contador queda en la base
     CHECK(base->canales()[0].contador == 2);
   }
   CHECK(DeleteFileW(archivo.c_str()));
+}
+
+TEST_CASE("Con el historial cifrado, el chat se manda y se pide igual, y la base no guarda el texto") {
+  wchar_t carpeta[MAX_PATH] = {};
+  REQUIRE(GetTempPathW(MAX_PATH, carpeta) > 0);
+  const std::wstring archivo = std::wstring(carpeta) + L"ventrik_cifrado_" + std::to_wstring(GetCurrentProcessId()) + L".db";
+  const auto borrar = [&archivo] {
+    for (const auto* final : {L"", L"-wal", L"-shm"}) {
+      DeleteFileW((archivo + final).c_str());
+    }
+  };
+  borrar();
+  ventrik::servidor::Opciones opciones;
+  opciones.archivo_base = archivo;
+  opciones.cifrar_historial = true;
+  {
+    ServidorDePrueba servidor(opciones);
+    Cliente ana(servidor, "Ana");
+    Cliente beto(servidor, "Beto");
+    ana.entrar_con_voz();
+    beto.entrar_con_voz();
+    ana.ordenar(EnviarChat{kCanalGeneral, "una frase secreta del chat"});
+    ana.ordenar(EnviarChat{kCanalGeneral, "otra frase secreta 😀"});
+    REQUIRE(beto.esperar<MensajeChat>([](const MensajeChat& m) { return m.numero == 2; }));
+    beto.ordenar(PedirHistorial{kCanalGeneral, 0});
+    const auto historial = beto.esperar<Historial>();
+    REQUIRE(historial);
+    REQUIRE(historial->mensajes.size() == 2);
+    CHECK(historial->mensajes[0].texto == "otra frase secreta 😀");
+    CHECK(historial->mensajes[1].texto == "una frase secreta del chat");
+    CHECK(historial->mensajes[1].autor == "Ana");
+  }
+  for (const auto* final : {L"", L"-wal"}) {
+    CHECK(leer_todo(archivo + final).find("frase secreta") == std::string::npos);
+  }
+  {
+    auto sin_clave = ventrik::servidor::Base::abrir(archivo, "General");
+    REQUIRE(sin_clave);
+    CHECK(sin_clave->historial_cifrado());
+    CHECK(sin_clave->canales()[0].contador == 2);
+    CHECK(sin_clave->historial({kCanalGeneral, 0}, 65536).mensajes.empty());
+  }
+  borrar();
 }
 
 TEST_CASE("Entrar a la voz y salir muy seguido tiene tope") {

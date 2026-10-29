@@ -60,6 +60,7 @@ struct Opciones {
   std::optional<cifrado::CodigoDueno> codigo_dueno;
   bool quitar_dueno = false;
   std::optional<std::string> poner_contrasena;
+  std::optional<bool> cifrar_historial;
   std::string liberar_nombre;
   std::string nombre_servidor;
   std::string nombre_de_fabrica = "Ventrik";
@@ -113,6 +114,8 @@ class Servidor {
   void codigo_para_reclamar(std::optional<cifrado::CodigoDueno> codigo) { opciones_.codigo_dueno = codigo; }
   const std::string& nombre() const { return nombre_; }
   bool pide_contrasena() const { return contrasena_.has_value(); }
+  void clave_del_historial(cifrado::Secreto clave) { clave_historial_ = std::move(clave); }
+  bool historial_cifrado() const { return historial_cifrado_; }
 
   void correr(const std::atomic<bool>& seguir);
 
@@ -208,6 +211,8 @@ class Servidor {
   std::pair<std::chrono::steady_clock::time_point, int> nuevas_en_total_{};
   std::chrono::steady_clock::time_point proxima_limpieza_{};
   std::optional<ContrasenaGuardada> contrasena_;
+  cifrado::Secreto clave_historial_;
+  bool historial_cifrado_ = false;
   std::uint64_t proxima_marca_ = 0;
   std::map<std::uint32_t, Espera> esperas_por_ip_;
   std::map<ClaveDeUsuario, Espera> esperas_por_clave_;

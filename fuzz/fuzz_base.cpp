@@ -1,8 +1,11 @@
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <windows.h>
 
@@ -10,12 +13,16 @@
 #include <sqlite3.h>
 
 #include "common/archivos.h"
+#include "common/cifrado/inicio.h"
+#include "common/cifrado/sobre.h"
 #include "common/texto.h"
 #include "server/base.h"
 
 using ventrik::servidor::Base;
 
 namespace {
+std::unique_ptr<ventrik::cifrado::Inicio> cifrado;
+
 void exigir(bool condicion) {
   if (!condicion) {
     std::abort();
@@ -32,6 +39,74 @@ bool esta_sana(const std::wstring& archivo) {
   sqlite3_finalize(consulta);
   sqlite3_close(base);
   return sana;
+}
+
+std::int64_t contar(const std::wstring& archivo, const char* sql) {
+  sqlite3* base = nullptr;
+  sqlite3_stmt* consulta = nullptr;
+  const bool bien = sqlite3_open16(archivo.c_str(), &base) == SQLITE_OK &&
+                    sqlite3_prepare_v2(base, sql, -1, &consulta, nullptr) == SQLITE_OK &&
+                    sqlite3_step(consulta) == SQLITE_ROW;
+  const std::int64_t cuantos = bien ? sqlite3_column_int64(consulta, 0) : -1;
+  sqlite3_finalize(consulta);
+  sqlite3_close(base);
+  return cuantos;
+}
+
+bool ejecutar_en(const std::wstring& archivo, const char* sql) {
+  sqlite3* base = nullptr;
+  const bool bien = sqlite3_open16(archivo.c_str(), &base) == SQLITE_OK &&
+                    sqlite3_exec(base, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
+  sqlite3_close(base);
+  return bien;
+}
+
+ventrik::cifrado::Secreto clave_fija() {
+  ventrik::cifrado::Secreto clave(ventrik::cifrado::kBytesClaveSimetrica);
+  std::fill(clave.bytes().begin(), clave.bytes().end(), std::uint8_t{7});
+  return clave;
+}
+
+std::vector<ventrik::protocolo::Historial> historiales(Base& base, const std::vector<std::uint32_t>& canales) {
+  std::vector<ventrik::protocolo::Historial> lista;
+  for (const std::uint32_t canal : canales) {
+    lista.push_back(base.historial({canal, 0, ventrik::protocolo::Sentido::viejos, 256},
+                                   ventrik::protocolo::kMaximoCuerpo - 64));
+  }
+  return lista;
+}
+
+bool iguales(const std::vector<ventrik::protocolo::Historial>& unos,
+             const std::vector<ventrik::protocolo::Historial>& otros) {
+  return std::equal(unos.begin(), unos.end(), otros.begin(), otros.end(), [](const auto& uno, const auto& otro) {
+    return uno.hay_mas == otro.hay_mas &&
+           std::equal(uno.mensajes.begin(), uno.mensajes.end(), otro.mensajes.begin(), otro.mensajes.end(),
+                      [](const auto& a, const auto& b) {
+                        return a.id == b.id && a.numero == b.numero && a.autor == b.autor &&
+                               a.hora_ms == b.hora_ms && a.texto == b.texto;
+                      });
+  });
+}
+
+void revisar_cifrado(Base& base, const std::wstring& archivo, bool sana) {
+  const bool sin_trucos =
+      sana && contar(archivo, "SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger', 'view')") == 0 &&
+      ejecutar_en(archivo, "VACUUM");
+  std::vector<std::uint32_t> canales;
+  for (const auto& canal : base.canales()) {
+    canales.push_back(canal.id);
+  }
+  const auto antes = historiales(base, canales);
+  if (base.cifrar_historial(true)) {
+    exigir(!sin_trucos || (base.historial_cifrado() && iguales(antes, historiales(base, canales)) &&
+                           contar(archivo, "SELECT COUNT(*) FROM mensajes WHERE sellado IS NULL") == 0));
+    if (sin_trucos && ejecutar_en(archivo, "UPDATE mensajes SET numero = numero + 2")) {
+      for (const auto& historial : historiales(base, canales)) {
+        exigir(historial.mensajes.empty());
+      }
+    }
+  }
+  base.cifrar_historial(false);
 }
 
 std::wstring archivo_de_prueba() {
@@ -60,6 +135,12 @@ void revisar(Base& base, const ventrik::protocolo::PedirHistorial& pedido) {
 }
 }
 
+extern "C" int LLVMFuzzerInitialize(int*, char***) {
+  cifrado = std::make_unique<ventrik::cifrado::Inicio>();
+  exigir(cifrado->ok());
+  return 0;
+}
+
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t largo) {
   static const std::wstring archivo = archivo_de_prueba();
   ventrik::borrar_temporales_de(archivo);
@@ -70,7 +151,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     return 0;
   }
   const bool sana = esta_sana(archivo);
-  auto base = Base::abrir(archivo, "General");
+  auto base = Base::abrir(archivo, "General", clave_fija());
   if (!base) {
     return 0;
   }
@@ -85,6 +166,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     revisar(*base, {canal.id, 0, ventrik::protocolo::Sentido::nuevos, 7});
   }
   base->retencion();
+  base->historial_cifrado();
   const bool tanda = base->empezar_tanda();
   base->crear_canal("Nuevo");
   base->crear_canal("Texto", ventrik::protocolo::TipoCanal::texto, true);
@@ -136,5 +218,6 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   base->liberar_nombre("Ana");
   base->borrar_usuarios({nuevo.clave});
   base->borrar_viejos(UINT64_MAX / 2);
+  revisar_cifrado(*base, archivo, sana);
   return 0;
 }

@@ -126,6 +126,7 @@ add_library(ventrik_comun STATIC
   src/common/archivos.cpp
   src/common/niveles.cpp
   src/common/cifrado/base32.cpp
+  src/common/cifrado/boveda.cpp
   src/common/cifrado/cadena.cpp
   src/common/cifrado/clave.cpp
   src/common/cifrado/codigo_dueno.cpp

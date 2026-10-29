@@ -39,7 +39,7 @@ class ServidorExterno {
                               " " + std::to_string(puerto_) + "\r\n";
     REQUIRE(esperar_que([&] { return salida().find(listo) != std::string::npos || !proceso_.vivo(); }, 20s));
     REQUIRE(proceso_.vivo());
-    auto cargada = ventrik::cifrado::cargar_o_crear_identidad(carpeta + L"\\clave_servidor.der");
+    auto cargada = ventrik::cifrado::cargar_o_crear_identidad(carpeta, std::nullopt, true);
     REQUIRE(cargada.resultado == ventrik::cifrado::ResultadoIdentidad::cargada);
     huella_ = cargada.identidad->huella();
     ventrik::cifrado::Secreto leido;

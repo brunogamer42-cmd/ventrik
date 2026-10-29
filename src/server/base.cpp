@@ -12,6 +12,8 @@
 #include <gsl/gsl>
 #include <sqlite3.h>
 
+#include "common/cifrado/sobre.h"
+#include "common/protocol/bytes.h"
 #include "common/texto.h"
 #include "common/utf.h"
 
@@ -21,7 +23,7 @@ constexpr std::size_t kMaximoPedidosEnCola = 4096;
 constexpr std::size_t kPedidosPorTanda = 64;
 constexpr std::chrono::hours kCadaCuantoLimpiar{1};
 constexpr std::chrono::minutes kCadaCuantoAsentar{1};
-constexpr int kVersionEsquema = 4;
+constexpr int kVersionEsquema = 5;
 constexpr int kMaximoFila = 64 * 1024;
 
 const char kAjustes[] =
@@ -37,11 +39,13 @@ constexpr const char* kSentencias[] = {
     "RELEASE paso",
     "ROLLBACK TO paso",
     "UPDATE canales SET contador = MAX(contador, ?2) WHERE id = ?1",
-    "INSERT INTO mensajes(canal, numero, autor, hora, texto) VALUES (?1, ?2, ?3, ?4, ?5)",
-    "SELECT id, numero, autor, hora, texto FROM mensajes WHERE canal = ?1"
-    " AND id < ?2 AND numero BETWEEN 0 AND 4294967295 ORDER BY id DESC LIMIT ?3",
-    "SELECT id, numero, autor, hora, texto FROM mensajes WHERE canal = ?1"
-    " AND id > ?2 AND numero BETWEEN 0 AND 4294967295 ORDER BY id ASC LIMIT ?3",
+    "INSERT INTO mensajes(canal, numero, autor, hora, texto, sellado) SELECT ?1, ?2, ?3, ?4, IIF(cifrado, '', ?5),"
+    " IIF(cifrado, ventrik_sellar(?1, ?2, ?4, ?3, ?5), NULL)"
+    " FROM (SELECT EXISTS (SELECT 1 FROM config WHERE clave = 'cifrado' AND valor = 1) AS cifrado)",
+    "SELECT id, numero, autor, hora, IIF(sellado IS NULL, texto, ventrik_abrir(canal, numero, hora, autor, sellado))"
+    " FROM mensajes WHERE canal = ?1 AND id < ?2 AND numero BETWEEN 0 AND 4294967295 ORDER BY id DESC LIMIT ?3",
+    "SELECT id, numero, autor, hora, IIF(sellado IS NULL, texto, ventrik_abrir(canal, numero, hora, autor, sellado))"
+    " FROM mensajes WHERE canal = ?1 AND id > ?2 AND numero BETWEEN 0 AND 4294967295 ORDER BY id ASC LIMIT ?3",
 };
 
 const char kEsquema[] =
@@ -52,7 +56,7 @@ const char kEsquema[] =
     " solo_admins INTEGER NOT NULL DEFAULT 0, contador INTEGER NOT NULL DEFAULT 0);"
     "CREATE TABLE IF NOT EXISTS mensajes(id INTEGER PRIMARY KEY AUTOINCREMENT,"
     " canal INTEGER NOT NULL, autor TEXT NOT NULL, hora INTEGER NOT NULL, texto TEXT NOT NULL,"
-    " numero INTEGER NOT NULL DEFAULT 0);"
+    " numero INTEGER NOT NULL DEFAULT 0, sellado BLOB);"
     "CREATE INDEX IF NOT EXISTS mensajes_por_canal ON mensajes(canal, id);"
     "CREATE INDEX IF NOT EXISTS mensajes_por_hora ON mensajes(hora);"
     "CREATE TABLE IF NOT EXISTS config(clave TEXT PRIMARY KEY, valor INTEGER NOT NULL);"
@@ -89,6 +93,20 @@ const char kMigrarDe1[] =
     " WHERE mensajes.canal = canales.id);"
     "PRAGMA user_version=4;"
     "COMMIT;";
+
+const char kMigrarA5[] =
+    "BEGIN;"
+    "ALTER TABLE mensajes ADD COLUMN sellado BLOB;"
+    "PRAGMA user_version=5;"
+    "COMMIT;";
+
+const char kCifrarViejos[] =
+    "UPDATE mensajes SET sellado = ventrik_sellar(canal, numero, hora, autor, texto), texto = ''"
+    " WHERE sellado IS NULL";
+
+const char kDescifrarViejos[] =
+    "UPDATE mensajes SET texto = ventrik_abrir(canal, numero, hora, autor, sellado), sellado = NULL"
+    " WHERE sellado IS NOT NULL AND ventrik_abrir(canal, numero, hora, autor, sellado) IS NOT NULL";
 
 class Consulta {
  public:
@@ -188,6 +206,46 @@ bool es_aviso_valido(const protocolo::AvisoDeSeguridad& aviso) {
          aviso.hora_ms <= kMaximoMs && es_nombre_o_nada(aviso.quien) && es_nombre_o_nada(aviso.detalle);
 }
 
+gsl::span<const std::uint8_t> bytes_de(sqlite3_value* valor) {
+  const void* datos = sqlite3_value_blob(valor);
+  const int largo = sqlite3_value_bytes(valor);
+  return datos == nullptr || largo <= 0
+             ? gsl::span<const std::uint8_t>()
+             : gsl::span<const std::uint8_t>(static_cast<const std::uint8_t*>(datos), static_cast<std::size_t>(largo));
+}
+
+std::vector<std::uint8_t> asociados(gsl::span<sqlite3_value*> valores) {
+  protocolo::Escritor escritor;
+  for (sqlite3_value* numero : valores.first(3)) {
+    escritor.escribir_u64(static_cast<std::uint64_t>(sqlite3_value_int64(numero)));
+  }
+  const auto autor = bytes_de(valores[3]);
+  escritor.escribir_u32(static_cast<std::uint32_t>(autor.size()));
+  escritor.escribir_bytes(autor);
+  return std::move(escritor).soltar();
+}
+
+void sellar_en_sql(sqlite3_context* contexto, int cantidad, sqlite3_value** valores) {
+  const auto lista = gsl::make_span(valores, static_cast<std::size_t>(cantidad));
+  const auto& clave = *static_cast<const cifrado::Secreto*>(sqlite3_user_data(contexto));
+  const auto sellado = cifrado::sellar(clave.bytes(), asociados(lista), bytes_de(lista[4]));
+  if (sellado) {
+    sqlite3_result_blob(contexto, sellado->data(), static_cast<int>(sellado->size()), SQLITE_TRANSIENT);
+  } else {
+    sqlite3_result_error(contexto, "ventrik_sellar", -1);
+  }
+}
+
+void abrir_en_sql(sqlite3_context* contexto, int cantidad, sqlite3_value** valores) {
+  const auto lista = gsl::make_span(valores, static_cast<std::size_t>(cantidad));
+  const auto& clave = *static_cast<const cifrado::Secreto*>(sqlite3_user_data(contexto));
+  const auto abierto = cifrado::abrir_sellado(clave.bytes(), asociados(lista), bytes_de(lista[4]));
+  if (abierto && abierto->size() > 0) {
+    sqlite3_result_text(contexto, reinterpret_cast<const char*>(abierto->bytes().data()),
+                        static_cast<int>(abierto->size()), SQLITE_TRANSIENT);
+  }
+}
+
 void leer_avisos(Consulta& consulta, std::vector<protocolo::AvisoDeSeguridad>& lista) {
   while (consulta.paso() == SQLITE_ROW) {
     const std::int64_t tipo = consulta.columna_entero(0);
@@ -214,7 +272,29 @@ bool se_puede_desalojar(const UsuarioGuardado& usuario, std::uint64_t ahora) {
          usuario.visto_ms < hace_dias(ahora, kDiasParaDesalojar);
 }
 
-std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string& nombre_general) {
+std::optional<bool> tiene_dueno_guardado(const std::wstring& archivo) {
+  if (GetFileAttributesW(archivo.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    const DWORD error = GetLastError();
+    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? std::optional<bool>(false) : std::nullopt;
+  }
+  sqlite3* abierta = nullptr;
+  const auto cerrar = gsl::finally([&abierta] { sqlite3_close(abierta); });
+  if (sqlite3_open_v2(a_utf8(archivo).c_str(), &abierta, SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK) {
+    return std::nullopt;
+  }
+  Consulta tabla(abierta, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'usuarios'");
+  if (tabla.paso() != SQLITE_ROW) {
+    return std::nullopt;
+  }
+  if (tabla.columna_entero(0) == 0) {
+    return false;
+  }
+  Consulta dueno(abierta, "SELECT EXISTS (SELECT 1 FROM usuarios WHERE dueno = 1)");
+  return dueno.paso() == SQLITE_ROW ? std::optional<bool>(dueno.columna_entero(0) == 1) : std::nullopt;
+}
+
+std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string& nombre_general,
+                                  cifrado::Secreto clave_historial) {
   const std::string ruta = archivo.empty() ? std::string(":memory:") : a_utf8(archivo);
   sqlite3* abierta = nullptr;
   if (ruta.empty() ||
@@ -223,8 +303,15 @@ std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string
     sqlite3_close(abierta);
     return nullptr;
   }
-  auto base = std::make_unique<Base>(Llave{}, abierta);
+  auto base = std::make_unique<Base>(Llave{}, abierta, std::move(clave_historial));
   sqlite3_limit(abierta, SQLITE_LIMIT_LENGTH, kMaximoFila);
+  for (const auto& [nombre, funcion] :
+       {std::make_pair("ventrik_sellar", sellar_en_sql), std::make_pair("ventrik_abrir", abrir_en_sql)}) {
+    if (sqlite3_create_function_v2(abierta, nombre, 5, SQLITE_UTF8 | SQLITE_DIRECTONLY, &base->clave_historial_,
+                                   funcion, nullptr, nullptr, nullptr) != SQLITE_OK) {
+      return nullptr;
+    }
+  }
   std::int64_t guardada = -1;
   {
     Consulta version(abierta, "PRAGMA user_version");
@@ -234,8 +321,8 @@ std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string
   }
   if (sqlite3_db_config(abierta, SQLITE_DBCONFIG_DEFENSIVE, 1, nullptr) != SQLITE_OK ||
       guardada < 0 || guardada > kVersionEsquema || !ejecutar(abierta, kEsquema) ||
-      (guardada != 1 && !ejecutar(abierta, "PRAGMA user_version=4")) ||
-      (guardada == 1 && !ejecutar(abierta, kMigrarDe1))) {
+      (guardada == 1 && !ejecutar(abierta, kMigrarDe1)) ||
+      !ejecutar(abierta, guardada >= 1 && guardada < kVersionEsquema ? kMigrarA5 : "PRAGMA user_version=5")) {
     return nullptr;
   }
   Consulta general(abierta,
@@ -248,7 +335,8 @@ std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string
   return base;
 }
 
-Base::Base(Llave, sqlite3* base) : base_(base), hilo_(GetCurrentThreadId()) {}
+Base::Base(Llave, sqlite3* base, cifrado::Secreto clave_historial)
+    : base_(base), clave_historial_(std::move(clave_historial)), hilo_(GetCurrentThreadId()) {}
 
 Base::~Base() {
   for (sqlite3_stmt* preparada : preparadas_) {
@@ -473,6 +561,30 @@ bool Base::cambiar_retencion(Retencion retencion) {
   Consulta consulta(base_, "INSERT OR REPLACE INTO config(clave, valor) VALUES ('retencion', ?1)");
   consulta.entero(1, static_cast<std::int64_t>(retencion));
   return consulta.paso() == SQLITE_DONE;
+}
+
+bool Base::historial_cifrado() {
+  if (!es_su_hilo()) {
+    return false;
+  }
+  Consulta consulta(base_, "SELECT EXISTS (SELECT 1 FROM config WHERE clave = 'cifrado' AND valor = 1)");
+  return consulta.paso() == SQLITE_ROW && consulta.columna_entero(0) == 1;
+}
+
+bool Base::cifrar_historial(bool cifrar) {
+  if (!es_su_hilo() || en_tanda() || clave_historial_.size() != cifrado::kBytesClaveSimetrica ||
+      !correr(Sentencia::empezar)) {
+    return false;
+  }
+  bool hecho = false;
+  {
+    Consulta opcion(base_, "INSERT OR REPLACE INTO config(clave, valor) VALUES ('cifrado', ?1)");
+    opcion.entero(1, cifrar);
+    hecho = opcion.paso() == SQLITE_DONE;
+  }
+  hecho = hecho && ejecutar(base_, cifrar ? kCifrarViejos : kDescifrarViejos) && correr(Sentencia::confirmar);
+  deshacer_lo_abierto();
+  return hecho && ejecutar(base_, "VACUUM") && asentar();
 }
 
 void Base::borrar_viejos(std::uint64_t ahora) {
@@ -729,12 +841,12 @@ ServicioBase::~ServicioBase() {
   }
 }
 
-bool ServicioBase::arrancar(std::wstring archivo, std::string nombre_general,
-                            const red::Despertador& despertador) {
+bool ServicioBase::arrancar(std::wstring archivo, std::string nombre_general, const red::Despertador& despertador,
+                            cifrado::Secreto clave_historial) {
   despertador_ = &despertador;
-  hilo_ = std::thread([this, archivo = std::move(archivo),
-                       nombre_general = std::move(nombre_general)]() mutable {
-    trabajar(std::move(archivo), std::move(nombre_general));
+  hilo_ = std::thread([this, archivo = std::move(archivo), nombre_general = std::move(nombre_general),
+                       clave_historial = std::move(clave_historial)]() mutable {
+    trabajar(std::move(archivo), std::move(nombre_general), std::move(clave_historial));
   });
   std::unique_lock<std::mutex> candado(candado_);
   abierta_.wait(candado, [this] { return pudo_abrir_.has_value(); });
@@ -764,8 +876,8 @@ void ServicioBase::atender_respuestas() {
   }
 }
 
-void ServicioBase::trabajar(std::wstring archivo, std::string nombre_general) {
-  auto base = Base::abrir(archivo, nombre_general);
+void ServicioBase::trabajar(std::wstring archivo, std::string nombre_general, cifrado::Secreto clave_historial) {
+  auto base = Base::abrir(archivo, nombre_general, std::move(clave_historial));
   {
     const std::lock_guard<std::mutex> candado(candado_);
     pudo_abrir_ = base != nullptr;

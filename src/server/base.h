@@ -13,6 +13,7 @@
 #include <thread>
 #include <vector>
 
+#include "common/cifrado/secreto.h"
 #include "common/protocol/pedidos.h"
 #include "common/red/red.h"
 
@@ -50,12 +51,14 @@ struct AvisosPendientes {
 
 bool esta_vencido(const UsuarioGuardado& usuario, std::uint64_t ahora_ms);
 bool se_puede_desalojar(const UsuarioGuardado& usuario, std::uint64_t ahora_ms);
+std::optional<bool> tiene_dueno_guardado(const std::wstring& archivo);
 
 using protocolo::kCanalGeneral;
 
 class Base {
  public:
-  static std::unique_ptr<Base> abrir(const std::wstring& archivo, const std::string& nombre_general);
+  static std::unique_ptr<Base> abrir(const std::wstring& archivo, const std::string& nombre_general,
+                                     cifrado::Secreto clave_historial = {});
   ~Base();
   Base(const Base&) = delete;
   Base& operator=(const Base&) = delete;
@@ -74,6 +77,8 @@ class Base {
 
   Retencion retencion();
   bool cambiar_retencion(Retencion retencion);
+  bool historial_cifrado();
+  bool cifrar_historial(bool cifrar);
   void borrar_viejos(std::uint64_t ahora_ms);
 
   std::optional<std::vector<UsuarioGuardado>> usuarios(std::uint64_t ahora_ms);
@@ -105,7 +110,7 @@ class Base {
   };
 
  public:
-  Base(Llave, sqlite3* base);
+  Base(Llave, sqlite3* base, cifrado::Secreto clave_historial);
 
  private:
   enum class Sentencia : std::size_t {
@@ -127,6 +132,7 @@ class Base {
   bool correr(Sentencia cual);
 
   sqlite3* base_;
+  cifrado::Secreto clave_historial_;
   unsigned long hilo_;
   std::array<sqlite3_stmt*, static_cast<std::size_t>(Sentencia::total)> preparadas_{};
   std::int64_t cambios_asentados_ = 0;
@@ -141,13 +147,13 @@ class ServicioBase {
   ServicioBase(const ServicioBase&) = delete;
   ServicioBase& operator=(const ServicioBase&) = delete;
 
-  bool arrancar(std::wstring archivo, std::string nombre_general,
-                const red::Despertador& despertador);
+  bool arrancar(std::wstring archivo, std::string nombre_general, const red::Despertador& despertador,
+                cifrado::Secreto clave_historial = {});
   bool pedir(Trabajo trabajo);
   void atender_respuestas();
 
  private:
-  void trabajar(std::wstring archivo, std::string nombre_general);
+  void trabajar(std::wstring archivo, std::string nombre_general, cifrado::Secreto clave_historial);
 
   const red::Despertador* despertador_ = nullptr;
   std::mutex candado_;

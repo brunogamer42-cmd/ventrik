@@ -123,7 +123,7 @@ Servidor::~Servidor() = default;
 bool Servidor::escuchar() {
   config_ = cifrado::ConfigTls::para_servidor(identidad_);
   if (!config_ || !despertador_.ok() ||
-      !base_.arrancar(opciones_.archivo_base, opciones_.nombre_general, despertador_)) {
+      !base_.arrancar(opciones_.archivo_base, opciones_.nombre_general, despertador_, std::move(clave_historial_))) {
     return false;
   }
   struct Cargado {
@@ -132,6 +132,7 @@ bool Servidor::escuchar() {
     std::optional<std::vector<UsuarioGuardado>> usuarios;
     std::string nombre;
     std::string contrasena;
+    bool cifra = false;
     bool bien = false;
   };
   std::promise<Cargado> cargado;
@@ -141,14 +142,15 @@ bool Servidor::escuchar() {
                           (opciones_.liberar_nombre.empty() || base.liberar_nombre(opciones_.liberar_nombre)) &&
                           (!es_nombre_valido(opciones_.nombre_servidor) ||
                            base.guardar_texto("nombre", opciones_.nombre_servidor)) &&
-                          (!opciones_.poner_contrasena || base.guardar_texto("contrasena", *opciones_.poner_contrasena));
+                          (!opciones_.poner_contrasena || base.guardar_texto("contrasena", *opciones_.poner_contrasena)) &&
+                          (!opciones_.cifrar_historial || base.cifrar_historial(*opciones_.cifrar_historial));
         cargado.set_value({base.canales(), base.retencion(), base.usuarios(ahora_ms()), base.texto_guardado("nombre"),
-                           base.texto_guardado("contrasena"), bien});
+                           base.texto_guardado("contrasena"), base.historial_cifrado(), bien});
         return {};
       })) {
     return false;
   }
-  auto [canales, retencion, usuarios, nombre, contrasena, bien] = futuro.get();
+  auto [canales, retencion, usuarios, nombre, contrasena, cifra, bien] = futuro.get();
   contrasena_ = contrasena.empty() ? std::nullopt : leer_contrasena(contrasena);
   if (!bien || !usuarios || (!contrasena.empty() && !contrasena_)) {
     return false;
@@ -157,6 +159,7 @@ bool Servidor::escuchar() {
     comprobador_.arrancar();
   }
   retencion_ = retencion;
+  historial_cifrado_ = cifra;
   nombre_ = es_nombre_valido(nombre) ? nombre : opciones_.nombre_de_fabrica;
   for (auto& usuario : *usuarios) {
     std::wstring comparable = nombre_para_comparar(usuario.nombre);

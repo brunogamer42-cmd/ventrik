@@ -12,8 +12,12 @@
 #include <sqlite3.h>
 
 #include "common/archivos.h"
+#include "common/cifrado/inicio.h"
+#include "common/cifrado/sobre.h"
+#include "common/protocol/bytes.h"
 #include "common/red/red.h"
 #include "common/utf.h"
+#include "proceso_de_prueba.h"
 #include "server/base.h"
 #include <doctest/doctest.h>
 
@@ -64,6 +68,31 @@ std::wstring archivo_temporal() {
   REQUIRE(GetTempPathW(MAX_PATH, carpeta) > 0);
   return std::wstring(carpeta) + L"ventrik_prueba_" + std::to_wstring(GetCurrentProcessId()) +
          L"_ñ.db";
+}
+
+void borrar_base(const std::wstring& archivo) {
+  for (const auto* final : {L"", L"-wal", L"-shm", L"-journal"}) {
+    DeleteFileW((archivo + final).c_str());
+  }
+}
+
+ventrik::cifrado::Secreto clave_de_prueba() {
+  ventrik::cifrado::Secreto clave(ventrik::cifrado::kBytesClaveSimetrica);
+  REQUIRE(ventrik::cifrado::aleatorio(nullptr, clave.bytes().data(), clave.size()) == 0);
+  return clave;
+}
+
+bool en_el_disco(const std::wstring& archivo, const std::string& texto) {
+  return (prueba::leer_todo(archivo) + prueba::leer_todo(archivo + L"-wal")).find(texto) != std::string::npos;
+}
+
+bool iguales(const ventrik::protocolo::Historial& uno, const ventrik::protocolo::Historial& otro) {
+  return uno.hay_mas == otro.hay_mas &&
+         std::equal(uno.mensajes.begin(), uno.mensajes.end(), otro.mensajes.begin(), otro.mensajes.end(),
+                    [](const auto& a, const auto& b) {
+                      return a.id == b.id && a.numero == b.numero && a.autor == b.autor && a.hora_ms == b.hora_ms &&
+                             a.texto == b.texto;
+                    });
 }
 }
 
@@ -377,7 +406,7 @@ TEST_CASE("Una base de una versión futura o que no es una base no se abre") {
       archivo, gsl::make_span(reinterpret_cast<const std::uint8_t*>(basura.data()), basura.size())));
   CHECK_FALSE(Base::abrir(archivo, "General"));
   REQUIRE(DeleteFileW(archivo.c_str()));
-  armar_base(archivo, "PRAGMA user_version=5");
+  armar_base(archivo, "PRAGMA user_version=6");
   CHECK_FALSE(Base::abrir(archivo, "General"));
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master") == 0);
   CHECK(DeleteFileW(archivo.c_str()));
@@ -527,7 +556,7 @@ TEST_CASE("Las identidades se guardan, se renombran y las que no vuelven en 180 
   }
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM equipos") == 0);
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM usuarios") == 0);
-  CHECK(leer_numero(archivo, "PRAGMA user_version") == 4);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 5);
   for (const auto* final : {L"", L"-wal", L"-shm"}) {
     DeleteFileW((archivo + final).c_str());
   }
@@ -658,7 +687,7 @@ TEST_CASE("El registro de seguridad guarda lo último de cada tipo, así muchas 
   CHECK(base->registro(5).size() == 5);
 }
 
-TEST_CASE("Una base de la versión 2 pasa sola a la 4 y suma las tablas de identidades y de seguridad") {
+TEST_CASE("Una base de la versión 2 pasa sola a la 5 y suma las tablas de identidades y de seguridad") {
   const std::wstring archivo = archivo_temporal();
   DeleteFileW(archivo.c_str());
   armar_base(archivo,
@@ -677,9 +706,276 @@ TEST_CASE("Una base de la versión 2 pasa sola a la 4 y suma las tablas de ident
     CHECK(base->canales().size() == 2);
     CHECK(base->usuarios(1800000000000ull)->empty());
   }
-  CHECK(leer_numero(archivo, "PRAGMA user_version") == 4);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 5);
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM pragma_table_info('mensajes') WHERE name = 'sellado'") == 1);
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('usuarios', 'equipos', 'textos', 'avisos', 'seguridad')") == 5);
   for (const auto* final : {L"", L"-wal", L"-shm"}) {
     DeleteFileW((archivo + final).c_str());
+  }
+}
+
+TEST_CASE("Una base de la versión 4 pasa a la 5: sus mensajes se siguen leyendo y se pueden cifrar") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1, "de antes"));
+  }
+  armar_base(archivo, "ALTER TABLE mensajes DROP COLUMN sellado; PRAGMA user_version=4;");
+  REQUIRE(leer_numero(archivo, "SELECT COUNT(*) FROM pragma_table_info('mensajes') WHERE name = 'sellado'") == 0);
+  {
+    auto base = Base::abrir(archivo, "General", clave_de_prueba());
+    REQUIRE(base);
+    CHECK(base->historial({kCanalGeneral, 0}, 65536).mensajes.at(0).texto == "de antes");
+    REQUIRE(base->cifrar_historial(true));
+    CHECK(base->historial({kCanalGeneral, 0}, 65536).mensajes.at(0).texto == "de antes");
+  }
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 5);
+  CHECK_FALSE(en_el_disco(archivo, "de antes"));
+  borrar_base(archivo);
+}
+
+TEST_CASE("Con el historial cifrado, el archivo de la base no tiene el texto de los mensajes") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  const std::string viejo = "un mensaje viejo que estaba en claro";
+  const std::string otro = "otro mensaje viejo, con eñe y 😀";
+  const std::string nuevo = "un mensaje nuevo que ya entra cifrado";
+  {
+    auto base = Base::abrir(archivo, "General", clave_de_prueba());
+    REQUIRE(base);
+    CHECK_FALSE(base->historial_cifrado());
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1000, viejo));
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 2, "Beto", 2000, otro));
+    REQUIRE(base->asentar());
+    REQUIRE(en_el_disco(archivo, viejo));
+    REQUIRE(base->cifrar_historial(true));
+    CHECK(base->historial_cifrado());
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 3, "Ana", 3000, nuevo));
+    const auto historial = base->historial({kCanalGeneral, 0}, 65536);
+    REQUIRE(historial.mensajes.size() == 3);
+    CHECK(historial.mensajes[0].texto == nuevo);
+    CHECK(historial.mensajes[1].texto == otro);
+    CHECK(historial.mensajes[1].autor == "Beto");
+    CHECK(historial.mensajes[2].texto == viejo);
+    CHECK(historial.mensajes[2].hora_ms == 1000);
+  }
+  for (const auto& texto : {viejo, otro, nuevo}) {
+    CHECK_FALSE(en_el_disco(archivo, texto));
+  }
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM mensajes WHERE sellado IS NOT NULL AND texto = ''") == 3);
+  borrar_base(archivo);
+}
+
+TEST_CASE("Un mensaje cifrado cambiado de canal, de número, de hora o de autor no sale, y nada se cae") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  auto clave = clave_de_prueba();
+  ventrik::cifrado::Secreto copia(clave.size());
+  std::copy(clave.bytes().begin(), clave.bytes().end(), copia.bytes().begin());
+  std::uint32_t juegos = 0;
+  {
+    auto base = Base::abrir(archivo, "General", std::move(clave));
+    REQUIRE(base);
+    REQUIRE(base->cifrar_historial(true));
+    juegos = base->crear_canal("Juegos").value_or(0);
+    REQUIRE(juegos != 0);
+    for (std::uint32_t numero = 1; numero <= 7; ++numero) {
+      REQUIRE(base->guardar_mensaje(kCanalGeneral, numero, "Ana", 1000 * numero, "mensaje " + std::to_string(numero)));
+    }
+  }
+  const std::string a_juegos = "UPDATE mensajes SET canal = " + std::to_string(juegos) + " WHERE numero = 1;";
+  armar_base(archivo, (a_juegos +
+                       "UPDATE mensajes SET numero = 9 WHERE numero = 2;"
+                       "UPDATE mensajes SET hora = hora + 1 WHERE numero = 3;"
+                       "UPDATE mensajes SET autor = 'Beto' WHERE numero = 4;"
+                       "UPDATE mensajes SET sellado = zeroblob(length(sellado)) WHERE numero = 5;"
+                       "UPDATE mensajes SET sellado = (SELECT sellado FROM mensajes WHERE numero = 7) WHERE numero = 6;")
+                          .c_str());
+  {
+    auto base = Base::abrir(archivo, "General", std::move(copia));
+    REQUIRE(base);
+    const auto general = base->historial({kCanalGeneral, 0}, 65536);
+    REQUIRE(general.mensajes.size() == 1);
+    CHECK(general.mensajes[0].texto == "mensaje 7");
+    CHECK(base->historial({juegos, 0}, 65536).mensajes.empty());
+    CHECK(base->historial({kCanalGeneral, 0, ventrik::protocolo::Sentido::nuevos, 256}, 65536).mensajes.size() == 1);
+  }
+  {
+    auto sin_clave = Base::abrir(archivo, "General");
+    REQUIRE(sin_clave);
+    CHECK(sin_clave->historial_cifrado());
+    CHECK(sin_clave->historial({kCanalGeneral, 0}, 65536).mensajes.empty());
+    CHECK_FALSE(sin_clave->guardar_mensaje(kCanalGeneral, 8, "Ana", 8000, "sin clave no se guarda"));
+    CHECK_FALSE(sin_clave->cifrar_historial(false));
+  }
+  borrar_base(archivo);
+}
+
+TEST_CASE("El historial y los contadores quedan iguales con y sin cifrado") {
+  auto claro = Base::abrir(L"", "General", clave_de_prueba());
+  auto cifrada = Base::abrir(L"", "General", clave_de_prueba());
+  REQUIRE(claro);
+  REQUIRE(cifrada);
+  REQUIRE(cifrada->cifrar_historial(true));
+  for (Base* base : {claro.get(), cifrada.get()}) {
+    const auto juegos = base->crear_canal("Juegos", TipoCanal::texto);
+    REQUIRE(juegos);
+    for (std::uint32_t numero = 1; numero <= 60; ++numero) {
+      base->guardar_mensaje(numero % 3 == 0 ? *juegos : kCanalGeneral, numero, numero % 2 == 0 ? "Ana" : "Beto",
+                            5000 + numero, "mensaje " + std::to_string(numero) + " 😀", numero % 7 != 0);
+    }
+    REQUIRE(base->borrar_canal(*juegos));
+    REQUIRE(base->crear_canal("Otro"));
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 61, "Ana", 9000, "último"));
+  }
+  const auto canales = claro->canales();
+  const auto canales_cifrada = cifrada->canales();
+  REQUIRE(canales.size() == canales_cifrada.size());
+  for (std::size_t i = 0; i < canales.size(); ++i) {
+    CHECK(canales[i].id == canales_cifrada[i].id);
+    CHECK(canales[i].contador == canales_cifrada[i].contador);
+  }
+  using ventrik::protocolo::Sentido;
+  for (const auto& pedido : {ventrik::protocolo::PedirHistorial{kCanalGeneral, 0},
+                             ventrik::protocolo::PedirHistorial{kCanalGeneral, 0, Sentido::viejos, 7},
+                             ventrik::protocolo::PedirHistorial{kCanalGeneral, 20, Sentido::viejos, 5},
+                             ventrik::protocolo::PedirHistorial{kCanalGeneral, 10, Sentido::nuevos, 9}}) {
+    const auto uno = claro->historial(pedido, 65536);
+    CHECK(iguales(uno, cifrada->historial(pedido, 65536)));
+    CHECK_FALSE(uno.mensajes.empty());
+  }
+  CHECK(iguales(claro->historial({kCanalGeneral, 0}, 300), cifrada->historial({kCanalGeneral, 0}, 300)));
+}
+
+TEST_CASE("Prender y apagar el cifrado convierte los mensajes viejos, y sin clave no se toca nada") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  auto clave = clave_de_prueba();
+  ventrik::protocolo::Historial antes;
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    for (std::uint32_t numero = 1; numero <= 5; ++numero) {
+      REQUIRE(base->guardar_mensaje(kCanalGeneral, numero, "Ana", numero, "viejo " + std::to_string(numero)));
+    }
+    antes = base->historial({kCanalGeneral, 0}, 65536);
+    CHECK_FALSE(base->cifrar_historial(true));
+    CHECK_FALSE(base->historial_cifrado());
+  }
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM mensajes WHERE sellado IS NULL AND texto <> ''") == 5);
+  ventrik::cifrado::Secreto copia(clave.size());
+  std::copy(clave.bytes().begin(), clave.bytes().end(), copia.bytes().begin());
+  {
+    auto base = Base::abrir(archivo, "General", std::move(clave));
+    REQUIRE(base);
+    REQUIRE(base->cifrar_historial(true));
+    CHECK(iguales(antes, base->historial({kCanalGeneral, 0}, 65536)));
+  }
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM mensajes WHERE sellado IS NOT NULL AND texto = ''") == 5);
+  {
+    auto base = Base::abrir(archivo, "General", std::move(copia));
+    REQUIRE(base);
+    CHECK(base->historial_cifrado());
+    REQUIRE(base->cifrar_historial(false));
+    CHECK_FALSE(base->historial_cifrado());
+    CHECK(iguales(antes, base->historial({kCanalGeneral, 0}, 65536)));
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 6, "Ana", 6, "nuevo en claro"));
+  }
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM mensajes WHERE sellado IS NULL AND texto <> ''") == 6);
+  CHECK(en_el_disco(archivo, "nuevo en claro"));
+  borrar_base(archivo);
+}
+
+TEST_CASE("Se sabe si una base tiene dueño antes de abrirla para el servidor") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  CHECK(tiene_dueno_guardado(archivo) == false);
+  armar_base(archivo, "CREATE TABLE canales(id INTEGER);");
+  CHECK(tiene_dueno_guardado(archivo) == false);
+  borrar_base(archivo);
+  UsuarioGuardado ana;
+  ana.clave.fill(4);
+  ana.nombre = "Ana";
+  ana.creado_ms = ana.visto_ms = 1000;
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    REQUIRE(base->guardar_usuario(ana));
+  }
+  CHECK(tiene_dueno_guardado(archivo) == false);
+  {
+    auto base = Base::abrir(archivo, "General");
+    ana.dueno = true;
+    REQUIRE(base->guardar_usuario(ana));
+  }
+  CHECK(tiene_dueno_guardado(archivo) == true);
+  borrar_base(archivo);
+  const std::string basura = "esto no es una base de SQLite, aunque se llame .db";
+  REQUIRE(ventrik::escribir_archivo_completo(
+      archivo, gsl::make_span(reinterpret_cast<const std::uint8_t*>(basura.data()), basura.size())));
+  CHECK_FALSE(tiene_dueno_guardado(archivo).has_value());
+  borrar_base(archivo);
+}
+
+TEST_CASE("banco del historial cifrado" * doctest::skip()) {
+  using Reloj = std::chrono::steady_clock;
+  const auto us_desde = [](Reloj::time_point desde, int veces) {
+    return std::chrono::duration<double, std::micro>(Reloj::now() - desde).count() / veces;
+  };
+  for (const std::size_t largo : {std::size_t{100}, std::size_t{4000}}) {
+    const std::string texto(largo, 'a');
+    const auto clave = clave_de_prueba();
+    ventrik::protocolo::Escritor escritor;
+    escritor.escribir_u64(1);
+    escritor.escribir_u64(2);
+    escritor.escribir_u64(3);
+    escritor.escribir_u32(3);
+    escritor.escribir_bytes(gsl::make_span(reinterpret_cast<const std::uint8_t*>("Ana"), 3));
+    const auto asociados = std::move(escritor).soltar();
+    const auto bytes = gsl::make_span(reinterpret_cast<const std::uint8_t*>(texto.data()), texto.size());
+    constexpr int kVeces = 20000;
+    auto desde = Reloj::now();
+    std::optional<std::vector<std::uint8_t>> sellado;
+    for (int i = 0; i < kVeces; ++i) {
+      sellado = ventrik::cifrado::sellar(clave.bytes(), asociados, bytes);
+    }
+    const double cifrar = us_desde(desde, kVeces);
+    REQUIRE(sellado);
+    desde = Reloj::now();
+    for (int i = 0; i < kVeces; ++i) {
+      REQUIRE(ventrik::cifrado::abrir_sellado(clave.bytes(), asociados, *sellado));
+    }
+    const double descifrar = us_desde(desde, kVeces);
+    MESSAGE("AES-256-GCM de un mensaje de " << largo << " bytes: " << cifrar << " us al cifrar, " << descifrar
+                                            << " us al descifrar");
+  }
+  for (const bool cifrado : {false, true}) {
+    auto base = Base::abrir(L"", "General", clave_de_prueba());
+    REQUIRE(base);
+    REQUIRE(base->cifrar_historial(cifrado));
+    const std::string texto(200, 'a');
+    constexpr int kMensajes = 5000;
+    auto desde = Reloj::now();
+    REQUIRE(base->empezar_tanda());
+    for (std::uint32_t numero = 1; numero <= kMensajes; ++numero) {
+      REQUIRE(base->guardar_mensaje(kCanalGeneral, numero, "Ana", numero, texto));
+    }
+    REQUIRE(base->confirmar_tanda());
+    const double guardar = us_desde(desde, kMensajes);
+    constexpr int kPedidos = 200;
+    desde = Reloj::now();
+    for (int i = 0; i < kPedidos; ++i) {
+      REQUIRE(base->historial({kCanalGeneral, 0}, 65536).mensajes.size() == 256);
+    }
+    const double pedir = us_desde(desde, kPedidos);
+    desde = Reloj::now();
+    REQUIRE(base->cifrar_historial(!cifrado));
+    const double convertir = us_desde(desde, kMensajes);
+    MESSAGE("base en memoria " << std::string(cifrado ? "cifrada" : "sin cifrar") << ": " << guardar
+                               << " us por mensaje guardado, " << pedir << " us por historial de 256 mensajes, "
+                               << convertir << " us por mensaje al " << std::string(cifrado ? "descifrar" : "cifrar")
+                               << " todo");
   }
 }

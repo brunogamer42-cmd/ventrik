@@ -81,6 +81,33 @@ ventrik::Clave clave_de(ventrik::servidor::Evento evento) {
   return Clave::servidor_conectada;
 }
 
+ventrik::Clave clave_de(ventrik::cifrado::ResultadoIdentidad resultado) {
+  using ventrik::Clave;
+  using ventrik::cifrado::ResultadoIdentidad;
+  switch (resultado) {
+    case ResultadoIdentidad::archivo_invalido: return Clave::servidor_error_clave_ilegible;
+    case ResultadoIdentidad::error_lectura: return Clave::servidor_error_clave_lectura;
+    case ResultadoIdentidad::error_escritura: return Clave::servidor_error_clave_escritura;
+    case ResultadoIdentidad::falta_contrasena: return Clave::servidor_arranque_sin_consola;
+    case ResultadoIdentidad::contrasena_incorrecta: return Clave::servidor_arranque_incorrecta;
+    case ResultadoIdentidad::sin_memoria: return Clave::servidor_arranque_sin_memoria;
+    case ResultadoIdentidad::boveda_de_otro_windows: return Clave::servidor_error_boveda_windows;
+    case ResultadoIdentidad::boveda_danada: return Clave::servidor_error_boveda_danada;
+    case ResultadoIdentidad::falta_boveda: return Clave::servidor_error_falta_boveda;
+    case ResultadoIdentidad::falta_clave: return Clave::servidor_error_falta_clave;
+    case ResultadoIdentidad::claves_distintas: return Clave::servidor_error_claves_distintas;
+    case ResultadoIdentidad::cargada:
+    case ResultadoIdentidad::creada:
+    case ResultadoIdentidad::convertida:
+    case ResultadoIdentidad::error_cifrado: break;
+  }
+  return Clave::servidor_error_cifrado;
+}
+
+std::string_view como_texto(const ventrik::cifrado::Secreto& secreto) {
+  return std::string_view(reinterpret_cast<const char*>(secreto.bytes().data()), secreto.size());
+}
+
 std::optional<ventrik::cifrado::CodigoDueno> cargar_o_crear_codigo(const std::wstring& archivo,
                                                                    bool& creado) {
   ventrik::cifrado::Secreto leido;
@@ -172,11 +199,14 @@ int wmain(int cantidad, wchar_t** argumentos) {
   bool local = false;
   bool nuevo_codigo = false;
   bool cambiar_contrasena = false;
+  bool cambiar_arranque = false;
+  std::optional<bool> cifrar_historial;
   std::string nombre;
   std::string liberar;
   for (int i = 1; i < cantidad; ++i) {
     const std::wstring_view opcion = argumentos[i];
     const bool hay_valor = i + 1 < cantidad;
+    const std::wstring_view valor = hay_valor ? argumentos[i + 1] : L"";
     if (opcion == L"--carpeta" && hay_valor) {
       carpeta = argumentos[++i];
       continue;
@@ -195,6 +225,15 @@ int wmain(int cantidad, wchar_t** argumentos) {
     }
     if (opcion == L"--contrasena") {
       cambiar_contrasena = true;
+      continue;
+    }
+    if (opcion == L"--contrasena-arranque") {
+      cambiar_arranque = true;
+      continue;
+    }
+    if (opcion == L"--cifrar-historial" && (valor == L"si" || valor == L"sí" || valor == L"no")) {
+      cifrar_historial = valor != L"no";
+      ++i;
       continue;
     }
     if (opcion == L"--puerto" && hay_valor && leer_puerto(argumentos[i + 1], puerto)) {
@@ -216,6 +255,8 @@ int wmain(int cantidad, wchar_t** argumentos) {
     escribir_linea(texto(ventrik::Clave::servidor_uso_nuevo_codigo));
     escribir_linea(texto(ventrik::Clave::servidor_uso_liberar));
     escribir_linea(texto(ventrik::Clave::servidor_uso_contrasena));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_arranque));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_historial));
     return 2;
   }
   if (carpeta.empty()) {
@@ -241,29 +282,66 @@ int wmain(int cantidad, wchar_t** argumentos) {
                  ventrik::a_texto(ventrik::kVersionPrograma));
   escribir_linea(texto(ventrik::Clave::servidor_carpeta) + " " + ventrik::a_utf8(carpeta));
 
-  const std::wstring archivo = carpeta + L"\\clave_servidor.der";
-  auto cargada = ventrik::cifrado::cargar_o_crear_identidad(archivo);
-  switch (cargada.resultado) {
-    case ventrik::cifrado::ResultadoIdentidad::cargada:
-      break;
-    case ventrik::cifrado::ResultadoIdentidad::creada:
-      escribir_linea(texto(ventrik::Clave::servidor_clave_creada));
-      break;
-    case ventrik::cifrado::ResultadoIdentidad::archivo_invalido:
-      escribir_linea(texto(ventrik::Clave::servidor_error_clave_ilegible) + " " +
-                     ventrik::a_utf8(archivo));
+  const auto pedir_dos_veces = [&texto](ventrik::Clave pregunta) -> std::optional<ventrik::cifrado::Secreto> {
+    auto primera = pedir_contrasena(texto(pregunta));
+    const auto segunda = primera ? pedir_contrasena(texto(ventrik::Clave::servidor_repetir_contrasena)) : std::nullopt;
+    if (!primera || !segunda) {
+      escribir_linea(texto(ventrik::Clave::servidor_contrasena_sin_consola));
+      return std::nullopt;
+    }
+    if (como_texto(*primera) != como_texto(*segunda)) {
+      escribir_linea(texto(ventrik::Clave::servidor_contrasenas_distintas));
+      return std::nullopt;
+    }
+    return primera;
+  };
+
+  const std::wstring archivo_base = carpeta + L"\\ventrik.db";
+  const auto con_dueno = ventrik::servidor::tiene_dueno_guardado(archivo_base);
+  if (!con_dueno) {
+    escribir_linea(texto(ventrik::Clave::servidor_error_base) + " " + ventrik::a_utf8(archivo_base));
+    return 1;
+  }
+  auto cargada = ventrik::cifrado::cargar_o_crear_identidad(carpeta, std::nullopt, *con_dueno);
+  if (cargada.resultado == ventrik::cifrado::ResultadoIdentidad::falta_contrasena) {
+    const auto contrasena = pedir_contrasena(texto(ventrik::Clave::servidor_pedir_arranque));
+    if (contrasena) {
+      cargada = ventrik::cifrado::cargar_o_crear_identidad(carpeta, como_texto(*contrasena), *con_dueno);
+    }
+  }
+  if (!cargada.identidad || !cargada.boveda) {
+    escribir_linea(texto(clave_de(cargada.resultado)) +
+                   (cargada.archivo.empty() ? std::string() : " " + ventrik::a_utf8(cargada.archivo)));
+    return 1;
+  }
+  if (cargada.resultado != ventrik::cifrado::ResultadoIdentidad::cargada) {
+    escribir_linea(texto(cargada.resultado == ventrik::cifrado::ResultadoIdentidad::creada
+                             ? ventrik::Clave::servidor_clave_creada
+                             : ventrik::Clave::servidor_clave_convertida));
+  }
+  if (cambiar_arranque) {
+    const auto nueva = pedir_dos_veces(ventrik::Clave::servidor_nueva_arranque);
+    if (!nueva) {
       return 1;
-    case ventrik::cifrado::ResultadoIdentidad::error_lectura:
-      escribir_linea(texto(ventrik::Clave::servidor_error_clave_lectura) + " " +
-                     ventrik::a_utf8(archivo));
+    }
+    const std::string_view escrita = como_texto(*nueva);
+    const auto letras = static_cast<std::size_t>(std::count_if(escrita.begin(), escrita.end(), [](char letra) {
+      return (static_cast<unsigned char>(letra) & 0xC0) != 0x80;
+    }));
+    if (!escrita.empty() && letras < ventrik::cifrado::kMinimoContrasenaArranque) {
+      escribir_linea(ventrik::con_datos(texto(ventrik::Clave::servidor_arranque_corta),
+                                        {std::to_string(ventrik::cifrado::kMinimoContrasenaArranque)}));
       return 1;
-    case ventrik::cifrado::ResultadoIdentidad::error_escritura:
-      escribir_linea(texto(ventrik::Clave::servidor_error_clave_escritura) + " " +
-                     ventrik::a_utf8(archivo));
+    }
+    const std::wstring archivo_boveda = carpeta + ventrik::cifrado::kArchivoBoveda;
+    const auto boveda = cargada.boveda->armar_archivo(
+        escrita.empty() ? std::nullopt : std::optional<std::string_view>(escrita));
+    if (!boveda || !ventrik::escribir_archivo_completo(archivo_boveda, *boveda)) {
+      escribir_linea(texto(ventrik::Clave::servidor_error_arranque) + " " + ventrik::a_utf8(archivo_boveda));
       return 1;
-    case ventrik::cifrado::ResultadoIdentidad::error_cifrado:
-      escribir_linea(texto(ventrik::Clave::servidor_error_cifrado));
-      return 1;
+    }
+    escribir_linea(texto(escrita.empty() ? ventrik::Clave::servidor_arranque_quitada
+                                         : ventrik::Clave::servidor_arranque_puesta));
   }
   escribir_linea("");
   escribir_linea(texto(ventrik::Clave::servidor_huella));
@@ -273,25 +351,21 @@ int wmain(int cantidad, wchar_t** argumentos) {
     return 0;
   }
   escribir_linea("");
+  auto clave_historial = cargada.boveda->derivar(ventrik::cifrado::kEtiquetaHistorial);
+  cargada.boveda.reset();
+  if (!clave_historial) {
+    escribir_linea(texto(ventrik::Clave::servidor_error_cifrado));
+    return 1;
+  }
 
   ventrik::servidor::Opciones opciones;
   if (cambiar_contrasena) {
-    const auto primera = pedir_contrasena(texto(ventrik::Clave::servidor_pedir_contrasena));
-    const auto segunda = primera ? pedir_contrasena(texto(ventrik::Clave::servidor_repetir_contrasena)) : std::nullopt;
-    if (!primera || !segunda) {
-      escribir_linea(texto(ventrik::Clave::servidor_contrasena_sin_consola));
+    const auto nueva = pedir_dos_veces(ventrik::Clave::servidor_pedir_contrasena);
+    if (!nueva) {
       return 1;
     }
-    if (!std::equal(primera->bytes().begin(), primera->bytes().end(), segunda->bytes().begin(),
-                    segunda->bytes().end())) {
-      escribir_linea(texto(ventrik::Clave::servidor_contrasenas_distintas));
-      return 1;
-    }
-    opciones.poner_contrasena =
-        primera->size() == 0
-            ? std::optional<std::string>(std::string())
-            : ventrik::servidor::guardar_contrasena(
-                  std::string_view(reinterpret_cast<const char*>(primera->bytes().data()), primera->size()));
+    opciones.poner_contrasena = nueva->size() == 0 ? std::optional<std::string>(std::string())
+                                                   : ventrik::servidor::guardar_contrasena(como_texto(*nueva));
     if (!opciones.poner_contrasena) {
       escribir_linea(texto(ventrik::Clave::servidor_error_contrasena));
       return 1;
@@ -299,7 +373,8 @@ int wmain(int cantidad, wchar_t** argumentos) {
   }
   const std::wstring archivo_codigo = carpeta + L"\\codigo_dueno.txt";
   opciones.escuchar = {local ? 0x7F000001u : 0u, puerto};
-  opciones.archivo_base = carpeta + L"\\ventrik.db";
+  opciones.archivo_base = archivo_base;
+  opciones.cifrar_historial = cifrar_historial;
   opciones.nombre_general = texto(ventrik::Clave::canal_general);
   opciones.nombre_servidor = nombre;
   opciones.nombre_de_fabrica = texto(ventrik::Clave::servidor_nombre_de_fabrica);
@@ -335,6 +410,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
                                     : ventrik::con_datos(texto(clave_de(evento)), {nombre, ip}));
   };
   ventrik::servidor::Servidor servidor(*cargada.identidad, opciones, avisar);
+  servidor.clave_del_historial(std::move(*clave_historial));
   if (!servidor.escuchar()) {
     escribir_linea(servidor.base_abierta()
                        ? texto(ventrik::Clave::servidor_error_puerto) + " " + std::to_string(puerto)
@@ -342,11 +418,16 @@ int wmain(int cantidad, wchar_t** argumentos) {
     if (servidor.base_abierta() && opciones.poner_contrasena) {
       escribir_linea(texto(ventrik::Clave::servidor_contrasena_guardada));
     }
+    if (!servidor.base_abierta() && opciones.cifrar_historial) {
+      escribir_linea(texto(ventrik::Clave::servidor_error_historial));
+    }
     return 1;
   }
   escribir_linea(texto(ventrik::Clave::servidor_nombre) + " " + servidor.nombre());
   escribir_linea(texto(servidor.pide_contrasena() ? ventrik::Clave::servidor_con_contrasena
                                                   : ventrik::Clave::servidor_sin_contrasena));
+  escribir_linea(texto(servidor.historial_cifrado() ? ventrik::Clave::servidor_historial_cifrado
+                                                    : ventrik::Clave::servidor_historial_sin_cifrar));
   if (servidor.tiene_dueno()) {
     DeleteFileW(archivo_codigo.c_str());
   } else {

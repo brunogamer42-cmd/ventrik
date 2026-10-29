@@ -9,6 +9,7 @@
 #include <thread>
 
 #include "common/cifrado/identidad.h"
+#include "common/cifrado/inicio.h"
 #include "server/servidor.h"
 #include <doctest/doctest.h>
 
@@ -49,6 +50,9 @@ class ServidorDePrueba {
         [this](Evento evento, const ventrik::red::Direccion&, const std::string&) {
           ++eventos_[static_cast<std::size_t>(evento)];
         });
+    ventrik::cifrado::Secreto clave(ventrik::cifrado::kBytesClaveSimetrica);
+    REQUIRE(ventrik::cifrado::aleatorio(nullptr, clave.bytes().data(), clave.size()) == 0);
+    servidor_->clave_del_historial(std::move(clave));
     REQUIRE(servidor_->escuchar());
     hilo_ = std::thread([this] { servidor_->correr(seguir_); });
   }

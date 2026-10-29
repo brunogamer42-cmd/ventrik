@@ -4,8 +4,8 @@
 #include <atomic>
 #include <string>
 #include <utility>
+#include <vector>
 
-// El objbase.h del SDK 7.1A (el de XP) no compila con /permissive- sin esto.
 struct IUnknown;
 
 #include <windows.h>
@@ -54,7 +54,7 @@ bool es_carpeta(const std::wstring& ruta) {
   return atributos != INVALID_FILE_ATTRIBUTES && (atributos & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
-}  // namespace
+}
 
 LecturaArchivo leer_archivo(const std::wstring& ruta, std::size_t maximo,
                             cifrado::Secreto& contenido) {
@@ -91,7 +91,6 @@ namespace {
 
 EscrituraNueva escribir_y_renombrar(const std::wstring& ruta, gsl::span<const std::uint8_t> contenido,
                                     bool reemplazar) {
-  // Propio de este proceso: dos servidores que arrancan a la vez no se pisan el temporal.
   const std::wstring temporal = ruta + L"." + std::to_wstring(GetCurrentProcessId()) + L"." +
                                 std::to_wstring(++temporales_creados) + L".tmp";
   bool escrito = false;
@@ -111,7 +110,7 @@ EscrituraNueva escribir_y_renombrar(const std::wstring& ruta, gsl::span<const st
              : EscrituraNueva::error;
 }
 
-}  // namespace
+}
 
 bool escribir_archivo_completo(const std::wstring& ruta, gsl::span<const std::uint8_t> contenido) {
   return escribir_y_renombrar(ruta, contenido, true) == EscrituraNueva::escrito;
@@ -138,6 +137,19 @@ void borrar_temporales_de(const std::wstring& ruta) {
   FindClose(busqueda);
 }
 
+bool borrar_con_ceros(const std::wstring& ruta) {
+  {
+    const Manejador archivo(
+        CreateFileW(ruta.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    LARGE_INTEGER tamano = {};
+    if (archivo.valido() && GetFileSizeEx(archivo.get(), &tamano) && tamano.QuadPart > 0 &&
+        static_cast<unsigned long long>(tamano.QuadPart) <= kPedazo) {
+      escribir_todo(archivo.get(), std::vector<std::uint8_t>(static_cast<std::size_t>(tamano.QuadPart)));
+    }
+  }
+  return DeleteFileW(ruta.c_str()) != 0;
+}
+
 bool crear_carpetas(const std::wstring& ruta) {
   for (std::size_t i = 0; i < ruta.size(); ++i) {
     if ((ruta[i] == L'\\' || ruta[i] == L'/') && i > 0 && ruta[i - 1] != L':' &&
@@ -158,4 +170,4 @@ std::wstring carpeta_de_datos(const std::wstring& nombre) {
   return std::wstring(carpeta) + L"\\Ventrik\\" + nombre;
 }
 
-}  // namespace ventrik
+}
