@@ -32,6 +32,14 @@ bool esperar(const red::Socket& canal, cifrado::Paso paso, Reloj::time_point lim
 
 bool enviar_todo(ConexionAbierta& abierta, const std::vector<std::uint8_t>& salida,
                  Reloj::time_point limite, const red::Socket* cancelar, ResultadoConexion& resultado) {
+  protocolo::Lector cabecera(salida);
+  const std::size_t largo = cabecera.leer_u32();
+  const bool solo_hola = cabecera.leer_u16() == static_cast<std::uint16_t>(protocolo::TipoMensaje::hola) &&
+                         salida.size() == protocolo::kCabeceraMarco + largo;
+  if (!abierta.confirmada() && !solo_hola) {
+    resultado.estado = EstadoConexion::huella_distinta;
+    return false;
+  }
   gsl::span<const std::uint8_t> resto(salida);
   while (!resto.empty()) {
     std::size_t escritos = 0;
@@ -206,14 +214,23 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     resultado.codigo = tls.ultimo_error();
     return resultado;
   }
-  if (!tls.huella_confirmada()) {
-    resultado.estado = EstadoConexion::huella_distinta;
-    return resultado;
-  }
   if (!tls.es_tls13()) {
     resultado.estado = EstadoConexion::cifrado_rechazado;
     return resultado;
   }
+  const auto de_la_conexion = tls.huella_del_otro();
+  if (!de_la_conexion) {
+    resultado.estado = EstadoConexion::huella_distinta;
+    return resultado;
+  }
+  if (tls.huella_confirmada()) {
+    abierta->confirmar();
+  }
+  const auto fallar = [&abierta, &resultado]() {
+    ResultadoConexion distinta;
+    distinta.estado = EstadoConexion::huella_distinta;
+    return abierta->confirmada() ? std::move(resultado) : std::move(distinta);
+  };
 
   protocolo::Escritor cuerpo;
   protocolo::escribir(cuerpo, opciones.hola);
@@ -222,11 +239,25 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
       !protocolo::armar_marco(static_cast<std::uint16_t>(protocolo::TipoMensaje::hola),
                               cuerpo.datos(), salida) ||
       !enviar_todo(*abierta, salida, limite, opciones.cancelar, resultado)) {
-    return resultado;
+    return fallar();
   }
   auto marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
   if (!marco || !interpretar_saludo(*marco, opciones.hola, tls, resultado)) {
-    return resultado;
+    return fallar();
+  }
+  const bool puede_llegar_cadena = abierta->confirmada();
+  if (!abierta->confirmada()) {
+    abierta->ensamblador().cambiar_maximo(protocolo::kMaximoCuerpoCadena);
+    marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
+    const auto cadena = marco && marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::cadena_de_claves)
+                            ? protocolo::leer_mensaje<protocolo::CadenaDeClaves>(marco->cuerpo)
+                            : std::nullopt;
+    resultado.cambio = cadena ? cifrado::seguir_cadena(cadena->cadena, huella, *de_la_conexion, opciones.atras)
+                              : std::nullopt;
+    if (!resultado.cambio) {
+      return fallar();
+    }
+    abierta->confirmar();
   }
 
   abierta->ensamblador().cambiar_maximo(protocolo::kMaximoCuerpo);
@@ -237,7 +268,7 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   }
   presentarse.clave = quien.identidad->publica();
   if (quien.equipo) {
-    presentarse.equipo = codigo_de_equipo(*quien.equipo, huella);
+    presentarse.equipo = codigo_de_equipo(*quien.equipo, opciones.atras.empty() ? huella : opciones.atras.front());
   }
   if (quien.contrasena) {
     presentarse.contrasena.assign(reinterpret_cast<const char*>(quien.contrasena->bytes().data()),
@@ -245,7 +276,7 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   }
   std::array<std::uint8_t, protocolo::kBytesValorDeConexion> valor{};
   auto firmado = tls.valor_para_identidad(valor)
-                     ? protocolo::lo_que_se_firma(presentarse, resultado.protocolo, huella.bytes(), valor)
+                     ? protocolo::lo_que_se_firma(presentarse, resultado.protocolo, de_la_conexion->bytes(), valor)
                      : std::vector<std::uint8_t>();
   const auto borrar = gsl::finally([&presentarse, &firmado, &salida] {
     mbedtls_platform_zeroize(&presentarse.contrasena[0], presentarse.contrasena.size());
@@ -263,6 +294,10 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     return resultado;
   }
   marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
+  if (marco && puede_llegar_cadena &&
+      marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::cadena_de_claves)) {
+    marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
+  }
   if (!marco) {
     return resultado;
   }

@@ -660,6 +660,10 @@ void leer(Lector& lector, AvisoDeSeguridad& mensaje) {
   mensaje.tipo = static_cast<Seguridad>(tipo);
 }
 
+void escribir(Escritor& escritor, const CadenaDeClaves& mensaje) { cifrado::escribir_cadena(escritor, mensaje.cadena); }
+
+void leer(Lector& lector, CadenaDeClaves& mensaje) { cifrado::leer_cadena(lector, mensaje.cadena); }
+
 void escribir(Escritor& escritor, const Ping& mensaje) {
   escritor.escribir_u64(mensaje.marca);
 }

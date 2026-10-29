@@ -168,7 +168,7 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
                                    src/client/silencios.cpp)
   target_sources(fuzz_textos PRIVATE src/client/avisos.cpp src/client/horas.cpp src/client/silencios.cpp
                                      src/server/contrasena.cpp)
-  target_sources(fuzz_respaldo PRIVATE src/server/base.cpp src/server/respaldo.cpp)
+  target_sources(fuzz_respaldo PRIVATE src/server/base.cpp src/server/contrasena.cpp src/server/mudanza.cpp src/server/respaldo.cpp)
   target_link_libraries(fuzz_base PRIVATE sqlite)
   target_link_libraries(fuzz_respaldo PRIVATE sqlite)
   target_sources(fuzz_voz_servidor PRIVATE src/server/proteccion.cpp src/server/voz.cpp)
@@ -186,7 +186,7 @@ endif()
 
 add_library(ventrik_servidor_base STATIC
   src/server/base.cpp src/server/comprobador.cpp src/server/contrasena.cpp src/server/permisos.cpp
-  src/server/proteccion.cpp src/server/registro.cpp src/server/respaldo.cpp
+  src/server/mudanza.cpp src/server/proteccion.cpp src/server/registro.cpp src/server/respaldo.cpp
   src/server/servidor.cpp src/server/voz.cpp)
 target_link_libraries(ventrik_servidor_base PUBLIC ventrik_comun sqlite)
 target_compile_definitions(ventrik_servidor_base PRIVATE FD_SETSIZE=1024)
@@ -247,6 +247,7 @@ add_executable(ventrik_pruebas
   tests/prueba_mbedtls.cpp
   tests/prueba_mi_identidad.cpp
   tests/prueba_motor_voz.cpp
+  tests/prueba_mudanza.cpp
   tests/prueba_niveles.cpp
   tests/prueba_miniaudio.cpp
   tests/prueba_miniupnpc.cpp

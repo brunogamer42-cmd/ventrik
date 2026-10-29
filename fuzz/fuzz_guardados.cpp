@@ -29,7 +29,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     return 0;
   }
   const std::vector<std::uint8_t> armado = ventrik::cliente::armar_guardados(guardados);
-  if (entrada[4] != 7) {
+  if (entrada[4] != 8) {
     ventrik::cliente::Guardados de_nuevo;
     exigir(ventrik::cliente::leer_guardados(armado, de_nuevo) == ventrik::cliente::LecturaGuardados::leidos &&
            ventrik::cliente::armar_guardados(de_nuevo) == armado);
@@ -41,6 +41,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     ventrik::cliente::poner_susurro(copia, lugar, ventrik::cliente::susurro_de(guardados, lugar));
     exigir(ventrik::cliente::armar_guardados(copia) == armado);
   }
+  for (auto& servidor : guardados.servidores) {
+    ventrik::cliente::cambiar_huella(
+        servidor, {ventrik::cifrado::Huella(servidor.huella), ventrik::cliente::huellas_atras(servidor)});
+    exigir(servidor.atras.size() <= ventrik::cliente::kMaximoHuellasAtras);
+  }
+  exigir(!ventrik::cliente::armar_guardados(guardados).empty());
   ventrik::cliente::recordar(guardados, ventrik::cliente::ServidorGuardado{{1, 1}, {}, "x", 0, {}, 0});
   exigir(!ventrik::cliente::armar_guardados(guardados).empty());
   return 0;

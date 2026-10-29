@@ -13,20 +13,22 @@
 namespace ventrik::cliente {
 namespace {
 constexpr std::uint32_t kMarca = 0x52504B56;
-constexpr std::uint16_t kVersion = 7;
+constexpr std::uint16_t kVersion = 8;
 constexpr std::uint16_t kVersionConLeidos = 2;
 constexpr std::uint16_t kVersionConModo = 3;
 constexpr std::uint16_t kVersionConSilencio = 4;
 constexpr std::uint16_t kVersionConPersonas = 5;
 constexpr std::uint16_t kVersionConAvisos = 6;
 constexpr std::uint16_t kVersionConAjustes = 7;
+constexpr std::uint16_t kVersionConAtras = 8;
 constexpr std::size_t kTexto = 2 + kMaximoBytesNombre;
 constexpr std::size_t kAjuste = 10;
+constexpr std::size_t kHuella = std::tuple_size<cifrado::Huella::Bytes>::value;
 static_assert(kMaximoArchivoGuardados >=
               13 + kTexto + kMaximoServidoresGuardados *
-                                (6 + std::tuple_size<cifrado::Huella::Bytes>::value + 2 * kTexto + 14 +
-                                 kMaximoLeidosPorServidor * 8 + kMaximoPersonasPorServidor * (kTexto + 2) +
-                                 kAjuste + 3 + protocolo::kMaximoCanales * (4 + kAjuste)) +
+                                (6 + kHuella + 2 * kTexto + 14 + kMaximoLeidosPorServidor * 8 +
+                                 kMaximoPersonasPorServidor * (kTexto + 2) + kAjuste + 3 +
+                                 protocolo::kMaximoCanales * (4 + kAjuste) + 1 + kMaximoHuellasAtras * kHuella) +
                   2 + kMaximoAjustes * 4 + kMaximoBloqueDeAjustes);
 
 struct MaximoDeAjuste {
@@ -177,7 +179,8 @@ bool es_valido(const ServidorGuardado& servidor) {
   }
   return servidor.direccion.ipv4 != 0 && servidor.direccion.puerto != 0 && es_nombre_valido(servidor.nombre) &&
          nombre_opcional(servidor.nombre_canal) && leidos.size() <= kMaximoLeidosPorServidor &&
-         personas.size() <= kMaximoPersonasPorServidor && son_validos(servidor.avisos);
+         personas.size() <= kMaximoPersonasPorServidor && son_validos(servidor.avisos) &&
+         servidor.atras.size() <= kMaximoHuellasAtras;
 }
 
 bool son_validos(const Guardados& guardados) {
@@ -261,6 +264,12 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
     if (version >= kVersionConAvisos && !leer_avisos(lector, servidor.avisos)) {
       return LecturaGuardados::danados;
     }
+    const std::size_t atras = version >= kVersionConAtras ? lector.leer_u8() : 0;
+    for (std::size_t j = 0; j < atras && j <= kMaximoHuellasAtras && lector.ok(); ++j) {
+      const auto vieja = lector.leer_bytes(kHuella);
+      servidor.atras.emplace_back();
+      std::copy(vieja.begin(), vieja.end(), servidor.atras.back().begin());
+    }
     leidos.servidores.push_back(std::move(servidor));
   }
   const std::size_t ajustes = version >= kVersionConAjustes ? lector.leer_u16() : 0;
@@ -323,6 +332,10 @@ std::vector<std::uint8_t> armar_guardados(const Guardados& guardados) {
     for (const AvisosDeCanal& canal : servidor.avisos.canales) {
       escritor.escribir_u32(canal.canal);
       escribir_ajuste(escritor, canal.ajuste);
+    }
+    escritor.escribir_u8(static_cast<std::uint8_t>(servidor.atras.size()));
+    for (const auto& huella : servidor.atras) {
+      escritor.escribir_bytes(huella);
     }
   }
   escritor.escribir_u16(static_cast<std::uint16_t>(guardados.ajustes.size()));
@@ -458,6 +471,25 @@ bool recordar(Guardados& guardados, ServidorGuardado servidor) {
     servidores.resize(kMaximoServidoresGuardados);
   }
   return true;
+}
+
+void cambiar_huella(ServidorGuardado& servidor, const cifrado::CadenaSeguida& cambio) {
+  servidor.huella = cambio.nueva.bytes();
+  for (const cifrado::Huella& huella : cambio.atras) {
+    servidor.atras.push_back(huella.bytes());
+  }
+  if (servidor.atras.size() > kMaximoHuellasAtras) {
+    servidor.atras.erase(servidor.atras.begin(),
+                         servidor.atras.end() - static_cast<std::ptrdiff_t>(kMaximoHuellasAtras));
+  }
+}
+
+bool conoce_huella(const ServidorGuardado& servidor, const cifrado::Huella::Bytes& huella) {
+  return servidor.huella == huella || std::find(servidor.atras.begin(), servidor.atras.end(), huella) != servidor.atras.end();
+}
+
+std::vector<cifrado::Huella> huellas_atras(const ServidorGuardado& servidor) {
+  return std::vector<cifrado::Huella>(servidor.atras.begin(), servidor.atras.end());
 }
 
 void ajustar_persona(std::vector<PersonaGuardada>& personas, PersonaGuardada persona) {

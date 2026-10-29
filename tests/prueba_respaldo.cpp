@@ -153,6 +153,8 @@ TEST_CASE("El contenido del respaldo rechaza partes repetidas, desconocidas, vac
   CHECK_FALSE(leer_contenido(contenido(1, {{1, e.clave}, {2, e.boveda}})));
   CHECK_FALSE(leer_contenido(contenido(1, {{1, e.clave}, {2, e.boveda}, {3, e.base}, {1, e.clave}})));
   CHECK_FALSE(leer_contenido(contenido(1, {{1, e.clave}, {2, e.boveda}, {3, e.base}, {4, e.clave}})));
+  CHECK_FALSE(leer_contenido(contenido(1, {{1, e.clave}, {2, e.boveda}, {3, e.base}, {4, {}}})));
+  CHECK_FALSE(leer_contenido(contenido(1, {{1, e.clave}, {2, e.boveda}, {3, e.base}, {5, e.clave}})));
   CHECK_FALSE(leer_contenido(contenido(1, {{0, e.clave}, {1, e.clave}, {2, e.boveda}, {3, e.base}})));
   CHECK_FALSE(leer_contenido(contenido(1, {{1, {}}, {2, e.boveda}, {3, e.base}})));
   CHECK(leer_contenido(contenido(1, {{1, Bytes(kMaximoClaveRespaldo, 1)}, {2, e.boveda}, {3, e.base}})));
@@ -279,8 +281,11 @@ TEST_CASE("La revisión rechaza una base con un trigger, una vista, una tabla, u
 TEST_CASE("La revisión rechaza una base dañada, de otra versión, vacía, que no es una base o que no existe") {
   const std::wstring archivo = base_nueva(L"version");
   ejecutar(archivo, "PRAGMA user_version=2;");
-  CHECK(revisar_base(archivo) == RevisionBase::otra_version);
+  CHECK(revisar_base(archivo) == RevisionBase::version_vieja);
+  CHECK_FALSE(Base::abrir(archivo, "General"));
   ejecutar(archivo, "PRAGMA user_version=99;");
+  CHECK(revisar_base(archivo) == RevisionBase::otra_version);
+  ejecutar(archivo, "PRAGMA user_version=0;");
   CHECK(revisar_base(archivo) == RevisionBase::otra_version);
   borrar_base(archivo);
 

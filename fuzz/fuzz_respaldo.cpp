@@ -14,7 +14,9 @@
 #include "common/archivos.h"
 #include "common/cifrado/inicio.h"
 #include "common/cifrado/sobre.h"
+#include "common/cifrado/cadena.h"
 #include "server/base.h"
+#include "server/mudanza.h"
 #include "server/respaldo.h"
 
 using namespace ventrik::servidor;
@@ -42,7 +44,8 @@ bool adentro(gsl::span<const std::uint8_t> parte, gsl::span<const std::uint8_t> 
 bool iguales(const PartesRespaldo& una, const PartesRespaldo& otra) {
   return std::equal(una.clave.begin(), una.clave.end(), otra.clave.begin(), otra.clave.end()) &&
          std::equal(una.boveda.begin(), una.boveda.end(), otra.boveda.begin(), otra.boveda.end()) &&
-         std::equal(una.base.begin(), una.base.end(), otra.base.begin(), otra.base.end());
+         std::equal(una.base.begin(), una.base.end(), otra.base.begin(), otra.base.end()) &&
+         std::equal(una.cadena.begin(), una.cadena.end(), otra.cadena.begin(), otra.cadena.end());
 }
 
 void contenido(gsl::span<const std::uint8_t> entrada) {
@@ -50,10 +53,13 @@ void contenido(gsl::span<const std::uint8_t> entrada) {
   if (!partes) {
     return;
   }
-  exigir(1 + 3 * 5 + partes->clave.size() + partes->boveda.size() + partes->base.size() == entrada.size());
+  exigir(1 + 3 * 5 + partes->clave.size() + partes->boveda.size() + partes->base.size() +
+             (partes->cadena.empty() ? 0 : 5 + partes->cadena.size()) ==
+         entrada.size());
   exigir(partes->clave.size() <= kMaximoClaveRespaldo && partes->boveda.size() <= kMaximoBovedaRespaldo &&
-         partes->base.size() <= kMaximoBaseRespaldo);
+         partes->base.size() <= kMaximoBaseRespaldo && partes->cadena.size() <= kMaximoCadenaRespaldo);
   exigir(adentro(partes->clave, entrada) && adentro(partes->boveda, entrada) && adentro(partes->base, entrada));
+  exigir(partes->cadena.empty() || (adentro(partes->cadena, entrada) && ventrik::cifrado::leer_cadena(partes->cadena)));
   const auto sobre = ventrik::cifrado::cerrar_con_llave(*llave, entrada);
   exigir(sobre.has_value());
   const auto abierto = abrir_respaldo(*sobre, kContrasena);
@@ -89,8 +95,10 @@ void base_importada(gsl::span<const std::uint8_t> entrada) {
   static const std::wstring archivo = archivo_de_prueba();
   ventrik::borrar_temporales_de(archivo);
   borrar_base(archivo);
-  if (ventrik::escribir_archivo_completo(archivo, entrada) && revisar_base(archivo) == RevisionBase::buena) {
-    exigir(Base::abrir(archivo, "General") != nullptr);
+  if (ventrik::escribir_archivo_completo(archivo, entrada) &&
+      revisar_base_importada(archivo, "General", ventrik::cifrado::Secreto(ventrik::cifrado::kBytesClaveSimetrica)) ==
+          Mudanza::hecha) {
+    exigir(revisar_base(archivo) == RevisionBase::buena && Base::abrir(archivo, "General") != nullptr);
   }
 }
 

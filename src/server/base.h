@@ -51,7 +51,7 @@ struct AvisosPendientes {
 
 bool esta_vencido(const UsuarioGuardado& usuario, std::uint64_t ahora_ms);
 bool se_puede_desalojar(const UsuarioGuardado& usuario, std::uint64_t ahora_ms);
-std::optional<bool> tiene_dueno_guardado(const std::wstring& archivo);
+std::optional<bool> tiene_datos_guardados(const std::wstring& archivo);
 
 using protocolo::kCanalGeneral;
 

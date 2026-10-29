@@ -94,7 +94,7 @@ TEST_CASE("el archivo de servidores rechaza lo que no armó Ventrik") {
   marca[0] ^= 1;
   CHECK(leer_sin_tocar(marca) == LecturaGuardados::danados);
   auto version = bien;
-  version[4] = 8;
+  version[4] = 9;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::version_nueva);
   version[4] = 0;
   CHECK(leer_sin_tocar(version) == LecturaGuardados::danados);
@@ -154,7 +154,7 @@ TEST_CASE("una lista de la versión 3 se lee sin silencio y con los volúmenes a
   CHECK(leidos.volumen_salida == ventrik::cliente::kVolumenPorDefecto);
   const auto nuevo = armar_guardados(leidos);
   REQUIRE(nuevo.size() == escritor.datos().size() + 5);
-  CHECK(nuevo[4] == 7);
+  CHECK(nuevo[4] == 8);
   CHECK(nuevo[9] == 0);
   CHECK(nuevo[10] == 100);
   CHECK(nuevo[11] == 100);
@@ -174,7 +174,7 @@ TEST_CASE("una lista de la versión 2 se lee con la tecla para hablar y la sensi
   CHECK(leidos.sensibilidad == ventrik::cliente::kSensibilidadPorDefecto);
   const auto nuevo = armar_guardados(leidos);
   REQUIRE(nuevo.size() == escritor.datos().size() + 7);
-  CHECK(nuevo[4] == 7);
+  CHECK(nuevo[4] == 8);
   CHECK(nuevo[7] == 0);
   CHECK(nuevo[8] == ventrik::cliente::kSensibilidadPorDefecto);
 }
@@ -273,8 +273,8 @@ TEST_CASE("una lista de la versión 1 se lee con sus servidores y sin lo leído"
   CHECK(leidos.servidores[0].nombre == "Tano");
   CHECK(leidos.servidores[0].leidos.empty());
   const auto nuevo = armar_guardados(leidos);
-  REQUIRE(nuevo.size() == escritor.datos().size() + 22);
-  CHECK(nuevo[4] == 7);
+  REQUIRE(nuevo.size() == escritor.datos().size() + 23);
+  CHECK(nuevo[4] == 8);
   auto con_leidos = escritor.datos();
   con_leidos.push_back(0);
   CHECK(leer_sin_tocar(con_leidos) == LecturaGuardados::danados);
@@ -339,7 +339,7 @@ TEST_CASE("el volumen de cada persona se guarda por servidor y por nombre, hasta
   CHECK(leidos.servidores[1].personas[1].volumen == 150);
   CHECK(armar_guardados(leidos) == bytes);
   auto silenciada_mal = bytes;
-  silenciada_mal[silenciada_mal.size() - 16] = 2;
+  silenciada_mal[silenciada_mal.size() - 17] = 2;
   CHECK(leer_sin_tocar(silenciada_mal) == LecturaGuardados::danados);
 
   std::vector<PersonaGuardada> personas;
@@ -406,10 +406,10 @@ TEST_CASE("los avisos de cada servidor se guardan con sus canales, y lo fuera de
 
   const std::size_t fin = bytes.size();
   auto avisar_mal = bytes;
-  avisar_mal[fin - 13 - 2 * 14 + 9] = 4;
+  avisar_mal[fin - 16 - 2 * 14 + 9] = 4;
   CHECK(leer_sin_tocar(avisar_mal) == LecturaGuardados::danados);
   auto aun_mal = bytes;
-  aun_mal[fin - 13 - 2 * 14 + 8] = 2;
+  aun_mal[fin - 16 - 2 * 14 + 8] = 2;
   CHECK(leer_sin_tocar(aun_mal) == LecturaGuardados::danados);
 }
 
@@ -427,6 +427,64 @@ TEST_CASE("recordar conserva lo leído del mismo servidor, salvo que cambie la h
   reinstalado.huella.fill(0xCD);
   ventrik::cliente::recordar(guardados, reinstalado);
   CHECK(guardados.servidores.front().leidos.empty());
+}
+
+TEST_CASE("las huellas que quedaron atrás se guardan por servidor, hasta 16, y un archivo de la versión 7 se lee sin ellas") {
+  using ventrik::cifrado::Huella;
+  const auto huella = [](std::uint8_t valor) {
+    Huella::Bytes bytes{};
+    bytes.fill(valor);
+    return Huella(bytes);
+  };
+  Guardados guardados = ejemplo();
+  auto& primero = guardados.servidores[0];
+  ventrik::cliente::cambiar_huella(primero, {huella(2), {huella(0xAB), huella(1)}});
+  CHECK(primero.huella == huella(2).bytes());
+  REQUIRE(primero.atras.size() == 2);
+  const auto bytes = armar_guardados(guardados);
+  REQUIRE_FALSE(bytes.empty());
+  Guardados leidos;
+  REQUIRE(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
+  CHECK(ventrik::cliente::huellas_atras(leidos.servidores[0]) ==
+        std::vector<Huella>{huella(0xAB), huella(1)});
+  CHECK(leidos.servidores[1].atras.empty());
+  CHECK(armar_guardados(leidos) == bytes);
+  CHECK(ventrik::cliente::conoce_huella(primero, huella(2).bytes()));
+  CHECK(ventrik::cliente::conoce_huella(primero, huella(1).bytes()));
+  CHECK_FALSE(ventrik::cliente::conoce_huella(primero, huella(3).bytes()));
+
+  for (std::uint8_t i = 3; i < 30; ++i) {
+    ventrik::cliente::cambiar_huella(primero, {huella(i), {huella(static_cast<std::uint8_t>(i - 1))}});
+  }
+  REQUIRE(primero.atras.size() == ventrik::cliente::kMaximoHuellasAtras);
+  CHECK(primero.atras.back() == huella(28).bytes());
+  CHECK(primero.atras.front() == huella(13).bytes());
+  CHECK_FALSE(armar_guardados(guardados).empty());
+  primero.atras.push_back(huella(99).bytes());
+  CHECK(armar_guardados(guardados).empty());
+
+  Guardados uno;
+  uno.servidores = {servidor(0xC0A80099)};
+  const auto version_8 = armar_guardados(uno);
+  REQUIRE(version_8.size() > 3);
+  REQUIRE(version_8[version_8.size() - 3] == 0);
+  auto version_7 = version_8;
+  version_7[4] = 7;
+  version_7.erase(version_7.end() - 3);
+  Guardados de_la_7;
+  REQUIRE(leer_guardados(version_7, de_la_7) == LecturaGuardados::leidos);
+  REQUIRE(de_la_7.servidores.size() == 1);
+  CHECK(de_la_7.servidores[0].atras.empty());
+  CHECK(armar_guardados(de_la_7) == version_8);
+  auto con_17 = version_8;
+  con_17[con_17.size() - 3] = 17;
+  con_17.insert(con_17.end() - 2, 17 * Huella::kBytes, std::uint8_t{5});
+  CHECK(leer_sin_tocar(con_17) == LecturaGuardados::danados);
+  con_17[con_17.size() - 3 - 17 * Huella::kBytes] = 16;
+  con_17.erase(con_17.end() - 2 - static_cast<std::ptrdiff_t>(Huella::kBytes), con_17.end() - 2);
+  Guardados con_16;
+  CHECK(leer_guardados(con_17, con_16) == LecturaGuardados::leidos);
+  CHECK(con_16.servidores[0].atras.size() == 16);
 }
 
 TEST_CASE("recordar pone el servidor adelante, lo actualiza y guarda hasta 32") {
@@ -455,7 +513,7 @@ TEST_CASE("los ajustes van por clave: se guardan en orden, se conservan los que 
   guardados.ajustes[900] = {1, 2, 3};
   const auto bytes = armar_guardados(guardados);
   REQUIRE_FALSE(bytes.empty());
-  CHECK(bytes[4] == 7);
+  CHECK(bytes[4] == 8);
   Guardados leidos;
   REQUIRE(leer_guardados(bytes, leidos) == LecturaGuardados::leidos);
   CHECK(leidos.ajustes == guardados.ajustes);

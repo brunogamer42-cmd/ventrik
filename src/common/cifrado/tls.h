@@ -78,6 +78,7 @@ class SesionTls {
   void exigir_huella(const Huella& esperada);
   bool huella_confirmada() const { return huella_confirmada_; }
   bool huella_distinta() const { return huella_distinta_; }
+  const std::optional<Huella>& huella_del_otro() const { return huella_del_otro_; }
 
   Paso apreton();
   Paso leer(gsl::span<std::uint8_t> destino, std::size_t& leidos);
@@ -126,6 +127,7 @@ class SesionTls {
   mbedtls_timing_delay_context temporizador_{};
   Canal canal_;
   std::optional<Huella> esperada_;
+  std::optional<Huella> huella_del_otro_;
   bool huella_confirmada_ = false;
   bool huella_distinta_ = false;
   bool ok_ = false;

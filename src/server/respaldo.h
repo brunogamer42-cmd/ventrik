@@ -12,20 +12,23 @@
 #include "common/cifrado/identidad.h"
 #include "common/cifrado/secreto.h"
 #include "common/cifrado/sobre.h"
+#include "common/protocol/pedidos.h"
 
 namespace ventrik::servidor {
 
 constexpr std::string_view kMarcaRespaldo = "VKSV";
 constexpr std::size_t kMaximoClaveRespaldo = cifrado::kMaximoArchivoClave;
-constexpr std::size_t kMaximoBovedaRespaldo = cifrado::kMaximoArchivoClave;
+constexpr std::size_t kMaximoBovedaRespaldo = cifrado::kBytesBoveda;
 constexpr std::size_t kMaximoBaseRespaldo = 64 * 1024 * 1024;
+constexpr std::size_t kMaximoCadenaRespaldo = protocolo::kMaximoCuerpoCadena;
 constexpr std::size_t kMaximoArchivoRespaldo =
-    kMaximoClaveRespaldo + kMaximoBovedaRespaldo + kMaximoBaseRespaldo + 1024;
+    kMaximoClaveRespaldo + kMaximoBovedaRespaldo + kMaximoBaseRespaldo + kMaximoCadenaRespaldo + 1024;
 
 struct PartesRespaldo {
   gsl::span<const std::uint8_t> clave;
   gsl::span<const std::uint8_t> boveda;
   gsl::span<const std::uint8_t> base;
+  gsl::span<const std::uint8_t> cadena;
 };
 
 std::optional<PartesRespaldo> leer_contenido(gsl::span<const std::uint8_t> contenido);
@@ -44,7 +47,7 @@ RespaldoAbierto abrir_respaldo(gsl::span<const std::uint8_t> archivo, std::strin
 bool copiar_base(const std::wstring& origen, const std::wstring& destino);
 void borrar_base(const std::wstring& archivo);
 
-enum class RevisionBase { buena, error, danada, otra_version, otro_esquema };
+enum class RevisionBase { buena, error, danada, version_vieja, otra_version, otro_esquema };
 
 RevisionBase revisar_base(const std::wstring& archivo);
 

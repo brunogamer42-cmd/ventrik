@@ -309,12 +309,10 @@ int SesionTls::verificar(void* contexto, mbedtls_x509_crt* certificado, int prof
     *banderas = 0;
     return 0;
   }
-  const auto huella = huella_de_clave(certificado->pk);
-  if (!sesion->esperada_ || !huella || *huella != *sesion->esperada_) {
-    sesion->huella_distinta_ = true;
-    return MBEDTLS_ERR_X509_FATAL_ERROR;
-  }
-  sesion->huella_confirmada_ = true;
+  sesion->huella_del_otro_ = huella_de_clave(certificado->pk);
+  sesion->huella_confirmada_ =
+      sesion->esperada_ && sesion->huella_del_otro_ && *sesion->huella_del_otro_ == *sesion->esperada_;
+  sesion->huella_distinta_ = !sesion->huella_confirmada_;
   *banderas = 0;
   return 0;
 }

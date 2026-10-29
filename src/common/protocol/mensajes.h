@@ -48,6 +48,7 @@ enum class TipoMensaje : std::uint16_t {
   aviso_de_seguridad = 47,
   medio_subida = 50,
   medio_bajada = 51,
+  cadena_de_claves = 52,
 };
 
 using Funciones = std::uint64_t;

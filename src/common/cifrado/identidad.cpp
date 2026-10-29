@@ -91,6 +91,10 @@ const Huella& IdentidadServidor::huella() const {
   return datos_->clave.huella();
 }
 
+const Clave& IdentidadServidor::firmante() const {
+  return datos_->clave;
+}
+
 mbedtls_pk_context* IdentidadServidor::clave() {
   return datos_->clave.contexto();
 }
@@ -165,11 +169,12 @@ std::optional<IdentidadServidor> abrir_clave(gsl::span<const std::uint8_t> archi
 }
 
 IdentidadCargada cargar_o_crear_identidad(const std::wstring& carpeta, std::optional<std::string_view> contrasena,
-                                          bool base_con_dueno) {
+                                          bool base_con_datos) {
   const Leido boveda = leer(carpeta + kArchivoBoveda, kMaximoArchivoBoveda);
   const Leido clave = leer(carpeta + kArchivoClave, kMaximoArchivoClave);
   const Leido vieja = leer(carpeta + kArchivoClaveVieja, kMaximoArchivoClave);
-  for (const Leido* leido : {&boveda, &clave, &vieja}) {
+  const Leido nueva = leer(carpeta + kArchivoClaveNueva, kMaximoArchivoClave);
+  for (const Leido* leido : {&boveda, &clave, &vieja, &nueva}) {
     if (leido->lectura == LecturaArchivo::error) {
       return fallo(ResultadoIdentidad::error_lectura, leido->ruta);
     }
@@ -186,7 +191,7 @@ IdentidadCargada cargar_o_crear_identidad(const std::wstring& carpeta, std::opti
     cargada.boveda = std::move(abierta.boveda);
   } else if (clave.existe()) {
     return fallo(ResultadoIdentidad::falta_boveda, boveda.ruta);
-  } else if (!vieja.existe() && base_con_dueno) {
+  } else if (!vieja.existe() && base_con_datos) {
     return fallo(ResultadoIdentidad::falta_clave, clave.ruta);
   } else {
     cargada.boveda = Boveda::crear_nueva();
@@ -195,17 +200,23 @@ IdentidadCargada cargar_o_crear_identidad(const std::wstring& carpeta, std::opti
       return fallo(ResultadoIdentidad::error_escritura, boveda.ruta);
     }
   }
-  if (clave.existe()) {
-    cargada.identidad = abrir_clave(clave.contenido.bytes(), *cargada.boveda);
+  auto de_la_nueva = nueva.existe() ? abrir_clave(nueva.contenido.bytes(), *cargada.boveda) : std::nullopt;
+  if (clave.existe() || de_la_nueva) {
+    cargada.identidad = clave.existe() ? abrir_clave(clave.contenido.bytes(), *cargada.boveda) : std::nullopt;
+    if (!cargada.identidad && de_la_nueva) {
+      if (MoveFileExW(nueva.ruta.c_str(), clave.ruta.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
+        return fallo(ResultadoIdentidad::error_escritura, clave.ruta);
+      }
+      cargada.identidad = std::move(de_la_nueva);
+    }
     if (!cargada.identidad) {
       return fallo(ResultadoIdentidad::archivo_invalido, clave.ruta);
     }
-    if (vieja.existe() && !misma_clave(IdentidadServidor::desde_der(vieja.contenido.bytes()), *cargada.identidad)) {
+    const auto de_la_vieja = vieja.existe() ? IdentidadServidor::desde_der(vieja.contenido.bytes()) : std::nullopt;
+    if (de_la_vieja && !misma_clave(de_la_vieja, *cargada.identidad)) {
       return fallo(ResultadoIdentidad::claves_distintas, vieja.ruta);
     }
-    if (vieja.existe()) {
-      borrar_con_ceros(vieja.ruta);
-    }
+    cargada.vieja_sin_borrar = vieja.existe() && !borrar_con_ceros(vieja.ruta);
     cargada.resultado = ResultadoIdentidad::cargada;
     return cargada;
   }
@@ -234,9 +245,7 @@ IdentidadCargada cargar_o_crear_identidad(const std::wstring& carpeta, std::opti
     }
     return fallar(ResultadoIdentidad::error_escritura, clave.ruta);
   }
-  if (vieja.existe()) {
-    borrar_con_ceros(vieja.ruta);
-  }
+  cargada.vieja_sin_borrar = vieja.existe() && !borrar_con_ceros(vieja.ruta);
   cargada.resultado = vieja.existe() ? ResultadoIdentidad::convertida : ResultadoIdentidad::creada;
   return cargada;
 }

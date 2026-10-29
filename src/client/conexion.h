@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "common/cifrado/cadena.h"
 #include "common/cifrado/clave.h"
 #include "common/cifrado/codigo_dueno.h"
 #include "common/cifrado/huella.h"
@@ -32,6 +33,7 @@ struct OpcionesConexion {
   protocolo::Hola hola{kProtocoloMinimo, kProtocoloMaximo, kVersionPrograma, 0};
   const red::Socket* cancelar = nullptr;
   std::optional<red::Direccion> origen;
+  std::vector<cifrado::Huella> atras;
 };
 
 enum class EstadoConexion {
@@ -68,6 +70,8 @@ class ConexionAbierta {
   cifrado::SesionTls& tls() { return *tls_; }
   protocolo::Ensamblador& ensamblador() { return ensamblador_; }
   std::vector<std::uint8_t>& sobrante() { return sobrante_; }
+  void confirmar() { confirmada_ = true; }
+  bool confirmada() const { return confirmada_; }
 
  private:
   std::unique_ptr<cifrado::ConfigTls> config_;
@@ -75,6 +79,7 @@ class ConexionAbierta {
   std::unique_ptr<cifrado::SesionTls> tls_;
   protocolo::Ensamblador ensamblador_{protocolo::kMaximoCuerpoSaludo};
   std::vector<std::uint8_t> sobrante_;
+  bool confirmada_ = false;
 };
 
 struct ResultadoConexion {
@@ -85,6 +90,7 @@ struct ResultadoConexion {
   int codigo = 0;
   std::uint16_t espera = 0;
   std::optional<protocolo::Presentado> presentado;
+  std::optional<cifrado::CadenaSeguida> cambio;
   std::unique_ptr<ConexionAbierta> abierta;
 };
 

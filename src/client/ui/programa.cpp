@@ -1439,9 +1439,16 @@ class Programa {
     canal_del_aviso_ = 0;
     pantalla_.intento = {direccion, desde_formulario, Fase::conectando, {}};
     pendiente_ = {direccion, huella.bytes(), quien.nombre, 0, {}, 0};
+    if (const auto* guardado = cliente::buscar_guardado(guardados_, direccion);
+        guardado != nullptr && cliente::conoce_huella(*guardado, huella.bytes())) {
+      pendiente_.huella = guardado->huella;
+      pendiente_.atras = guardado->atras;
+    }
     cliente::OpcionesSesion opciones;
+    opciones.conexion.atras = cliente::huellas_atras(pendiente_);
     opciones.al_haber_novedades = [this] { avisar(); };
-    sesion_ = std::make_unique<cliente::Sesion>(direccion, huella, std::move(quien), std::move(opciones));
+    sesion_ = std::make_unique<cliente::Sesion>(direccion, cifrado::Huella(pendiente_.huella), std::move(quien),
+                                                std::move(opciones));
     ahorrando_ = false;
   }
 
@@ -1469,6 +1476,9 @@ class Programa {
     }
     if (canal_del_aviso_ != 0) {
       pendiente_.texto = std::exchange(canal_del_aviso_, 0);
+    }
+    if (intento.cambio) {
+      cliente::cambiar_huella(pendiente_, *intento.cambio);
     }
     sala_ =std::make_unique<cliente::Sala>(*intento.presentado, pendiente_.leidos, pendiente_.texto);
     avisos_.conectado(red::a_texto(pendiente_.direccion), sala_->tu_id(), pendiente_.nombre);
@@ -1498,6 +1508,9 @@ class Programa {
     servidor_.volumen_salida = guardados_.volumen_salida;
     servidor_.enfocar_mensaje = true;
     servidor_.avisos = pendiente_.avisos;
+    if (intento.cambio) {
+      servidor_.seguridad.emplace_back(texto(pantalla_.idioma, Clave::conectar_clave_cambiada));
+    }
     const std::wstring ultima_voz = nombre_para_comparar(pendiente_.nombre_canal);
     for (const auto& canal : sala_->canales()) {
       if (canal.tipo == protocolo::TipoCanal::voz && !ultima_voz.empty() &&

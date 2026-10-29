@@ -13,6 +13,7 @@
 
 #include "client/limpieza.h"
 #include "client/silencios.h"
+#include "common/cifrado/cadena.h"
 #include "common/cifrado/huella.h"
 #include "common/protocol/pedidos.h"
 #include "common/red/red.h"
@@ -22,6 +23,7 @@ constexpr std::size_t kMaximoServidoresGuardados = 32;
 constexpr std::size_t kMaximoArchivoGuardados = 163840;
 constexpr std::size_t kMaximoLeidosPorServidor = 64;
 constexpr std::size_t kMaximoPersonasPorServidor = 16;
+constexpr std::size_t kMaximoHuellasAtras = 16;
 static_assert(kMaximoLeidosPorServidor >= protocolo::kMaximoCanales);
 constexpr std::uint8_t kTeclaHablarPorDefecto = 0xA4;
 constexpr std::uint8_t kSensibilidadMaxima = 100;
@@ -109,6 +111,7 @@ struct ServidorGuardado {
   std::vector<Leido> leidos;
   std::vector<PersonaGuardada> personas;
   AvisosDelServidor avisos;
+  std::vector<cifrado::Huella::Bytes> atras;
 };
 
 struct AjustesDeVoz {
@@ -150,6 +153,9 @@ protocolo::DestinosDeSusurro destinos_de(const Susurro& susurro, std::size_t lug
 std::uint8_t tecla_para_hablar(std::uint8_t guardada);
 ServidorGuardado* buscar_guardado(Guardados& guardados, const red::Direccion& direccion);
 bool recordar(Guardados& guardados, ServidorGuardado servidor);
+void cambiar_huella(ServidorGuardado& servidor, const cifrado::CadenaSeguida& cambio);
+bool conoce_huella(const ServidorGuardado& servidor, const cifrado::Huella::Bytes& huella);
+std::vector<cifrado::Huella> huellas_atras(const ServidorGuardado& servidor);
 void ajustar_persona(std::vector<PersonaGuardada>& personas, PersonaGuardada persona);
 AjustesDeVoz ajustes_de_voz(const std::vector<PersonaGuardada>& personas,
                             const std::map<std::uint32_t, protocolo::UsuarioInfo>& usuarios);

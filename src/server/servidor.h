@@ -64,6 +64,7 @@ struct Opciones {
   std::string liberar_nombre;
   std::string nombre_servidor;
   std::string nombre_de_fabrica = "Ventrik";
+  cifrado::Cadena cadena;
 };
 
 enum class Evento {
@@ -193,6 +194,7 @@ class Servidor {
   Opciones opciones_;
   Avisar avisar_;
   std::unique_ptr<cifrado::ConfigTls> config_;
+  std::vector<std::uint8_t> marco_cadena_;
   red::Socket escucha_;
   red::Socket udp_;
   red::Despertador despertador_;

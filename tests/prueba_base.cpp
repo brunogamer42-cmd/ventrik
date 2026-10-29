@@ -888,34 +888,49 @@ TEST_CASE("Prender y apagar el cifrado convierte los mensajes viejos, y sin clav
   borrar_base(archivo);
 }
 
-TEST_CASE("Se sabe si una base tiene dueño antes de abrirla para el servidor") {
+TEST_CASE("Se sabe si una base tiene identidades o historial cifrado antes de abrirla para el servidor") {
   const std::wstring archivo = archivo_temporal();
   borrar_base(archivo);
-  CHECK(tiene_dueno_guardado(archivo) == false);
+  CHECK(tiene_datos_guardados(archivo) == false);
   armar_base(archivo, "CREATE TABLE canales(id INTEGER);");
-  CHECK(tiene_dueno_guardado(archivo) == false);
+  CHECK(tiene_datos_guardados(archivo) == false);
   borrar_base(archivo);
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1, "en claro"));
+  }
+  CHECK(tiene_datos_guardados(archivo) == false);
   UsuarioGuardado ana;
   ana.clave.fill(4);
   ana.nombre = "Ana";
   ana.creado_ms = ana.visto_ms = 1000;
   {
     auto base = Base::abrir(archivo, "General");
-    REQUIRE(base);
     REQUIRE(base->guardar_usuario(ana));
   }
-  CHECK(tiene_dueno_guardado(archivo) == false);
+  CHECK(tiene_datos_guardados(archivo) == true);
+  borrar_base(archivo);
   {
-    auto base = Base::abrir(archivo, "General");
-    ana.dueno = true;
-    REQUIRE(base->guardar_usuario(ana));
+    auto base = Base::abrir(archivo, "General", clave_de_prueba());
+    REQUIRE(base);
+    REQUIRE(base->cifrar_historial(true));
   }
-  CHECK(tiene_dueno_guardado(archivo) == true);
+  CHECK(tiene_datos_guardados(archivo) == true);
+  armar_base(archivo, "DELETE FROM config WHERE clave = 'cifrado';");
+  CHECK(tiene_datos_guardados(archivo) == false);
+  {
+    auto base = Base::abrir(archivo, "General", clave_de_prueba());
+    REQUIRE(base->cifrar_historial(true));
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 2, "Ana", 2, "cifrado"));
+  }
+  armar_base(archivo, "DELETE FROM config WHERE clave = 'cifrado';");
+  CHECK(tiene_datos_guardados(archivo) == true);
   borrar_base(archivo);
   const std::string basura = "esto no es una base de SQLite, aunque se llame .db";
   REQUIRE(ventrik::escribir_archivo_completo(
       archivo, gsl::make_span(reinterpret_cast<const std::uint8_t*>(basura.data()), basura.size())));
-  CHECK_FALSE(tiene_dueno_guardado(archivo).has_value());
+  CHECK_FALSE(tiene_datos_guardados(archivo).has_value());
   borrar_base(archivo);
 }
 

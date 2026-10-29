@@ -26,6 +26,7 @@ struct IntentoDeConexion {
   std::string cifrado;
   std::optional<protocolo::Presentado> presentado;
   std::uint16_t espera = 0;
+  std::optional<cifrado::CadenaSeguida> cambio;
 };
 
 struct PingMedido {
@@ -87,7 +88,7 @@ class Sesion {
   void usar_clave();
 
   const red::Direccion destino_;
-  const cifrado::Huella huella_;
+  cifrado::Huella huella_;
   Presentacion quien_;
   const OpcionesSesion opciones_;
   red::Despertador despertador_;

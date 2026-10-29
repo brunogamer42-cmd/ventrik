@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <memory>
 #include <utility>
 
@@ -19,9 +20,11 @@ namespace ventrik::servidor {
 namespace {
 
 constexpr std::uint8_t kVersionRespaldo = 1;
-constexpr std::size_t kPartes = 3;
+constexpr std::size_t kObligatorias = 3;
+constexpr std::size_t kPartes = 4;
 constexpr std::size_t kBytesCabeceraParte = 1 + 4;
-constexpr std::array<std::size_t, kPartes> kTopes{kMaximoClaveRespaldo, kMaximoBovedaRespaldo, kMaximoBaseRespaldo};
+constexpr std::array<std::size_t, kPartes> kTopes{kMaximoClaveRespaldo, kMaximoBovedaRespaldo, kMaximoBaseRespaldo,
+                                                  kMaximoCadenaRespaldo};
 constexpr int kEsperaMs = 5000;
 constexpr std::size_t kMaximoFilas = 1000;
 constexpr std::array<std::array<int, 2>, 4> kDesconfiar{{{SQLITE_DBCONFIG_DEFENSIVE, 1},
@@ -33,7 +36,14 @@ using Conexion = std::unique_ptr<sqlite3, decltype(&sqlite3_close)>;
 using Firma = std::array<std::vector<std::string>, 2>;
 
 std::array<gsl::span<const std::uint8_t>, kPartes> en_orden(const PartesRespaldo& partes) {
-  return {partes.clave, partes.boveda, partes.base};
+  return {partes.clave, partes.boveda, partes.base, partes.cadena};
+}
+
+bool es_anterior(const std::vector<std::string>& leida, const std::vector<std::string>& referencia) {
+  const auto numero = [](const std::vector<std::string>& version) {
+    return version.size() == 1 ? std::strtol(version[0].c_str(), nullptr, 10) : 0L;
+  };
+  return numero(leida) >= 1 && numero(leida) < numero(referencia);
 }
 
 Conexion conectar(const std::wstring& archivo, int banderas) {
@@ -114,7 +124,7 @@ std::optional<PartesRespaldo> leer_contenido(gsl::span<const std::uint8_t> conte
   if (lector.leer_u8() != kVersionRespaldo) {
     return std::nullopt;
   }
-  for (std::size_t i = 0; i < kPartes; ++i) {
+  for (std::size_t i = 0; i < kPartes && (i < kObligatorias || !lector.terminado()); ++i) {
     const std::size_t tipo = lector.leer_u8();
     const std::size_t largo = lector.leer_u32();
     if (tipo != i + 1 || largo == 0 || largo > gsl::at(kTopes, i)) {
@@ -122,10 +132,10 @@ std::optional<PartesRespaldo> leer_contenido(gsl::span<const std::uint8_t> conte
     }
     gsl::at(leidas, i) = lector.leer_bytes(largo);
   }
-  if (!lector.terminado()) {
+  if (!lector.terminado() || (!leidas[3].empty() && !cifrado::leer_cadena(leidas[3]))) {
     return std::nullopt;
   }
-  return PartesRespaldo{leidas[0], leidas[1], leidas[2]};
+  return PartesRespaldo{leidas[0], leidas[1], leidas[2], leidas[3]};
 }
 
 std::optional<std::vector<std::uint8_t>> armar_respaldo(const PartesRespaldo& partes, std::string_view contrasena,
@@ -133,7 +143,7 @@ std::optional<std::vector<std::uint8_t>> armar_respaldo(const PartesRespaldo& pa
   const auto lista = en_orden(partes);
   std::size_t total = 1;
   for (std::size_t i = 0; i < kPartes; ++i) {
-    if (gsl::at(lista, i).empty() || gsl::at(lista, i).size() > gsl::at(kTopes, i)) {
+    if ((gsl::at(lista, i).empty() && i < kObligatorias) || gsl::at(lista, i).size() > gsl::at(kTopes, i)) {
       return std::nullopt;
     }
     total += kBytesCabeceraParte + gsl::at(lista, i).size();
@@ -145,7 +155,7 @@ std::optional<std::vector<std::uint8_t>> armar_respaldo(const PartesRespaldo& pa
   lugar.reserve(total);
   protocolo::Escritor escritor(std::move(lugar));
   escritor.escribir_u8(kVersionRespaldo);
-  for (std::size_t i = 0; i < kPartes; ++i) {
+  for (std::size_t i = 0; i < kPartes && !gsl::at(lista, i).empty(); ++i) {
     escritor.escribir_u8(static_cast<std::uint8_t>(i + 1));
     escritor.escribir_u32(static_cast<std::uint32_t>(gsl::at(lista, i).size()));
     escritor.escribir_bytes(gsl::at(lista, i));
@@ -203,7 +213,7 @@ RevisionBase revisar_base(const std::wstring& archivo) {
     return RevisionBase::error;
   }
   const auto leida = se_puede_escribir(conexion.get()) ? firma(conexion.get()) : std::nullopt;
-  if (!leida) {
+  if (!leida || filas(conexion.get(), "PRAGMA integrity_check") != std::vector<std::string>{"ok"}) {
     return RevisionBase::danada;
   }
   const auto referencia = firma_de_referencia();
@@ -211,13 +221,9 @@ RevisionBase revisar_base(const std::wstring& archivo) {
     return RevisionBase::error;
   }
   if ((*leida)[0] != (*referencia)[0]) {
-    return RevisionBase::otra_version;
+    return es_anterior((*leida)[0], (*referencia)[0]) ? RevisionBase::version_vieja : RevisionBase::otra_version;
   }
-  if ((*leida)[1] != (*referencia)[1]) {
-    return RevisionBase::otro_esquema;
-  }
-  return filas(conexion.get(), "PRAGMA integrity_check") == std::vector<std::string>{"ok"} ? RevisionBase::buena
-                                                                                           : RevisionBase::danada;
+  return (*leida)[1] == (*referencia)[1] ? RevisionBase::buena : RevisionBase::otro_esquema;
 }
 
 }

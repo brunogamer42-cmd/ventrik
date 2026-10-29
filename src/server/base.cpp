@@ -272,7 +272,7 @@ bool se_puede_desalojar(const UsuarioGuardado& usuario, std::uint64_t ahora) {
          usuario.visto_ms < hace_dias(ahora, kDiasParaDesalojar);
 }
 
-std::optional<bool> tiene_dueno_guardado(const std::wstring& archivo) {
+std::optional<bool> tiene_datos_guardados(const std::wstring& archivo) {
   if (GetFileAttributesW(archivo.c_str()) == INVALID_FILE_ATTRIBUTES) {
     const DWORD error = GetLastError();
     return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? std::optional<bool>(false) : std::nullopt;
@@ -282,15 +282,23 @@ std::optional<bool> tiene_dueno_guardado(const std::wstring& archivo) {
   if (sqlite3_open_v2(a_utf8(archivo).c_str(), &abierta, SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK) {
     return std::nullopt;
   }
-  Consulta tabla(abierta, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'usuarios'");
-  if (tabla.paso() != SQLITE_ROW) {
+  Consulta tablas(abierta,
+                  "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'usuarios'),"
+                  " (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'config'),"
+                  " (SELECT COUNT(*) FROM pragma_table_info('mensajes') WHERE name = 'sellado')");
+  if (tablas.paso() != SQLITE_ROW) {
     return std::nullopt;
   }
-  if (tabla.columna_entero(0) == 0) {
-    return false;
-  }
-  Consulta dueno(abierta, "SELECT EXISTS (SELECT 1 FROM usuarios WHERE dueno = 1)");
-  return dueno.paso() == SQLITE_ROW ? std::optional<bool>(dueno.columna_entero(0) == 1) : std::nullopt;
+  const std::string sql = std::string("SELECT 0") +
+                          (tablas.columna_entero(0) > 0 ? " OR EXISTS (SELECT 1 FROM usuarios)" : "") +
+                          (tablas.columna_entero(1) > 0
+                               ? " OR EXISTS (SELECT 1 FROM config WHERE clave = 'cifrado' AND valor = 1)"
+                               : "") +
+                          (tablas.columna_entero(2) > 0
+                               ? " OR EXISTS (SELECT 1 FROM mensajes WHERE sellado IS NOT NULL)"
+                               : "");
+  Consulta datos(abierta, sql.c_str());
+  return datos.paso() == SQLITE_ROW ? std::optional<bool>(datos.columna_entero(0) == 1) : std::nullopt;
 }
 
 std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string& nombre_general,
@@ -320,6 +328,8 @@ std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string
     }
   }
   if (sqlite3_db_config(abierta, SQLITE_DBCONFIG_DEFENSIVE, 1, nullptr) != SQLITE_OK ||
+      sqlite3_db_config(abierta, SQLITE_DBCONFIG_ENABLE_TRIGGER, 0, nullptr) != SQLITE_OK ||
+      sqlite3_db_config(abierta, SQLITE_DBCONFIG_ENABLE_VIEW, 0, nullptr) != SQLITE_OK ||
       guardada < 0 || guardada > kVersionEsquema || !ejecutar(abierta, kEsquema) ||
       (guardada == 1 && !ejecutar(abierta, kMigrarDe1)) ||
       !ejecutar(abierta, guardada >= 1 && guardada < kVersionEsquema ? kMigrarA5 : "PRAGMA user_version=5")) {

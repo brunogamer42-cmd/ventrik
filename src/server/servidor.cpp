@@ -123,6 +123,8 @@ Servidor::~Servidor() = default;
 bool Servidor::escuchar() {
   config_ = cifrado::ConfigTls::para_servidor(identidad_);
   if (!config_ || !despertador_.ok() ||
+      (!opciones_.cadena.empty() &&
+       !protocolo::armar_mensaje(protocolo::CadenaDeClaves{opciones_.cadena}, marco_cadena_)) ||
       !base_.arrancar(opciones_.archivo_base, opciones_.nombre_general, despertador_, std::move(clave_historial_))) {
     return false;
   }
@@ -551,6 +553,9 @@ void Servidor::atender_hola(Conexion& conexion, const protocolo::Marco& marco) {
       return;
     }
     encolar_bytes(conexion, marco_bienvenida);
+    if (!marco_cadena_.empty()) {
+      encolar_bytes(conexion, marco_cadena_);
+    }
     conexion.protocolo = bienvenida->protocolo;
     conexion.estado = Estado::presentando;
     conexion.ensamblador.cambiar_maximo(protocolo::kMaximoCuerpoPresentacion);

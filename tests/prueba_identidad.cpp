@@ -275,6 +275,42 @@ TEST_CASE("Si la conversión quedó a medias, la clave vieja igual se borra; si 
   CHECK(existe(carpeta.vieja()));
 }
 
+TEST_CASE("Una clave vieja ya pisada con ceros es resto de un borrado cortado: se borra y el servidor arranca") {
+  CarpetaTemporal carpeta;
+  const auto creada = cargar(carpeta);
+  REQUIRE(creada.identidad);
+  const auto der = creada.identidad->clave_der();
+  REQUIRE(der);
+  for (const std::size_t largo : {der->size(), std::size_t{1}}) {
+    REQUIRE(ventrik::escribir_archivo_completo(carpeta.vieja(), std::vector<std::uint8_t>(largo)));
+    const auto cargada = cargar(carpeta, true);
+    CHECK(cargada.resultado == ResultadoIdentidad::cargada);
+    CHECK(cargada.identidad->huella() == creada.identidad->huella());
+    CHECK_FALSE(cargada.vieja_sin_borrar);
+    CHECK_FALSE(existe(carpeta.vieja()));
+  }
+}
+
+TEST_CASE("Si la clave vieja no se puede borrar, se avisa en vez de decir que se borró") {
+  CarpetaTemporal carpeta;
+  const auto identidad = identidad_nueva();
+  const auto der = identidad.clave_der();
+  REQUIRE(der);
+  REQUIRE(ventrik::escribir_archivo_completo(carpeta.vieja(), der->bytes()));
+  REQUIRE(SetFileAttributesW(carpeta.vieja().c_str(), FILE_ATTRIBUTE_READONLY));
+  const auto convertida = cargar(carpeta);
+  CHECK(convertida.resultado == ResultadoIdentidad::convertida);
+  CHECK(convertida.vieja_sin_borrar);
+  CHECK(existe(carpeta.vieja()));
+  const auto otra_vez = cargar(carpeta);
+  CHECK(otra_vez.resultado == ResultadoIdentidad::cargada);
+  CHECK(otra_vez.vieja_sin_borrar);
+  REQUIRE(SetFileAttributesW(carpeta.vieja().c_str(), FILE_ATTRIBUTE_NORMAL));
+  const auto borrada = cargar(carpeta);
+  CHECK_FALSE(borrada.vieja_sin_borrar);
+  CHECK_FALSE(existe(carpeta.vieja()));
+}
+
 TEST_CASE("Una clave nueva se crea solo si no hay nada: si falta un archivo, el servidor no arranca") {
   SUBCASE("base con dueño y sin clave") {
     CarpetaTemporal carpeta;

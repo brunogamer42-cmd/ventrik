@@ -226,14 +226,17 @@ TEST_CASE("Con la huella correcta, el programa se conecta por TLS 1.3 y saluda")
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::conectada) == 1; }));
 }
 
-TEST_CASE("Con otra huella, el programa corta sin mandar nada") {
+TEST_CASE("Con otra huella y sin cadena de claves, el programa solo saluda y corta con el aviso de huella") {
   ServidorDePrueba servidor;
   const auto otra = identidad_nueva().huella();
-  const auto resultado = entrar(servidor.direccion(), otra);
+  ventrik::cliente::OpcionesConexion opciones;
+  opciones.tiempo_para_saludar = 2s;
+  const auto resultado = entrar(servidor.direccion(), otra, opciones);
   CHECK(resultado.estado == EstadoConexion::huella_distinta);
-  CHECK(esperar_que([&] { return servidor.cuantos(Evento::rechazo_cifrado) == 1; }));
-  CHECK(servidor.cuantos(Evento::conectada) == 0);
-  CHECK(servidor.cuantos(Evento::rechazo_saludo) == 0);
+  CHECK(esperar_que([&] { return servidor.cuantos(Evento::conectada) == 1; }));
+  CHECK(servidor.cuantos(Evento::rechazo_cifrado) == 0);
+  CHECK(servidor.cuantos(Evento::presentada) == 0);
+  CHECK(servidor.cuantos(Evento::firma_invalida) == 0);
 }
 
 TEST_CASE("Un servidor que muestra el certificado verdadero sin tener su clave no engaña al programa") {
@@ -258,7 +261,6 @@ TEST_CASE("Una cadena con la clave verdadera en segundo lugar no engaña al prog
     ServidorFalso falso(ConfigTls::para_servidor(&cadena, falsa.clave()));
     const auto resultado = entrar(falso.direccion(), verdadera.huella());
     CHECK(resultado.estado == EstadoConexion::huella_distinta);
-    CHECK_FALSE(falso.completo());
   }
   mbedtls_x509_crt_free(&cadena);
 }

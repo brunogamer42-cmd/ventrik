@@ -22,6 +22,8 @@ constexpr std::size_t kMaximoArchivoClave = 16 * 1024;
 constexpr wchar_t kArchivoBoveda[] = L"\\boveda.dat";
 constexpr wchar_t kArchivoClave[] = L"\\clave_servidor.dat";
 constexpr wchar_t kArchivoClaveVieja[] = L"\\clave_servidor.der";
+constexpr wchar_t kArchivoClaveNueva[] = L"\\clave_servidor.nueva";
+constexpr wchar_t kArchivoClaveAnterior[] = L"\\clave_servidor.anterior";
 
 class IdentidadServidor {
  public:
@@ -34,6 +36,7 @@ class IdentidadServidor {
 
   std::optional<Secreto> clave_der() const;
   const Huella& huella() const;
+  const Clave& firmante() const;
   mbedtls_pk_context* clave();
   mbedtls_x509_crt* certificado();
 
@@ -68,12 +71,13 @@ struct IdentidadCargada {
   std::optional<IdentidadServidor> identidad;
   std::optional<Boveda> boveda;
   std::wstring archivo;
+  bool vieja_sin_borrar = false;
 };
 
 std::optional<std::vector<std::uint8_t>> cerrar_clave(const IdentidadServidor& identidad, const Boveda& boveda);
 std::optional<IdentidadServidor> abrir_clave(gsl::span<const std::uint8_t> archivo, const Boveda& boveda);
 
 IdentidadCargada cargar_o_crear_identidad(const std::wstring& carpeta, std::optional<std::string_view> contrasena,
-                                          bool base_con_dueno);
+                                          bool base_con_datos);
 
 }

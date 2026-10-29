@@ -19,6 +19,7 @@
 #include "common/textos.h"
 #include "common/utf.h"
 #include "common/version.h"
+#include "server/mudanza.h"
 #include "server/registro.h"
 #include "server/servidor.h"
 
@@ -104,8 +105,31 @@ ventrik::Clave clave_de(ventrik::cifrado::ResultadoIdentidad resultado) {
   return Clave::servidor_error_cifrado;
 }
 
-std::string_view como_texto(const ventrik::cifrado::Secreto& secreto) {
-  return std::string_view(reinterpret_cast<const char*>(secreto.bytes().data()), secreto.size());
+ventrik::Clave clave_de(ventrik::servidor::Mudanza resultado) {
+  using ventrik::Clave;
+  using ventrik::servidor::Mudanza;
+  switch (resultado) {
+    case Mudanza::sin_servidor: return Clave::servidor_error_sin_servidor;
+    case Mudanza::ya_hay_servidor: return Clave::servidor_error_ya_hay_servidor;
+    case Mudanza::archivo_existe: return Clave::servidor_error_archivo_existe;
+    case Mudanza::error_lectura: return Clave::servidor_error_respaldo_lectura;
+    case Mudanza::error_escritura: return Clave::servidor_error_respaldo_escritura;
+    case Mudanza::error_base: return Clave::servidor_error_base_respaldo;
+    case Mudanza::base_grande: return Clave::servidor_error_base_grande;
+    case Mudanza::contrasena_corta: return Clave::servidor_respaldo_corta;
+    case Mudanza::contrasena: return Clave::servidor_respaldo_incorrecta;
+    case Mudanza::sin_memoria: return Clave::servidor_respaldo_sin_memoria;
+    case Mudanza::respaldo_danado: return Clave::servidor_respaldo_danado;
+    case Mudanza::base_danada: return Clave::servidor_respaldo_base_danada;
+    case Mudanza::base_nueva: return Clave::servidor_respaldo_base_nueva;
+    case Mudanza::otro_esquema: return Clave::servidor_respaldo_otro_esquema;
+    case Mudanza::cadena_danada: return Clave::servidor_cadena_danada;
+    case Mudanza::cadena_de_otra_clave: return Clave::servidor_cadena_de_otra_clave;
+    case Mudanza::clave_vieja_sin_borrar: return Clave::servidor_vieja_sin_borrar;
+    case Mudanza::hecha:
+    case Mudanza::error_cifrado: break;
+  }
+  return Clave::servidor_error_cifrado;
 }
 
 std::optional<ventrik::cifrado::CodigoDueno> cargar_o_crear_codigo(const std::wstring& archivo,
@@ -200,15 +224,30 @@ int wmain(int cantidad, wchar_t** argumentos) {
   bool nuevo_codigo = false;
   bool cambiar_contrasena = false;
   bool cambiar_arranque = false;
+  bool cambiar_clave = false;
   std::optional<bool> cifrar_historial;
   std::string nombre;
   std::string liberar;
+  std::wstring exportar;
+  std::wstring importar;
   for (int i = 1; i < cantidad; ++i) {
     const std::wstring_view opcion = argumentos[i];
     const bool hay_valor = i + 1 < cantidad;
     const std::wstring_view valor = hay_valor ? argumentos[i + 1] : L"";
     if (opcion == L"--carpeta" && hay_valor) {
       carpeta = argumentos[++i];
+      continue;
+    }
+    if (opcion == L"--exportar" && hay_valor && !valor.empty()) {
+      exportar = argumentos[++i];
+      continue;
+    }
+    if (opcion == L"--importar" && hay_valor && !valor.empty()) {
+      importar = argumentos[++i];
+      continue;
+    }
+    if (opcion == L"--cambiar-clave") {
+      cambiar_clave = true;
       continue;
     }
     if (opcion == L"--nombre" && hay_valor && ventrik::es_nombre_valido(ventrik::a_utf8(argumentos[i + 1]))) {
@@ -257,6 +296,9 @@ int wmain(int cantidad, wchar_t** argumentos) {
     escribir_linea(texto(ventrik::Clave::servidor_uso_contrasena));
     escribir_linea(texto(ventrik::Clave::servidor_uso_arranque));
     escribir_linea(texto(ventrik::Clave::servidor_uso_historial));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_exportar));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_importar));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_cambiar_clave));
     return 2;
   }
   if (carpeta.empty()) {
@@ -289,24 +331,67 @@ int wmain(int cantidad, wchar_t** argumentos) {
       escribir_linea(texto(ventrik::Clave::servidor_contrasena_sin_consola));
       return std::nullopt;
     }
-    if (como_texto(*primera) != como_texto(*segunda)) {
+    if (ventrik::cifrado::texto_de(*primera) != ventrik::cifrado::texto_de(*segunda)) {
       escribir_linea(texto(ventrik::Clave::servidor_contrasenas_distintas));
       return std::nullopt;
     }
     return primera;
   };
+  const auto escribir_huella = [&texto](ventrik::Clave titulo, const ventrik::cifrado::Huella& huella) {
+    escribir_linea("");
+    escribir_linea(texto(titulo));
+    escribir_linea("    " + huella.a_texto());
+    escribir_linea(texto(ventrik::Clave::servidor_huella_explicacion));
+  };
+  using ventrik::servidor::Mudanza;
+  const auto avisar_mudanza = [&texto](Mudanza resultado, const std::wstring& ruta) {
+    const std::string minimo = std::to_string(ventrik::cifrado::kMinimoContrasena);
+    escribir_linea(ventrik::con_datos(texto(clave_de(resultado)), {minimo}) +
+                   (ruta.empty() ? std::string() : " " + ventrik::a_utf8(ruta)));
+  };
 
-  const std::wstring archivo_base = carpeta + L"\\ventrik.db";
-  const auto con_dueno = ventrik::servidor::tiene_dueno_guardado(archivo_base);
-  if (!con_dueno) {
+  if (!importar.empty()) {
+    SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
+    if (!ventrik::servidor::se_puede_importar(carpeta)) {
+      avisar_mudanza(Mudanza::ya_hay_servidor, carpeta);
+      return 1;
+    }
+    const auto contrasena = pedir_contrasena(texto(ventrik::Clave::servidor_pedir_respaldo_importar));
+    if (!contrasena) {
+      escribir_linea(texto(ventrik::Clave::servidor_contrasena_sin_consola));
+      return 1;
+    }
+    const auto importado = ventrik::servidor::importar_servidor(
+        carpeta, importar, ventrik::cifrado::texto_de(*contrasena), texto(ventrik::Clave::canal_general));
+    const Mudanza resultado = importado.resultado;
+    if (resultado != Mudanza::hecha) {
+      avisar_mudanza(resultado, resultado == Mudanza::error_lectura ? importar
+                                : resultado == Mudanza::ya_hay_servidor || resultado == Mudanza::error_escritura
+                                    ? carpeta
+                                    : std::wstring());
+      return 1;
+    }
+    escribir_linea(texto(ventrik::Clave::servidor_importado));
+    escribir_huella(ventrik::Clave::servidor_huella, *importado.huella);
+    return 0;
+  }
+
+  const std::wstring archivo_base = carpeta + ventrik::servidor::kArchivoBase;
+  const auto con_datos = ventrik::servidor::tiene_datos_guardados(archivo_base);
+  if (!con_datos) {
     escribir_linea(texto(ventrik::Clave::servidor_error_base) + " " + ventrik::a_utf8(archivo_base));
     return 1;
   }
-  auto cargada = ventrik::cifrado::cargar_o_crear_identidad(carpeta, std::nullopt, *con_dueno);
+  if ((!exportar.empty() || cambiar_clave) && !ventrik::servidor::hay_servidor(carpeta)) {
+    escribir_linea(texto(ventrik::Clave::servidor_error_sin_servidor) + " " + ventrik::a_utf8(carpeta));
+    return 1;
+  }
+  auto cargada = ventrik::cifrado::cargar_o_crear_identidad(carpeta, std::nullopt, *con_datos);
   if (cargada.resultado == ventrik::cifrado::ResultadoIdentidad::falta_contrasena) {
     const auto contrasena = pedir_contrasena(texto(ventrik::Clave::servidor_pedir_arranque));
     if (contrasena) {
-      cargada = ventrik::cifrado::cargar_o_crear_identidad(carpeta, como_texto(*contrasena), *con_dueno);
+      cargada =
+          ventrik::cifrado::cargar_o_crear_identidad(carpeta, ventrik::cifrado::texto_de(*contrasena), *con_datos);
     }
   }
   if (!cargada.identidad || !cargada.boveda) {
@@ -314,23 +399,26 @@ int wmain(int cantidad, wchar_t** argumentos) {
                    (cargada.archivo.empty() ? std::string() : " " + ventrik::a_utf8(cargada.archivo)));
     return 1;
   }
-  if (cargada.resultado != ventrik::cifrado::ResultadoIdentidad::cargada) {
+  if (cargada.vieja_sin_borrar) {
+    escribir_linea(texto(ventrik::Clave::servidor_vieja_sin_borrar) + " " +
+                   ventrik::a_utf8(carpeta + ventrik::cifrado::kArchivoClaveVieja));
+  } else if (cargada.resultado != ventrik::cifrado::ResultadoIdentidad::cargada) {
     escribir_linea(texto(cargada.resultado == ventrik::cifrado::ResultadoIdentidad::creada
                              ? ventrik::Clave::servidor_clave_creada
                              : ventrik::Clave::servidor_clave_convertida));
+  }
+  if (!ventrik::servidor::limpiar_restos(carpeta)) {
+    escribir_linea(texto(ventrik::Clave::servidor_anterior_sin_borrar) + " " + ventrik::a_utf8(carpeta));
   }
   if (cambiar_arranque) {
     const auto nueva = pedir_dos_veces(ventrik::Clave::servidor_nueva_arranque);
     if (!nueva) {
       return 1;
     }
-    const std::string_view escrita = como_texto(*nueva);
-    const auto letras = static_cast<std::size_t>(std::count_if(escrita.begin(), escrita.end(), [](char letra) {
-      return (static_cast<unsigned char>(letra) & 0xC0) != 0x80;
-    }));
-    if (!escrita.empty() && letras < ventrik::cifrado::kMinimoContrasenaArranque) {
+    const std::string_view escrita = ventrik::cifrado::texto_de(*nueva);
+    if (!escrita.empty() && ventrik::cantidad_de_letras(escrita) < ventrik::cifrado::kMinimoContrasena) {
       escribir_linea(ventrik::con_datos(texto(ventrik::Clave::servidor_arranque_corta),
-                                        {std::to_string(ventrik::cifrado::kMinimoContrasenaArranque)}));
+                                        {std::to_string(ventrik::cifrado::kMinimoContrasena)}));
       return 1;
     }
     const std::wstring archivo_boveda = carpeta + ventrik::cifrado::kArchivoBoveda;
@@ -342,12 +430,57 @@ int wmain(int cantidad, wchar_t** argumentos) {
     }
     escribir_linea(texto(escrita.empty() ? ventrik::Clave::servidor_arranque_quitada
                                          : ventrik::Clave::servidor_arranque_puesta));
+    if (!escrita.empty()) {
+      escribir_linea(texto(ventrik::Clave::servidor_arranque_copias_viejas));
+    }
   }
-  escribir_linea("");
-  escribir_linea(texto(ventrik::Clave::servidor_huella));
-  escribir_linea("    " + cargada.identidad->huella().a_texto());
-  escribir_linea(texto(ventrik::Clave::servidor_huella_explicacion));
+  if (cambiar_clave) {
+    const auto cambio = ventrik::servidor::cambiar_clave(carpeta, *cargada.identidad, *cargada.boveda);
+    const Mudanza resultado = cambio.resultado;
+    if (resultado != Mudanza::hecha) {
+      escribir_linea(texto(ventrik::Clave::servidor_clave_sin_cambiar));
+      const wchar_t* archivo = resultado == Mudanza::clave_vieja_sin_borrar ? ventrik::cifrado::kArchivoClaveVieja
+                               : resultado == Mudanza::error_escritura      ? L""
+                                                                            : ventrik::servidor::kArchivoCadena;
+      avisar_mudanza(resultado, resultado == Mudanza::error_cifrado ? std::wstring() : carpeta + archivo);
+      return 1;
+    }
+    escribir_linea(texto(ventrik::Clave::servidor_clave_cambiada));
+    escribir_linea(texto(ventrik::Clave::servidor_clave_cambiada_respaldos));
+    if (cambio.anterior_sin_borrar) {
+      escribir_linea(texto(ventrik::Clave::servidor_anterior_sin_borrar) + " " + ventrik::a_utf8(carpeta));
+    }
+    escribir_huella(ventrik::Clave::servidor_huella_nueva, *cambio.huella);
+    return 0;
+  }
+  escribir_huella(ventrik::Clave::servidor_huella, cargada.identidad->huella());
   if (solo_huella) {
+    return 0;
+  }
+  auto cadena = ventrik::servidor::leer_cadena_guardada(carpeta, cargada.identidad->huella());
+  if (cadena.resultado != Mudanza::hecha) {
+    avisar_mudanza(cadena.resultado, carpeta + ventrik::servidor::kArchivoCadena);
+  }
+  if (!exportar.empty()) {
+    SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
+    if (GetFileAttributesW(exportar.c_str()) != INVALID_FILE_ATTRIBUTES) {
+      avisar_mudanza(Mudanza::archivo_existe, exportar);
+      return 1;
+    }
+    const auto contrasena = pedir_dos_veces(ventrik::Clave::servidor_pedir_respaldo);
+    if (!contrasena) {
+      return 1;
+    }
+    const Mudanza resultado = ventrik::servidor::exportar_servidor(carpeta, *cargada.identidad, *cargada.boveda,
+                                                                   exportar, ventrik::cifrado::texto_de(*contrasena));
+    if (resultado != Mudanza::hecha) {
+      avisar_mudanza(resultado, resultado == Mudanza::archivo_existe || resultado == Mudanza::error_escritura
+                                    ? exportar
+                                : resultado == Mudanza::error_base ? archivo_base
+                                                                   : std::wstring());
+      return 1;
+    }
+    escribir_linea(texto(ventrik::Clave::servidor_exportado) + " " + ventrik::a_utf8(exportar));
     return 0;
   }
   escribir_linea("");
@@ -364,8 +497,9 @@ int wmain(int cantidad, wchar_t** argumentos) {
     if (!nueva) {
       return 1;
     }
-    opciones.poner_contrasena = nueva->size() == 0 ? std::optional<std::string>(std::string())
-                                                   : ventrik::servidor::guardar_contrasena(como_texto(*nueva));
+    opciones.poner_contrasena = nueva->size() == 0
+                                    ? std::optional<std::string>(std::string())
+                                    : ventrik::servidor::guardar_contrasena(ventrik::cifrado::texto_de(*nueva));
     if (!opciones.poner_contrasena) {
       escribir_linea(texto(ventrik::Clave::servidor_error_contrasena));
       return 1;
@@ -380,6 +514,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
   opciones.nombre_de_fabrica = texto(ventrik::Clave::servidor_nombre_de_fabrica);
   opciones.quitar_dueno = nuevo_codigo;
   opciones.liberar_nombre = liberar;
+  opciones.cadena = std::move(cadena.cadena);
   SYSTEM_INFO sistema = {};
   GetSystemInfo(&sistema);
   opciones.proteccion = ventrik::servidor::proteccion_para(sistema.dwNumberOfProcessors);

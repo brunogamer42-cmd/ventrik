@@ -16,7 +16,6 @@ namespace ventrik::cifrado {
 
 constexpr std::size_t kBytesBoveda = 32;
 constexpr std::size_t kMaximoArchivoBoveda = 4096;
-constexpr std::size_t kMinimoContrasenaArranque = 8;
 constexpr std::string_view kEtiquetaClaveServidor = "ventrik clave del servidor v1";
 constexpr std::string_view kEtiquetaHistorial = "ventrik historial v1";
 
@@ -26,6 +25,7 @@ class Boveda {
   explicit Boveda(Secreto clave) : clave_(std::move(clave)) {}
 
   std::optional<Secreto> derivar(std::string_view etiqueta) const;
+  gsl::span<const std::uint8_t> bytes() const { return clave_.bytes(); }
   std::optional<std::vector<std::uint8_t>> armar_archivo(std::optional<std::string_view> contrasena,
                                                          std::optional<Argon2> fijos = std::nullopt) const;
 

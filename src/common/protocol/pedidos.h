@@ -9,6 +9,7 @@
 
 #include <gsl/gsl>
 
+#include "common/cifrado/cadena.h"
 #include "common/protocol/bytes.h"
 #include "common/protocol/marcos.h"
 #include "common/protocol/mensajes.h"
@@ -32,6 +33,8 @@ constexpr std::uint8_t kSilencioAudio = 2;
 constexpr std::size_t kMaximoSilenciados = 32;
 constexpr std::size_t kLugaresDeSusurro = 4;
 constexpr std::size_t kMaximoPersonasEnSusurro = 8;
+constexpr std::size_t kMaximoCuerpoCadena =
+    1 + cifrado::kMaximoEslabones * (2 * cifrado::kBytesClavePublica + 4 + 1 + cifrado::kMaximoFirma);
 
 constexpr bool es_silencio_valido(std::uint8_t silencio) {
   return silencio == 0 || silencio == kSilencioMicrofono || silencio == (kSilencioMicrofono | kSilencioAudio);
@@ -295,6 +298,11 @@ struct AvisoDeSeguridad {
   std::string detalle;
 };
 
+struct CadenaDeClaves {
+  static constexpr TipoMensaje kTipo = TipoMensaje::cadena_de_claves;
+  cifrado::Cadena cadena;
+};
+
 struct Ping {
   static constexpr TipoMensaje kTipo = TipoMensaje::ping;
   std::uint64_t marca = 0;
@@ -367,6 +375,7 @@ VENTRIK_MENSAJE(NombrarAdmin)
 VENTRIK_MENSAJE(UsuarioRol)
 VENTRIK_MENSAJE(LiberarNombre)
 VENTRIK_MENSAJE(AvisoDeSeguridad)
+VENTRIK_MENSAJE(CadenaDeClaves)
 VENTRIK_MENSAJE(Ping)
 VENTRIK_MENSAJE(Pong)
 VENTRIK_MENSAJE(ClaveVoz)

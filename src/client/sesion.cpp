@@ -255,9 +255,12 @@ void Sesion::correr() {
   auto resultado = conectar(destino_, huella_, quien_, conexion);
   quien_.contrasena.reset();
   quien_.identidad.reset();
+  if (resultado.cambio) {
+    huella_ = resultado.cambio->nueva;
+  }
   publicar(IntentoDeConexion{resultado.estado, resultado.version_pedida, resultado.cifrado,
-                             resultado.presentado, resultado.espera});
-  if (resultado.estado != EstadoConexion::conectado || !resultado.abierta) {
+                             resultado.presentado, resultado.espera, resultado.cambio});
+  if (resultado.estado != EstadoConexion::conectado || !resultado.abierta || !resultado.abierta->confirmada()) {
     return;
   }
   SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
