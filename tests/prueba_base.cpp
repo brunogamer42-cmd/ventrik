@@ -1156,11 +1156,12 @@ TEST_CASE("Pedir el estado en que ya está el historial no lo convierte otra vez
   borrar_base(archivo);
 }
 
-TEST_CASE("Un trigger o una vista armados en la base no pueden usar las funciones del historial cifrado") {
+TEST_CASE("Un trigger o una vista armados en la base no corren ni sacan el historial cifrado") {
   const std::wstring archivo = archivo_temporal();
   borrar_base(archivo);
   auto clave = clave_de_prueba();
   ventrik::cifrado::Secreto copia = ventrik::cifrado::copiar(clave.bytes());
+  ventrik::cifrado::Secreto otra = ventrik::cifrado::copiar(clave.bytes());
   {
     auto base = Base::abrir(archivo, "General", std::move(clave));
     REQUIRE(base);
@@ -1178,11 +1179,15 @@ TEST_CASE("Un trigger o una vista armados en la base no pueden usar las funcione
     auto base = Base::abrir(archivo, "General", std::move(copia));
     REQUIRE(base);
     CHECK(base->historial({kCanalGeneral, 0}, 65536).mensajes.at(0).texto == "secreto viejo");
-    CHECK_FALSE(base->guardar_mensaje(kCanalGeneral, 2, "Ana", 2, "secreto nuevo"));
-    CHECK_FALSE(base->cifrar_historial(false));
+    CHECK(base->guardar_mensaje(kCanalGeneral, 2, "Ana", 2, "secreto nuevo"));
     CHECK(base->historial_cifrado());
   }
-  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM robado") == 0);
   CHECK_FALSE(en_el_disco(archivo, "secreto nuevo"));
+  {
+    auto base = Base::abrir(archivo, "General", std::move(otra));
+    REQUIRE(base);
+    CHECK(base->cifrar_historial(false));
+  }
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM robado") == 0);
   borrar_base(archivo);
 }
