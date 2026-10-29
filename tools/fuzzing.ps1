@@ -32,7 +32,7 @@ function Informar([string]$nombre, [bool]$ok, [string]$detalle = '') {
 function Entre-Comillas([string]$texto) { return '"' + $texto + '"' }
 
 $corridas = @()
-foreach ($nombre in 'fuzz_base', 'fuzz_guardados', 'fuzz_identidad', 'fuzz_nombres', 'fuzz_paquete', 'fuzz_protocolo', 'fuzz_sala', 'fuzz_sonido', 'fuzz_textos', 'fuzz_utf', 'fuzz_voz', 'fuzz_voz_servidor') {
+foreach ($nombre in 'fuzz_base', 'fuzz_cadena', 'fuzz_guardados', 'fuzz_identidad', 'fuzz_nombres', 'fuzz_paquete', 'fuzz_protocolo', 'fuzz_sala', 'fuzz_sonido', 'fuzz_textos', 'fuzz_utf', 'fuzz_voz', 'fuzz_voz_servidor') {
     $semillas = Join-Path $raiz ('fuzz\semillas\' + $nombre.Substring(5))
     foreach ($bits in '64', '32') {
         $otros = if ($bits -eq '64') { '32' } else { '64' }

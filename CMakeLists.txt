@@ -125,6 +125,7 @@ add_custom_command(
 add_library(ventrik_comun STATIC
   src/common/archivos.cpp
   src/common/cifrado/base32.cpp
+  src/common/cifrado/cadena.cpp
   src/common/cifrado/clave.cpp
   src/common/cifrado/codigo_dueno.cpp
   src/common/cifrado/dpapi.cpp
@@ -149,8 +150,8 @@ target_include_directories(ventrik_comun PUBLIC src "${VENTRIK_GENERADO}")
 target_link_libraries(ventrik_comun PUBLIC ventrik_opciones ventrik_sistema gsl mbedtls argon2 ws2_32 shell32 crypt32)
 
 if(VENTRIK_VERSION STREQUAL "fuzzing")
-  foreach(fuzzer fuzz_base fuzz_guardados fuzz_identidad fuzz_nombres fuzz_paquete fuzz_protocolo fuzz_sala
-          fuzz_sonido fuzz_textos fuzz_utf fuzz_voz fuzz_voz_servidor)
+  foreach(fuzzer fuzz_base fuzz_cadena fuzz_guardados fuzz_identidad fuzz_nombres fuzz_paquete fuzz_protocolo
+          fuzz_sala fuzz_sonido fuzz_textos fuzz_utf fuzz_voz fuzz_voz_servidor)
     add_executable(${fuzzer} fuzz/${fuzzer}.cpp)
     target_link_libraries(${fuzzer} PRIVATE ventrik_comun)
     add_custom_command(TARGET ${fuzzer} POST_BUILD
@@ -224,6 +225,7 @@ add_executable(ventrik_pruebas
   tests/prueba_avisos.cpp
   tests/prueba_base.cpp
   tests/prueba_base32.cpp
+  tests/prueba_cadena.cpp
   tests/prueba_combinaciones.cpp
   tests/prueba_conexion.cpp
   tests/prueba_contrasena.cpp
