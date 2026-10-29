@@ -46,6 +46,7 @@ std::optional<Marco> Ensamblador::siguiente(gsl::span<const std::uint8_t>& datos
         break;
       }
       falta_ = largo;
+      actual_.cuerpo.reserve(largo);
       en_cuerpo_ = true;
     } else {
       const auto pedazo = datos.first(std::min(falta_, datos.size()));

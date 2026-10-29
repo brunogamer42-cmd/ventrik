@@ -32,4 +32,17 @@ std::wstring carpeta_de_datos(const std::wstring& nombre);
 
 std::wstring ruta_completa(const std::wstring& ruta);
 
+class Candado {
+ public:
+  explicit Candado(const std::wstring& ruta);
+  ~Candado();
+  Candado(const Candado&) = delete;
+  Candado& operator=(const Candado&) = delete;
+
+  bool tomado() const;
+
+ private:
+  void* manija_;
+};
+
 }

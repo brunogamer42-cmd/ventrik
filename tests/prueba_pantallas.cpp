@@ -17,6 +17,7 @@ struct IUnknown;
 #include <imgui_internal.h>
 
 #include "client/horas.h"
+#include "common/cifrado/huella.h"
 #include "client/mi_identidad.h"
 #include "client/sala.h"
 #include "client/ui/ajustes.h"
@@ -2673,6 +2674,31 @@ TEST_CASE("Los diálogos de Hostear se dibujan a cualquier tamaño, Escape los c
   CHECK(std::string(ventrik::cifrado::texto_de(hechas->contrasena)) == "del respaldo");
   CHECK(hechas->arranque.size() == 0);
   CHECK(pantalla.dialogo.cual == ui::PideContrasena::ninguna);
+
+  ui::pedir_contrasenas(pantalla.dialogo, ui::PideContrasena::importar, false);
+  confirma();
+  sin_pantalla.teclear("del respaldo");
+  confirma();
+  sin_pantalla.apretar(ImGuiKey_Tab);
+  confirma();
+  sin_pantalla.teclear("corta");
+  confirma();
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  CHECK_FALSE(confirma());
+  CHECK_FALSE(pantalla.dialogo.error.empty());
+  ui::pedir_contrasenas(pantalla.dialogo, ui::PideContrasena::importar, false);
+  confirma();
+  sin_pantalla.teclear("del respaldo");
+  confirma();
+  sin_pantalla.apretar(ImGuiKey_Tab);
+  confirma();
+  sin_pantalla.teclear("corta pero larga");
+  confirma();
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  const auto con_arranque = confirma();
+  REQUIRE(con_arranque);
+  CHECK(std::string(ventrik::cifrado::texto_de(con_arranque->contrasena)) == "del respaldo");
+  CHECK(std::string(ventrik::cifrado::texto_de(con_arranque->arranque)) == "corta pero larga");
   CHECK(std::all_of(pantalla.dialogo.contrasena.begin(), pantalla.dialogo.contrasena.end(),
                     [](char c) { return c == '\0'; }));
 }
@@ -2989,4 +3015,36 @@ TEST_CASE("banco del segundo paso" * doctest::skip()) {
   MESSAGE("pedir el código en Inicio: "
           << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde).count() / 1000
           << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
+}
+
+namespace {
+std::string copiado_de_prueba;
+}
+
+TEST_CASE("La huella del servidor se copia con el botón Copiar, en el formato que se pega para entrar") {
+  ventrik::cifrado::Huella::Bytes bytes{};
+  bytes.fill(0x5A);
+  const ventrik::cifrado::Huella huella(bytes);
+  SinPantalla sin_pantalla(1.0f, ImVec2(1280, 1300));
+  ImGui::GetPlatformIO().Platform_SetClipboardTextFn = [](ImGuiContext*, const char* texto) { copiado_de_prueba = texto; };
+  for (const bool configurando : {true, false}) {
+    CAPTURE(configurando);
+    auto pantalla = configurando ? configuracion_llena(true) : asistente_es();
+    pantalla.paso = ui::Paso::seguridad;
+    if (configurando) {
+      pantalla.huella = huella.a_texto();
+    }
+    copiado_de_prueba.clear();
+    hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+    for (float x = 300; x < 900 && copiado_de_prueba.empty(); x += 10) {
+      tocar_hostear(sin_pantalla, pantalla, ImVec2(x, 388));
+    }
+    CHECK(pantalla.huella_copiada == configurando);
+    CHECK(ventrik::cifrado::leer_huella(copiado_de_prueba) ==
+          (configurando ? std::optional<ventrik::cifrado::Huella>(huella) : std::nullopt));
+  }
+  auto copiada = configuracion_llena(true);
+  copiada.paso = ui::Paso::seguridad;
+  copiada.huella_copiada = true;
+  CHECK(cambios_quieto(sin_pantalla, copiada) == 0);
 }

@@ -7,6 +7,7 @@
 #include "common/cifrado/boveda.h"
 #include "common/cifrado/identidad.h"
 #include "common/red/red.h"
+#include "common/texto.h"
 #include "common/utf.h"
 
 namespace ventrik::cliente {
@@ -180,6 +181,10 @@ std::vector<MiServidorEnDisco> leer_mis_servidores(const std::wstring& raiz) {
   std::sort(lista.begin(), lista.end(),
             [](const MiServidorEnDisco& a, const MiServidorEnDisco& b) { return a.carpeta < b.carpeta; });
   return lista;
+}
+
+std::string nombre_del_dueno(const std::string& guardado, std::string_view generico) {
+  return es_nombre_valido(guardado) ? guardado : std::string(generico);
 }
 
 std::wstring carpeta_nueva(const std::wstring& raiz, std::string_view nombre) {

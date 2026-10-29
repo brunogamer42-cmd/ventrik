@@ -173,6 +173,10 @@ void interpretar_presentacion(const protocolo::Marco& marco, ResultadoConexion& 
     case protocolo::MotivoPresentacion::segundo_paso_bloqueado:
       resultado.estado = EstadoConexion::segundo_paso_bloqueado;
       break;
+    case protocolo::MotivoPresentacion::codigo_usado:
+      resultado.estado = EstadoConexion::segundo_paso_usado;
+      resultado.espera = rechazo->espera;
+      break;
     case protocolo::MotivoPresentacion::llave_anulada:
       resultado.estado = EstadoConexion::llave_anulada;
       break;
@@ -210,6 +214,10 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   const bool con_llave = !quien.identidad && quien.llaves && !quien.llaves->llaves.empty() && quien.tocar_llave;
   if (!quien.identidad && !con_llave) {
     resultado.estado = EstadoConexion::sin_identidad;
+    return resultado;
+  }
+  if (!quien.equipo) {
+    resultado.estado = EstadoConexion::sin_equipo;
     return resultado;
   }
   protocolo::Hola hola = opciones.hola;
@@ -280,20 +288,24 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   if (!marco || !interpretar_saludo(*marco, hola, tls, resultado)) {
     return fallar();
   }
-  const bool puede_llegar_cadena = abierta->confirmada();
+  abierta->ensamblador().cambiar_maximo(protocolo::kMaximoCuerpoCadena);
+  marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
+  const auto cadena = marco && marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::cadena_de_claves)
+                          ? protocolo::leer_mensaje<protocolo::CadenaDeClaves>(marco->cuerpo)
+                          : std::nullopt;
   if (!abierta->confirmada()) {
-    abierta->ensamblador().cambiar_maximo(protocolo::kMaximoCuerpoCadena);
-    marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
-    const auto cadena = marco && marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::cadena_de_claves)
-                            ? protocolo::leer_mensaje<protocolo::CadenaDeClaves>(marco->cuerpo)
-                            : std::nullopt;
     resultado.cambio = cadena ? cifrado::seguir_cadena(cadena->cadena, huella, *de_la_conexion, opciones.atras)
                               : std::nullopt;
     if (!resultado.cambio) {
       return fallar();
     }
     abierta->confirmar();
+  } else if (!cadena) {
+    resultado.estado = marco ? EstadoConexion::rechazo_ilegible : resultado.estado;
+    return resultado;
   }
+  resultado.original = opciones.original ? *opciones.original
+                                         : cifrado::origen_de_la_cadena(cadena->cadena, *de_la_conexion).value_or(huella);
 
   abierta->ensamblador().cambiar_maximo(protocolo::kMaximoCuerpo);
   protocolo::Presentarse presentarse;
@@ -303,9 +315,7 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   }
   presentarse.clave = con_llave ? quien.llaves->identidad : quien.identidad->publica();
   presentarse.generacion = quien.generacion;
-  if (quien.equipo) {
-    presentarse.equipo = codigo_de_equipo(*quien.equipo, opciones.atras.empty() ? huella : opciones.atras.front());
-  }
+  presentarse.equipo = codigo_de_equipo(*quien.equipo, *resultado.original);
   if (quien.contrasena) {
     presentarse.contrasena.assign(reinterpret_cast<const char*>(quien.contrasena->bytes().data()),
                                   quien.contrasena->size());
@@ -338,10 +348,6 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     return resultado;
   }
   marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
-  if (marco && puede_llegar_cadena &&
-      marco->tipo == static_cast<std::uint16_t>(protocolo::TipoMensaje::cadena_de_claves)) {
-    marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
-  }
   if (!marco) {
     return resultado;
   }

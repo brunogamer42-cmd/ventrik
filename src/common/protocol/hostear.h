@@ -21,6 +21,7 @@ constexpr std::size_t kMaximoDatosPublicos = 256;
 constexpr wchar_t kArchivoPublico[] = L"\\publico.dat";
 constexpr wchar_t kArchivoExportada[] = L"\\exportada.dat";
 constexpr wchar_t kArchivoRegistro[] = L"\\registro.txt";
+constexpr wchar_t kArchivoCandado[] = L"\\servidor.lock";
 
 enum class SalidaServidor : int {
   bien = 0,
@@ -62,6 +63,5 @@ std::optional<EntradaPorCano> leer_entrada(gsl::span<const std::uint8_t> datos);
 std::vector<std::uint8_t> armar_datos_publicos(const DatosPublicos& datos);
 std::optional<DatosPublicos> leer_datos_publicos(gsl::span<const std::uint8_t> datos);
 std::wstring evento_de(const std::wstring& carpeta);
-std::wstring candado_de(const std::wstring& carpeta);
 
 }

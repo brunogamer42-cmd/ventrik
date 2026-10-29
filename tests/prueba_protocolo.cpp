@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -430,4 +431,20 @@ TEST_CASE("El programa rechaza un pedido de actualizar que no tiene sentido") {
   CHECK_FALSE(aceptar_rechazo(enviado, Rechazo{MotivoRechazo::programa_viejo, {0, 1, 2}}));
   CHECK_FALSE(aceptar_rechazo(enviado, Rechazo{MotivoRechazo::programa_viejo, {0, 1, 0}}));
   CHECK(aceptar_rechazo(enviado, Rechazo{MotivoRechazo::servidor_viejo, {}}));
+}
+
+TEST_CASE("El ensamblador guarda cada cuerpo en un solo lugar, aunque llegue de a un byte") {
+  std::vector<std::uint8_t> marco;
+  REQUIRE(armar_marco(77, std::vector<std::uint8_t>(1000, 5), marco));
+  Ensamblador ensamblador;
+  std::optional<Marco> armado;
+  for (const std::uint8_t byte : marco) {
+    gsl::span<const std::uint8_t> uno(&byte, 1);
+    if (auto listo = ensamblador.siguiente(uno)) {
+      armado = std::move(listo);
+    }
+  }
+  REQUIRE(armado);
+  CHECK(armado->cuerpo.size() == 1000);
+  CHECK(armado->cuerpo.capacity() == 1000);
 }

@@ -20,7 +20,6 @@
 
 namespace ventrik::servidor {
 namespace {
-constexpr std::size_t kMaximoPedidosEnCola = 4096;
 constexpr std::size_t kPedidosPorTanda = 64;
 constexpr std::chrono::hours kCadaCuantoLimpiar{1};
 constexpr std::chrono::minutes kCadaCuantoAsentar{1};
@@ -89,10 +88,14 @@ const char kHuerfanos[] =
     "DELETE FROM equipos WHERE clave NOT IN (SELECT clave FROM usuarios);"
     "DELETE FROM avisos WHERE clave NOT IN (SELECT clave FROM usuarios);"
     "DELETE FROM segundo_paso WHERE clave NOT IN (SELECT clave FROM usuarios);"
-    "DELETE FROM generaciones WHERE clave NOT IN (SELECT clave FROM usuarios);"
+    "DELETE FROM generaciones WHERE generacion = 0 AND clave NOT IN (SELECT clave FROM usuarios);"
+    "DELETE FROM generaciones WHERE clave IN (SELECT clave FROM generaciones WHERE clave NOT IN"
+    " (SELECT clave FROM usuarios) ORDER BY generacion DESC LIMIT -1 OFFSET 10000);"
     "DELETE FROM llaves WHERE clave NOT IN (SELECT clave FROM usuarios);"
     "DELETE FROM equipos_nuevos WHERE NOT EXISTS (SELECT 1 FROM equipos WHERE equipos.clave = equipos_nuevos.clave"
     " AND equipos.equipo = equipos_nuevos.equipo);";
+
+static_assert(kMaximoGeneracionesSueltas == 10000, "kHuerfanos deja las 10000 generaciones sueltas más nuevas");
 
 const char kMigrarDe1[] =
     "BEGIN;"
@@ -654,12 +657,16 @@ std::optional<std::vector<UsuarioGuardado>> Base::usuarios(std::uint64_t ahora) 
     return std::nullopt;
   }
   if (ultimo.columna_entero(0) <= static_cast<std::int64_t>(std::min(ahora, kMaximoMs))) {
+    Consulta descartables(base_,
+                          "DELETE FROM generaciones WHERE clave IN (SELECT clave FROM usuarios WHERE dueno = 0"
+                          " AND admin = 0 AND entradas <= 1 AND visto < ?1)");
+    descartables.entero(1, static_cast<std::int64_t>(hace_dias(ahora, kDiasDeUnaSolaVez)));
     Consulta vencidos(base_,
                       "DELETE FROM usuarios WHERE dueno = 0 AND admin = 0"
                       " AND (visto < ?1 OR (entradas <= 1 AND visto < ?2))");
     vencidos.entero(1, static_cast<std::int64_t>(hace_dias(ahora, kDiasSinVolver)))
         .entero(2, static_cast<std::int64_t>(hace_dias(ahora, kDiasDeUnaSolaVez)));
-    if (vencidos.paso() != SQLITE_DONE ||
+    if (descartables.paso() != SQLITE_DONE || vencidos.paso() != SQLITE_DONE ||
         !ejecutar(base_, kHuerfanos)) {
       return std::nullopt;
     }
@@ -717,15 +724,19 @@ bool Base::borrar_usuarios(const std::vector<ClaveDeUsuario>& claves) {
   }
   bool bien = true;
   for (const ClaveDeUsuario& clave : claves) {
+    Consulta descartable(base_,
+                         "DELETE FROM generaciones WHERE clave IN (SELECT clave FROM usuarios WHERE clave = ?1"
+                         " AND dueno = 0 AND admin = 0 AND entradas <= 1)");
     Consulta usuario(base_, "DELETE FROM usuarios WHERE clave = ?1 AND dueno = 0 AND admin = 0");
     Consulta equipos(base_, "DELETE FROM equipos WHERE clave = ?1 AND clave NOT IN (SELECT clave FROM usuarios)");
     Consulta avisos(base_, "DELETE FROM avisos WHERE clave = ?1 AND clave NOT IN (SELECT clave FROM usuarios)");
     Consulta segundo(base_, "DELETE FROM segundo_paso WHERE clave = ?1 AND clave NOT IN (SELECT clave FROM usuarios)");
+    descartable.bytes(1, clave);
     usuario.bytes(1, clave);
     equipos.bytes(1, clave);
     avisos.bytes(1, clave);
     segundo.bytes(1, clave);
-    bien = usuario.paso() == SQLITE_DONE && equipos.paso() == SQLITE_DONE && avisos.paso() == SQLITE_DONE &&
+    bien = descartable.paso() == SQLITE_DONE && usuario.paso() == SQLITE_DONE && equipos.paso() == SQLITE_DONE && avisos.paso() == SQLITE_DONE &&
            segundo.paso() == SQLITE_DONE && limpiar_equipos_nuevos(clave) && bien;
   }
   return ejecutar(base_, kHuerfanos) && bien;
@@ -735,9 +746,13 @@ bool Base::liberar_nombre(const std::string& nombre) {
   if (!es_su_hilo() || !es_nombre_valido(nombre)) {
     return false;
   }
+  Consulta descartable(base_,
+                       "DELETE FROM generaciones WHERE clave IN (SELECT clave FROM usuarios WHERE comparable = ?1"
+                       " AND dueno = 0 AND entradas <= 1)");
   Consulta consulta(base_, "DELETE FROM usuarios WHERE comparable = ?1 AND dueno = 0");
+  descartable.texto(1, comparable(nombre));
   consulta.texto(1, comparable(nombre));
-  return consulta.paso() == SQLITE_DONE && ejecutar(base_, kHuerfanos);
+  return descartable.paso() == SQLITE_DONE && consulta.paso() == SQLITE_DONE && ejecutar(base_, kHuerfanos);
 }
 
 bool Base::anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std::uint64_t ahora, bool es_nuevo) {
@@ -979,6 +994,27 @@ std::optional<std::vector<LlavesDeUsuario>> Base::llaves() {
   return lista;
 }
 
+std::optional<std::vector<LlavesDeUsuario>> Base::generaciones_sueltas() {
+  if (!es_su_hilo()) {
+    return std::nullopt;
+  }
+  Consulta consulta(base_,
+                    "SELECT clave, generacion FROM generaciones WHERE clave NOT IN (SELECT clave FROM usuarios)"
+                    " AND generacion <> 0 ORDER BY generacion DESC LIMIT ?1");
+  consulta.entero(1, static_cast<std::int64_t>(kMaximoGeneracionesSueltas));
+  std::vector<LlavesDeUsuario> lista;
+  int paso = SQLITE_ROW;
+  while ((paso = consulta.paso()) == SQLITE_ROW) {
+    const std::int64_t generacion = consulta.columna_entero(1);
+    LlavesDeUsuario suelta{
+        {}, generacion > 0 && generacion <= UINT32_MAX ? static_cast<std::uint32_t>(generacion) : UINT32_MAX, {}};
+    if (consulta.columna_bytes(0, suelta.clave)) {
+      lista.push_back(std::move(suelta));
+    }
+  }
+  return paso == SQLITE_DONE ? std::optional<std::vector<LlavesDeUsuario>>(std::move(lista)) : std::nullopt;
+}
+
 bool Base::guardar_llaves(const LlavesDeUsuario& suyas) {
   if (!es_su_hilo() || suyas.llaves.size() > kMaximoLlavesPorUsuario || !correr(Sentencia::marcar)) {
     return false;
@@ -1111,13 +1147,18 @@ bool ServicioBase::arrancar(std::wstring archivo, std::string nombre_general, co
 bool ServicioBase::pedir(Trabajo trabajo, bool sola) {
   {
     const std::lock_guard<std::mutex> candado(candado_);
-    if (pedidos_.size() >= kMaximoPedidosEnCola) {
+    if (pedidos_.size() >= maximo_) {
       return false;
     }
     pedidos_.emplace_back(std::move(trabajo), sola);
   }
   hay_pedidos_.notify_one();
   return true;
+}
+
+void ServicioBase::limitar(std::size_t maximo) {
+  const std::lock_guard<std::mutex> candado(candado_);
+  maximo_ = maximo;
 }
 
 void ServicioBase::atender_respuestas() {

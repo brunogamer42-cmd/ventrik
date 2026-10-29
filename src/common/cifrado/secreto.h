@@ -12,16 +12,22 @@
 
 namespace ventrik::cifrado {
 
+inline void borrar(gsl::span<std::uint8_t> bytes) {
+  if (!bytes.empty()) {
+    mbedtls_platform_zeroize(bytes.data(), bytes.size());
+  }
+}
+
 class Secreto {
  public:
   Secreto() = default;
   explicit Secreto(std::size_t largo) : datos_(largo) {}
-  ~Secreto() { borrar(); }
+  ~Secreto() { cifrado::borrar(datos_); }
   Secreto(const Secreto&) = delete;
   Secreto& operator=(const Secreto&) = delete;
   Secreto(Secreto&& otro) noexcept : datos_(std::move(otro.datos_)) {}
   Secreto& operator=(Secreto&& otro) noexcept {
-    borrar();
+    cifrado::borrar(datos_);
     datos_ = std::move(otro.datos_);
     return *this;
   }
@@ -31,12 +37,6 @@ class Secreto {
   std::size_t size() const { return datos_.size(); }
 
  private:
-  void borrar() {
-    if (!datos_.empty()) {
-      mbedtls_platform_zeroize(datos_.data(), datos_.size());
-    }
-  }
-
   std::vector<std::uint8_t> datos_;
 };
 

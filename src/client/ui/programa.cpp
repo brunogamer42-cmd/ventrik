@@ -241,6 +241,7 @@ class Programa {
     }
     sesion_.reset();
     sala_.reset();
+    hora_del_servidor_.reset();
     en_hostear_ = en_hostear_ && !hostear_.configurando;
     listas_de_susurro();
     canal_de_voz_ = 0;
@@ -585,13 +586,7 @@ class Programa {
   }
 
   std::string nombre_propio() const {
-    if (es_nombre_valido(guardados_.nombre)) {
-      return guardados_.nombre;
-    }
-    std::array<wchar_t, 257> usuario{};
-    DWORD largo = static_cast<DWORD>(usuario.size());
-    const std::string de_windows = GetUserNameW(usuario.data(), &largo) != 0 ? a_utf8(usuario.data()) : std::string();
-    return es_nombre_valido(de_windows) ? de_windows : std::string(texto(pantalla_.idioma, Clave::hostear_nombre_dueno));
+    return cliente::nombre_del_dueno(guardados_.nombre, texto(pantalla_.idioma, Clave::hostear_nombre_dueno));
   }
 
   bool lanzar(Encargo cual, const std::wstring& carpeta, std::vector<std::wstring> argumentos,
@@ -670,9 +665,12 @@ class Programa {
       anotar_mio(carpeta, texto(pantalla_.idioma, Clave::mio_no_arranco), true);
       return;
     }
+    const red::Direccion direccion{0x7F000001, mio->puerto};
+    const auto* guardado = cliente::buscar_guardado(guardados_, direccion);
+    const bool seguir = guardado != nullptr && !cliente::conoce_huella(*guardado, *mio->huella);
     configurar_al_entrar_ = configurar ? carpeta : std::wstring();
-    entrar(red::Direccion{0x7F000001, mio->puerto}, cifrado::Huella(*mio->huella), {nombre_propio(), std::nullopt},
-           false);
+    entrar(direccion, cifrado::Huella(seguir ? guardado->huella : *mio->huella), {nombre_propio(), std::nullopt},
+           false, seguir ? mio->huella : std::nullopt);
   }
 
   bool atender_encargo() {
@@ -741,7 +739,11 @@ class Programa {
         ui::borrar_contrasenas(hostear_);
         en_hostear_ = false;
         refrescar_mios();
-        iniciar_mio(hecho.carpeta, {}, false);
+        importado_ = hecho.carpeta;
+        aviso_importado_ = std::string(texto(pantalla_.idioma, hecho.con_arranque ? Clave::hostear_importado_con_arranque
+                                                                                  : Clave::hostear_importado)) +
+                           " " + std::string(texto(pantalla_.idioma, Clave::servidor_importado_restaura));
+        iniciar_mio(hecho.carpeta, std::move(hecho.arranque), false);
         break;
       case Encargo::cambiar_clave:
         terminar_en_consola(bien, codigo, Clave::hostear_clave_cambiada);
@@ -794,8 +796,10 @@ class Programa {
       const std::size_t barra = importar_de_.find_last_of(L"\\/") + 1;
       const std::wstring archivo = importar_de_.substr(barra, importar_de_.find_last_of(L'.') - barra);
       const std::wstring carpeta = encargo_ ? std::wstring() : cliente::carpeta_nueva(raiz_servidores_, a_utf8(archivo));
-      if (!carpeta.empty() &&
-          lanzar(Encargo::importar, carpeta, {L"--sin-consola", L"--importar", importar_de_}, entrada)) {
+      const bool con_arranque = contrasenas.arranque.size() > 0;
+      if (!carpeta.empty() && lanzar(Encargo::importar, carpeta, {L"--sin-consola", L"--importar", importar_de_},
+                                     entrada, std::move(contrasenas.arranque))) {
+        encargo_->con_arranque = con_arranque;
         avisar_hostear(Clave::hostear_importando, false);
         return;
       }
@@ -1271,6 +1275,14 @@ class Programa {
         abrir_dialogo_identidad(DialogoIdentidad::llave);
       }
       empezar_copia(Tarea::crear_llave, {});
+      if (hora_del_servidor_ &&
+          cliente::reloj_adelantado(cliente::ahora_ms(),
+                                    hora_del_servidor_->first +
+                                        static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                                       Reloj::now() - hora_del_servidor_->second)
+                                                                       .count()))) {
+        ajustes_.error_identidad = texto(ajustes_.idioma, Clave::llave_reloj_adelantado);
+      }
     }
   }
 
@@ -1677,9 +1689,6 @@ class Programa {
             susurros_enviados_.fill(protocolo::DestinosDeSusurro{1, kSinSaber, {}});
           }
         }
-        if (auto* oferta = std::get_if<protocolo::ConfigurarSegundoPaso>(&novedad)) {
-          mbedtls_platform_zeroize(oferta->secreto.data(), oferta->secreto.size());
-        }
       }
     }
     if (sala_ && entraron_o_salieron) {
@@ -1895,6 +1904,7 @@ class Programa {
 
   void avisar_de(const cliente::Novedad& novedad) {
     if (const auto* mensaje = std::get_if<protocolo::MensajeChat>(&novedad)) {
+      hora_del_servidor_.emplace(std::min<std::uint64_t>(mensaje->hora_ms, UINT64_MAX / 2), Reloj::now());
       const auto* canal = sala_->canal(mensaje->canal);
       const bool voz = canal != nullptr && canal->tipo == protocolo::TipoCanal::voz;
       if (canal != nullptr && mensaje->canal == (voz ? sala_->tu_canal() : sala_->mirando())) {
@@ -2053,19 +2063,25 @@ class Programa {
   }
 
   void entrar(const red::Direccion& direccion, const cifrado::Huella& huella, cliente::Presentacion quien,
-              bool desde_formulario) {
+              bool desde_formulario, std::optional<cifrado::Huella::Bytes> si_no_sigue = std::nullopt) {
     if (!identidad_cargada_) {
       cargar_identidad();
+    }
+    if (!equipo_) {
+      if (auto secreto = cliente::secreto_de_equipo(carpeta_)) {
+        equipo_ = std::make_shared<const cifrado::Secreto>(std::move(*secreto));
+      }
     }
     if (bloqueado_) {
       quien.contrasena.reset();
       quien.segundo_paso.reset();
-      al_desbloquear_ = [this, direccion, huella, quien, desde_formulario] {
-        entrar(direccion, huella, quien, desde_formulario);
+      al_desbloquear_ = [this, direccion, huella, quien, desde_formulario, si_no_sigue] {
+        entrar(direccion, huella, quien, desde_formulario, si_no_sigue);
       };
       return;
     }
     cerrar();
+    reintentar_con_ = si_no_sigue;
     intento_con_codigo_ = quien.segundo_paso.has_value();
     quien.identidad = identidad_;
     quien.equipo = equipo_;
@@ -2082,12 +2098,13 @@ class Programa {
     canal_del_aviso_ = 0;
     pantalla_.intento = {direccion, desde_formulario, Fase::conectando, {}};
     pendiente_ = {direccion, huella.bytes(), quien.nombre, 0, {}, 0};
+    cliente::OpcionesSesion opciones;
     if (const auto* guardado = cliente::buscar_guardado(guardados_, direccion);
         guardado != nullptr && cliente::conoce_huella(*guardado, huella.bytes())) {
       pendiente_.huella = guardado->huella;
       pendiente_.atras = guardado->atras;
+      opciones.conexion.original = cifrado::Huella(guardado->original);
     }
-    cliente::OpcionesSesion opciones;
     opciones.conexion.atras = cliente::huellas_atras(pendiente_);
     opciones.al_haber_novedades = [this] { avisar(); };
     sesion_ = std::make_unique<cliente::Sesion>(direccion, cifrado::Huella(pendiente_.huella), std::move(quien),
@@ -2096,8 +2113,14 @@ class Programa {
   }
 
   void conectado(const cliente::IntentoDeConexion& intento) {
+    if (const auto otra = std::exchange(reintentar_con_, std::nullopt);
+        otra && intento.estado == cliente::EstadoConexion::huella_distinta) {
+      entrar(pendiente_.direccion, cifrado::Huella(*otra), {pendiente_.nombre, std::nullopt}, false);
+      return;
+    }
     if (intento.estado == cliente::EstadoConexion::falta_segundo_paso ||
         intento.estado == cliente::EstadoConexion::segundo_paso_incorrecto ||
+        intento.estado == cliente::EstadoConexion::segundo_paso_usado ||
         (intento.estado == cliente::EstadoConexion::esperar && intento_con_codigo_)) {
       const bool desde_formulario = pantalla_.intento.desde_formulario;
       std::wstring configurar = std::move(configurar_al_entrar_);
@@ -2140,6 +2163,7 @@ class Programa {
     if (intento.cambio) {
       cliente::cambiar_huella(pendiente_, *intento.cambio);
     }
+    pendiente_.original = intento.original.value_or(cifrado::Huella(pendiente_.huella)).bytes();
     sala_ =std::make_unique<cliente::Sala>(*intento.presentado, pendiente_.leidos, pendiente_.texto);
     avisos_.conectado(red::a_texto(pendiente_.direccion), sala_->tu_id(), pendiente_.nombre);
     avisos_.ajustes(pendiente_.avisos);
@@ -2170,6 +2194,11 @@ class Programa {
     servidor_.avisos = pendiente_.avisos;
     if (intento.cambio) {
       servidor_.seguridad.emplace_back(texto(pantalla_.idioma, Clave::conectar_clave_cambiada));
+    }
+    if (const auto* mio = importado_.empty() ? nullptr : buscar_mio(importado_);
+        mio != nullptr && pendiente_.direccion == red::Direccion{0x7F000001, mio->puerto}) {
+      servidor_.seguridad.push_back(std::exchange(aviso_importado_, {}));
+      importado_.clear();
     }
     const std::wstring ultima_voz = nombre_para_comparar(pendiente_.nombre_canal);
     for (const auto& canal : sala_->canales()) {
@@ -2458,6 +2487,10 @@ class Programa {
   Reloj::time_point mirar_mios_{};
   std::wstring carpeta_config_;
   std::wstring configurar_al_entrar_;
+  std::optional<cifrado::Huella::Bytes> reintentar_con_;
+  std::wstring importado_;
+  std::string aviso_importado_;
+  std::optional<std::pair<std::uint64_t, Reloj::time_point>> hora_del_servidor_;
   std::wstring arrancar_pendiente_;
   bool configurar_pendiente_ = false;
   std::wstring exportar_a_;

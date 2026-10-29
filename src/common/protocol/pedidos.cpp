@@ -410,7 +410,7 @@ void escribir(Escritor& escritor, const PresentacionRechazada& mensaje) {
 void leer(Lector& lector, PresentacionRechazada& mensaje) {
   const std::uint8_t motivo = lector.leer_u8();
   if (motivo < static_cast<std::uint8_t>(MotivoPresentacion::nombre_invalido) ||
-      motivo > static_cast<std::uint8_t>(MotivoPresentacion::llave_clonada)) {
+      motivo > static_cast<std::uint8_t>(MotivoPresentacion::codigo_usado)) {
     lector.marcar_error();
     return;
   }

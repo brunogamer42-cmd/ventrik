@@ -181,6 +181,4 @@ std::optional<DatosPublicos> leer_datos_publicos(gsl::span<const std::uint8_t> d
 
 std::wstring evento_de(const std::wstring& carpeta) { return por_carpeta(carpeta, L"Local\\VentrikServidor-"); }
 
-std::wstring candado_de(const std::wstring& carpeta) { return por_carpeta(carpeta, L"Local\\VentrikCandado-"); }
-
 }

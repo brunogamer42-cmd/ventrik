@@ -112,6 +112,7 @@ struct ServidorGuardado {
   std::vector<PersonaGuardada> personas;
   AvisosDelServidor avisos;
   std::vector<cifrado::Huella::Bytes> atras;
+  cifrado::Huella::Bytes original{};
 };
 
 struct AjustesDeVoz {

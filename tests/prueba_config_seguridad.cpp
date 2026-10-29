@@ -385,3 +385,21 @@ TEST_CASE("El dueño no puede pedirse un segundo paso que no podría activar des
   CHECK(vuelve.esperar<ConfigurarSegundoPaso>());
   CHECK(vuelve.no_llega<Negado>());
 }
+
+TEST_CASE("Con dos cambios seguidos de la configuración, solo la respuesta del último se aplica y se avisa") {
+  ConDueno dueno;
+  ServidorDePrueba servidor(dueno.opciones());
+  Cliente ana(servidor, "Ana", dueno.codigo);
+  ana.entrar();
+  ana.ordenar_juntas({CambiarConfigSeguridad{con(Opcion::sin_historial, 1)},
+                      CambiarConfigSeguridad{con(Opcion::avisos_de_admins, 1)}});
+  const auto ultima = ana.esperar<ConfigSeguridad>();
+  REQUIRE(ultima);
+  CHECK(ultima->seguridad.opciones[Opcion::avisos_de_admins] == 1);
+  CHECK(ultima->seguridad.opciones[Opcion::sin_historial] == 0);
+  CHECK(ana.no_llega<ConfigSeguridad>());
+  ana.ordenar(PedirConfigSeguridad{});
+  const auto pedida = ana.esperar<ConfigSeguridad>();
+  REQUIRE(pedida);
+  CHECK(pedida->seguridad.opciones == ultima->seguridad.opciones);
+}

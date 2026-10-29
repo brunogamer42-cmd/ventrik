@@ -27,6 +27,7 @@ struct IntentoDeConexion {
   std::optional<protocolo::Presentado> presentado;
   std::uint16_t espera = 0;
   std::optional<cifrado::CadenaSeguida> cambio;
+  std::optional<cifrado::Huella> original;
 };
 
 struct PingMedido {

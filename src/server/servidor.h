@@ -54,6 +54,7 @@ struct Opciones {
   int reemplazos_por_identidad = 6;
   std::chrono::minutes ventana_de_reemplazos{10};
   std::size_t comprobaciones_en_cola = 4;
+  std::size_t pedidos_en_la_base = kMaximoPedidosEnCola;
   std::chrono::milliseconds espera_tras_fallo{1000};
   std::chrono::seconds espera_maxima{300};
   OpcionesProteccion proteccion;
@@ -191,6 +192,8 @@ class Servidor {
   bool comprobar_segundo_paso(Conexion& conexion, Registrado& yo, const protocolo::Presentarse& presentacion);
   void revisar_segundo_paso(Conexion& conexion);
   void revisar_y_difundir(Conexion& conexion);
+  void difundir_rol(Conexion& conexion);
+  void mostrar_sala(Conexion& conexion);
   void ofrecer_segundo_paso(Conexion& conexion);
   bool guardar_segundo_paso(const SegundoPasoGuardado& guardado);
   bool restringida(const Conexion& conexion) const;
@@ -202,6 +205,8 @@ class Servidor {
   void pedir_avisos(const Conexion& conexion);
   void entregar_avisos(Conexion& conexion, const AvisosPendientes& pendientes);
   std::vector<Registrado>::iterator registrado_de(const ClaveDeUsuario& clave);
+  std::uint32_t generacion_suelta(const ClaveDeUsuario& clave) const;
+  void soltar_generacion(const Registrado& registrado);
   void avisar_a(const ClaveDeUsuario& clave, const protocolo::AvisoDeSeguridad& aviso);
   void cambiar_nombre_servidor(Conexion& conexion, const protocolo::Marco& marco);
   void cambiar_contrasena_servidor(Conexion& conexion, const protocolo::Marco& marco);
@@ -268,6 +273,7 @@ class Servidor {
   Retencion retencion_ = Retencion::siempre;
   std::uint32_t proximo_id_ = 1;
   std::vector<Registrado> registrados_;
+  std::map<ClaveDeUsuario, std::uint32_t> generaciones_sueltas_;
   std::map<std::uint32_t, std::pair<std::chrono::steady_clock::time_point, int>> nuevas_por_ip_;
   std::pair<std::chrono::steady_clock::time_point, int> nuevas_en_total_{};
   std::chrono::steady_clock::time_point proxima_limpieza_{};
@@ -280,6 +286,7 @@ class Servidor {
   Seguridad seguridad_;
   bool rehacer_contrasena_ = false;
   std::uint64_t version_contrasena_ = 0;
+  std::uint64_t version_config_ = 0;
   std::uint64_t proxima_marca_ = 0;
   std::map<std::uint32_t, Espera> esperas_por_ip_;
   std::map<ClaveDeUsuario, Espera> esperas_por_clave_;

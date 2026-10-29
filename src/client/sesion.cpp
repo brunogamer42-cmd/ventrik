@@ -61,6 +61,9 @@ std::string explicar(Idioma idioma, const IntentoDeConexion& intento) {
       return con_datos(texto(idioma, Clave::conectar_segundo_paso_incorrecto), {std::to_string(intento.espera)});
     case EstadoConexion::segundo_paso_bloqueado:
       return std::string(texto(idioma, Clave::conectar_segundo_paso_bloqueado));
+    case EstadoConexion::segundo_paso_usado:
+      return con_datos(texto(idioma, Clave::conectar_segundo_paso_usado), {std::to_string(intento.espera)});
+    case EstadoConexion::sin_equipo: return std::string(texto(idioma, Clave::conectar_sin_equipo));
     case EstadoConexion::llave_anulada: return std::string(texto(idioma, Clave::conectar_llave_anulada));
     case EstadoConexion::llave_clonada: return std::string(texto(idioma, Clave::conectar_llave_clonada));
     case EstadoConexion::sin_llave: return std::string(texto(idioma, Clave::conectar_sin_llave));
@@ -303,7 +306,7 @@ void Sesion::correr() {
     huella_ = resultado.cambio->nueva;
   }
   publicar(IntentoDeConexion{resultado.estado, resultado.version_pedida, resultado.cifrado,
-                             resultado.presentado, resultado.espera, resultado.cambio});
+                             resultado.presentado, resultado.espera, resultado.cambio, resultado.original});
   if (resultado.estado != EstadoConexion::conectado || !resultado.abierta || !resultado.abierta->confirmada()) {
     return;
   }
@@ -322,13 +325,17 @@ void Sesion::correr() {
   auto ultimo_ping = Reloj::now() - opciones_.cada_cuanto_ping;
   auto ultimo_dato = Reloj::now();
 
-  const auto procesar_bytes = [&](gsl::span<const std::uint8_t> datos) {
-    while (auto marco = abierta.ensamblador().siguiente(datos)) {
-      if (!procesar(*marco)) {
-        return false;
+  const auto procesar_bytes = [&](gsl::span<std::uint8_t> llegados) {
+    gsl::span<const std::uint8_t> datos = llegados;
+    bool bien = true;
+    while (auto marco = bien ? abierta.ensamblador().siguiente(datos) : std::nullopt) {
+      bien = procesar(*marco);
+      if (marco->tipo == static_cast<std::uint16_t>(TipoMensaje::configurar_segundo_paso)) {
+        cifrado::borrar(marco->cuerpo);
       }
     }
-    return !abierta.ensamblador().error();
+    cifrado::borrar(llegados);
+    return bien && !abierta.ensamblador().error();
   };
   if (!procesar_bytes(abierta.sobrante())) {
     publicar(Fin{desplazada_ ? MotivoFin::desplazada : desbordada_ ? MotivoFin::desbordada : MotivoFin::mensaje_ilegible});
@@ -385,7 +392,7 @@ void Sesion::correr() {
       const auto paso = tls.leer(recibido, leidos);
       if (paso == cifrado::Paso::listo) {
         ultimo_dato = Reloj::now();
-        if (!procesar_bytes(gsl::span<const std::uint8_t>(recibido).first(leidos))) {
+        if (!procesar_bytes(gsl::span<std::uint8_t>(recibido).first(leidos))) {
           publicar(Fin{desplazada_ ? MotivoFin::desplazada : desbordada_ ? MotivoFin::desbordada : MotivoFin::mensaje_ilegible});
           return;
         }

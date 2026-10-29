@@ -211,6 +211,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       exigir(segundo.sellado.empty() || segundo.sellado.size() == ventrik::servidor::kBytesSegundoPasoSellado);
     }
   }
+  const auto sueltas_validas = [&base] {
+    if (const auto sueltas = base->generaciones_sueltas()) {
+      exigir(sueltas->size() <= ventrik::servidor::kMaximoGeneracionesSueltas);
+      exigir(std::none_of(sueltas->begin(), sueltas->end(),
+                          [](const ventrik::servidor::LlavesDeUsuario& suelta) { return suelta.generacion == 0; }));
+    }
+  };
+  sueltas_validas();
   if (const auto llaves = base->llaves()) {
     exigir(llaves->size() <= ventrik::servidor::kMaximoUsuariosGuardados);
     for (const auto& suyas : *llaves) {
@@ -242,6 +250,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   base->liberar_nombre("Ana");
   base->quitar_segundo_paso(nuevo.clave);
   base->borrar_usuarios({nuevo.clave});
+  sueltas_validas();
   base->borrar_viejos(UINT64_MAX / 2);
   revisar_cifrado(*base, archivo, sana);
   return 0;

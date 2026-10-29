@@ -179,4 +179,16 @@ std::wstring ruta_completa(const std::wstring& ruta) {
   return largo == 0 || largo >= necesario ? ruta : std::wstring(completa.data(), largo);
 }
 
+Candado::Candado(const std::wstring& ruta)
+    : manija_(CreateFileW(ruta.c_str(), DELETE, 0, nullptr, OPEN_ALWAYS,
+                          FILE_ATTRIBUTE_HIDDEN | FILE_FLAG_DELETE_ON_CLOSE, nullptr)) {}
+
+Candado::~Candado() {
+  if (tomado()) {
+    CloseHandle(manija_);
+  }
+}
+
+bool Candado::tomado() const { return manija_ != INVALID_HANDLE_VALUE; }
+
 }

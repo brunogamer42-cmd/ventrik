@@ -166,7 +166,8 @@ bool se_puede_importar(const std::wstring& carpeta) {
 }
 
 ResultadoMudanza importar_servidor(const std::wstring& carpeta, const std::wstring& archivo,
-                                   std::string_view contrasena, const std::string& nombre_general) {
+                                   std::string_view contrasena, const std::string& nombre_general,
+                                   std::optional<std::string_view> arranque) {
   const std::wstring base_final = carpeta + kArchivoBase;
   const std::wstring ruta_boveda = carpeta + cifrado::kArchivoBoveda;
   const std::wstring ruta_clave = carpeta + cifrado::kArchivoClave;
@@ -189,7 +190,7 @@ ResultadoMudanza importar_servidor(const std::wstring& carpeta, const std::wstri
   const auto cadena = partes.cadena.empty() ? std::optional<cifrado::Cadena>(cifrado::Cadena())
                                             : cifrado::leer_cadena(partes.cadena);
   auto clave_historial = boveda.derivar(cifrado::kEtiquetaHistorial);
-  const auto archivo_boveda = boveda.armar_archivo(std::nullopt);
+  const auto archivo_boveda = boveda.armar_archivo(arranque);
   const auto archivo_clave = identidad ? cifrado::cerrar_clave(*identidad, boveda) : std::nullopt;
   if (!identidad || !cadena || (!cadena->empty() && !termina_en(*cadena, identidad->huella())) || !clave_historial) {
     return {Mudanza::respaldo_danado};
@@ -237,6 +238,10 @@ ResultadoMudanza importar_servidor(const std::wstring& carpeta, const std::wstri
 
 ResultadoMudanza cambiar_clave(const std::wstring& carpeta, const cifrado::IdentidadServidor& actual,
                                const cifrado::Boveda& boveda) {
+  const Candado solo_uno(carpeta + kArchivoCambioDeClave);
+  if (!solo_uno.tomado()) {
+    return {Mudanza::otro_cambio};
+  }
   if (existe(carpeta + cifrado::kArchivoClaveVieja)) {
     return {Mudanza::clave_vieja_sin_borrar};
   }

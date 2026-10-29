@@ -100,6 +100,7 @@ class Sala {
   std::vector<Orden> atender(const protocolo::MensajesNuevos& nuevos);
   std::vector<Orden> atender(const protocolo::Historial& historial);
   std::vector<Orden> atender(const protocolo::Negado& negado);
+  std::vector<Orden> atender(const protocolo::EstadoSegundoPaso& estado);
   std::vector<Orden> atender(const PingMedido& ping);
 
   std::vector<Orden> cambiar_voz(std::uint32_t canal);
@@ -107,6 +108,7 @@ class Sala {
   Chat* chat_de(std::uint32_t canal);
   bool puede_pedir(const Chat& chat) const;
   void subir(std::uint32_t canal, std::uint32_t contador);
+  void recordar_leidos();
 
   std::uint32_t tu_id_ = 0;
   protocolo::Rol rol_ = protocolo::Rol::ninguno;
@@ -114,6 +116,9 @@ class Sala {
   std::map<std::uint32_t, protocolo::UsuarioInfo> usuarios_;
   mutable std::optional<std::map<std::uint32_t, std::vector<const protocolo::UsuarioInfo*>>> por_canal_;
   std::map<std::uint32_t, std::uint32_t> leidos_;
+  std::map<std::uint32_t, std::uint32_t> guardados_;
+  bool primera_ = false;
+  bool restringida_ = false;
   Chat voz_;
   Chat texto_;
   std::uint32_t ultimo_texto_ = 0;

@@ -13,7 +13,7 @@
 namespace ventrik::cliente {
 namespace {
 constexpr std::uint32_t kMarca = 0x52504B56;
-constexpr std::uint16_t kVersion = 8;
+constexpr std::uint16_t kVersion = 9;
 constexpr std::uint16_t kVersionConLeidos = 2;
 constexpr std::uint16_t kVersionConModo = 3;
 constexpr std::uint16_t kVersionConSilencio = 4;
@@ -21,6 +21,7 @@ constexpr std::uint16_t kVersionConPersonas = 5;
 constexpr std::uint16_t kVersionConAvisos = 6;
 constexpr std::uint16_t kVersionConAjustes = 7;
 constexpr std::uint16_t kVersionConAtras = 8;
+constexpr std::uint16_t kVersionConOriginal = 9;
 constexpr std::size_t kTexto = 2 + kMaximoBytesNombre;
 constexpr std::size_t kAjuste = 10;
 constexpr std::size_t kHuella = std::tuple_size<cifrado::Huella::Bytes>::value;
@@ -28,7 +29,7 @@ static_assert(kMaximoArchivoGuardados >=
               13 + kTexto + kMaximoServidoresGuardados *
                                 (6 + kHuella + 2 * kTexto + 14 + kMaximoLeidosPorServidor * 8 +
                                  kMaximoPersonasPorServidor * (kTexto + 2) + kAjuste + 3 +
-                                 protocolo::kMaximoCanales * (4 + kAjuste) + 1 + kMaximoHuellasAtras * kHuella) +
+                                 protocolo::kMaximoCanales * (4 + kAjuste) + 1 + (kMaximoHuellasAtras + 1) * kHuella) +
                   2 + kMaximoAjustes * 4 + kMaximoBloqueDeAjustes);
 
 struct MaximoDeAjuste {
@@ -270,6 +271,11 @@ LecturaGuardados leer_guardados(gsl::span<const std::uint8_t> datos, Guardados& 
       servidor.atras.emplace_back();
       std::copy(vieja.begin(), vieja.end(), servidor.atras.back().begin());
     }
+    servidor.original = servidor.atras.empty() ? servidor.huella : servidor.atras.front();
+    if (version >= kVersionConOriginal) {
+      const auto original = lector.leer_bytes(kHuella);
+      std::copy(original.begin(), original.end(), servidor.original.begin());
+    }
     leidos.servidores.push_back(std::move(servidor));
   }
   const std::size_t ajustes = version >= kVersionConAjustes ? lector.leer_u16() : 0;
@@ -337,6 +343,7 @@ std::vector<std::uint8_t> armar_guardados(const Guardados& guardados) {
     for (const auto& huella : servidor.atras) {
       escritor.escribir_bytes(huella);
     }
+    escritor.escribir_bytes(servidor.original);
   }
   escritor.escribir_u16(static_cast<std::uint16_t>(guardados.ajustes.size()));
   for (const auto& [clave, valor] : guardados.ajustes) {

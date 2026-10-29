@@ -1,8 +1,10 @@
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <future>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <cstdlib>
 
@@ -1302,4 +1304,60 @@ TEST_CASE("Una fila de llave dañada en la base no se lee, y una generación da�
     REQUIRE(base->guardar_llaves({ana.clave, 2, {una}}));
   }
   borrar_base(archivo);
+}
+
+TEST_CASE("La generación anulada de una clave queda aunque se borre su identidad, salvo si entró una sola vez, con tope de 10000 sueltas") {
+  auto base = base_en_memoria();
+  const auto usuario = [](std::uint32_t numero) {
+    UsuarioGuardado guardado;
+    guardado.clave.fill(4);
+    for (std::size_t i = 0; i < 4; ++i) {
+      guardado.clave[1 + i] = static_cast<std::uint8_t>(numero >> (8 * i));
+    }
+    guardado.nombre = "U" + std::to_string(numero);
+    guardado.creado_ms = guardado.visto_ms = 1000;
+    guardado.entradas = 2;
+    return guardado;
+  };
+  const UsuarioGuardado ana = usuario(0);
+  REQUIRE(base->guardar_usuario(ana));
+  REQUIRE(base->guardar_llaves({ana.clave, 7, {}}));
+  CHECK(base->generaciones_sueltas()->empty());
+  REQUIRE(base->borrar_usuarios({ana.clave}));
+  auto sueltas = base->generaciones_sueltas();
+  REQUIRE(sueltas);
+  REQUIRE(sueltas->size() == 1);
+  CHECK(sueltas->at(0).clave == ana.clave);
+  CHECK(sueltas->at(0).generacion == 7);
+  REQUIRE(base->guardar_usuario(ana));
+  CHECK(base->generaciones_sueltas()->empty());
+  CHECK(base->llaves()->at(0).generacion == 7);
+  REQUIRE(base->liberar_nombre(ana.nombre));
+  REQUIRE(base->generaciones_sueltas()->size() == 1);
+  UsuarioGuardado una_vez = usuario(99999);
+  una_vez.entradas = 1;
+  for (int vez = 0; vez < 2; ++vez) {
+    REQUIRE(base->guardar_usuario(una_vez));
+    REQUIRE(base->guardar_llaves({una_vez.clave, 9, {}}));
+    const bool borrado = vez == 0 ? base->borrar_usuarios({una_vez.clave}) : base->liberar_nombre(una_vez.nombre);
+    REQUIRE(borrado);
+    CHECK(base->generaciones_sueltas()->size() == 1);
+  }
+
+  std::vector<ClaveDeUsuario> claves;
+  REQUIRE(base->empezar_tanda());
+  for (std::uint32_t numero = 1; numero <= kMaximoGeneracionesSueltas; ++numero) {
+    const UsuarioGuardado otro = usuario(numero);
+    REQUIRE(base->guardar_usuario(otro));
+    REQUIRE(base->guardar_llaves({otro.clave, 100 + numero, {}}));
+    claves.push_back(otro.clave);
+  }
+  REQUIRE(base->borrar_usuarios(claves));
+  REQUIRE(base->confirmar_tanda());
+  sueltas = base->generaciones_sueltas();
+  REQUIRE(sueltas);
+  CHECK(sueltas->size() == kMaximoGeneracionesSueltas);
+  CHECK(std::none_of(sueltas->begin(), sueltas->end(),
+                     [&ana](const LlavesDeUsuario& suelta) { return suelta.clave == ana.clave; }));
+  CHECK(sueltas->front().generacion == 100 + kMaximoGeneracionesSueltas);
 }

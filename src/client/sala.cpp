@@ -105,7 +105,8 @@ Orden pedir(Chat& chat, std::uint64_t desde, Sentido sentido, std::uint16_t cant
 }
 
 Sala::Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& leidos, std::uint32_t texto)
-    : tu_id_(presentado.tu_id), rol_(presentado.rol), canales_(presentado.canales), ultimo_texto_(texto) {
+    : tu_id_(presentado.tu_id), rol_(presentado.rol), canales_(presentado.canales), primera_(leidos.empty()),
+      ultimo_texto_(texto) {
   canales_.erase(std::remove_if(canales_.begin(), canales_.end(),
                                 [](const protocolo::CanalInfo& info) { return info.id == 0; }),
                  canales_.end());
@@ -118,6 +119,7 @@ Sala::Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& le
     }
   }
   for (const Leido& leido : leidos) {
+    guardados_[leido.canal] = leido.numero;
     if (const auto* info = canal(leido.canal)) {
       leidos_[leido.canal] = std::min(leido.numero, info->contador);
     }
@@ -185,7 +187,7 @@ std::uint32_t Sala::leido(std::uint32_t id) const {
 
 std::vector<Leido> Sala::leidos() const {
   std::vector<Leido> lista;
-  for (const auto& [id, numero] : leidos_) {
+  for (const auto& [id, numero] : restringida_ ? guardados_ : leidos_) {
     if (lista.size() < kMaximoLeidosPorServidor) {
       lista.push_back({id, numero});
     }
@@ -321,10 +323,17 @@ std::vector<Orden> Sala::atender(const protocolo::UsuarioRol& rol) {
 }
 
 std::vector<Orden> Sala::atender(const protocolo::CanalCreado& creado) {
-  if (creado.canal.id != 0 && canal(creado.canal.id) == nullptr &&
-      canales_.size() < protocolo::kMaximoCanalesEnLista) {
+  const std::uint32_t id = creado.canal.id;
+  if (canal(id) != nullptr) {
+    atender(protocolo::CanalCambiado{creado.canal});
+  } else if (id != 0 && canales_.size() < protocolo::kMaximoCanalesEnLista) {
     canales_.push_back(creado.canal);
+  } else {
+    return {};
   }
+  const auto guardado = guardados_.find(id);
+  leidos_[id] = std::min(guardado != guardados_.end() ? guardado->second : primera_ ? UINT32_MAX : leido(id),
+                         canal(id)->contador);
   return {};
 }
 
@@ -337,7 +346,16 @@ std::vector<Orden> Sala::atender(const protocolo::CanalCambiado& cambiado) {
   return {};
 }
 
+void Sala::recordar_leidos() {
+  for (const auto& [id, numero] : leidos_) {
+    if (const auto* info = canal(id); info != nullptr && info->contador > 0) {
+      guardados_[id] = std::max(guardados_[id], numero);
+    }
+  }
+}
+
 std::vector<Orden> Sala::atender(const protocolo::CanalBorrado& borrado) {
+  recordar_leidos();
   canales_.erase(std::remove_if(canales_.begin(), canales_.end(),
                                 [&borrado](const protocolo::CanalInfo& info) { return info.id == borrado.id; }),
                  canales_.end());
@@ -412,6 +430,12 @@ std::vector<Orden> Sala::atender(const protocolo::Negado& negado) {
     }
     historial_despues_ = std::chrono::steady_clock::now() + kEsperaTrasRechazo;
   }
+  return {};
+}
+
+std::vector<Orden> Sala::atender(const protocolo::EstadoSegundoPaso& estado) {
+  recordar_leidos();
+  restringida_ = estado.todos && estado.falta != protocolo::FaltaSegundoPaso::nada;
   return {};
 }
 

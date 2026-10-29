@@ -83,6 +83,7 @@ std::optional<std::vector<std::uint8_t>> cerrar_con_maestra(const cifrado::Clave
                                                             const cifrado::LlaveDeSobre& maestra);
 CopiaAbierta abrir_con_maestra(gsl::span<const std::uint8_t> cerrada, std::string_view contrasena);
 bool hay_que_bloquear(std::uint8_t eleccion, bool windows_bloqueado, std::uint32_t sin_usar_ms);
+bool reloj_adelantado(std::uint64_t ahora_ms, std::uint64_t servidor_ms);
 
 std::optional<cifrado::Secreto> secreto_de_equipo(const std::wstring& carpeta);
 bool guardar_apartando_la_vieja(const std::wstring& carpeta, const cifrado::Clave& clave);

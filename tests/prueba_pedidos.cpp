@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <numeric>
@@ -213,7 +214,7 @@ TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con byte
 TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Presentarse>(Bytes{3, 0, 'A', 'n', 'a', 5, 1, 2, 3, 4, 5}));
   CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{0, 0, 0}));
-  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{16, 0, 0}));
+  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{17, 0, 0}));
   Bytes sin_firma = {3, 0, 'A', 'n', 'a', 0};
   sin_firma.insert(sin_firma.end(), kBytesClavePublica + kBytesEquipo, 1);
   Bytes contrasena_larga = sin_firma;
@@ -553,4 +554,13 @@ TEST_CASE("Permitir el segundo paso y el estado del segundo paso vuelven iguales
   CHECK_FALSE(leer_mensaje<AvisoDeSeguridad>(Bytes{14, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{56, 0, 1}));
   CHECK(leer_mensaje<Negado>(Bytes{55, 0, 1}));
+}
+
+TEST_CASE("La oferta del segundo paso borra su secreto al destruirse") {
+  std::optional<ConfigurarSegundoPaso> oferta(std::in_place);
+  oferta->secreto.fill(0xAB);
+  const auto* desde = reinterpret_cast<const unsigned char*>(&oferta);
+  const std::ptrdiff_t lugar = reinterpret_cast<const unsigned char*>(oferta->secreto.data()) - desde;
+  oferta.reset();
+  CHECK(std::all_of(desde + lugar, desde + lugar + kBytesSecretoSegundoPaso, [](unsigned char byte) { return byte == 0; }));
 }

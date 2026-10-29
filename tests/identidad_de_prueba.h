@@ -43,10 +43,12 @@ inline std::shared_ptr<const ventrik::cifrado::Secreto> secreto_de(std::string_v
   return secreto;
 }
 
+inline std::shared_ptr<const ventrik::cifrado::Secreto> equipo_de_prueba() { return secreto_de("equipo de prueba"); }
+
 inline ventrik::cliente::Presentacion presentacion(std::string nombre,
                                                    std::optional<ventrik::cifrado::CodigoDueno> codigo = {}) {
   auto identidad = identidad_de(nombre);
-  return {std::move(nombre), codigo, std::move(identidad), nullptr};
+  return {std::move(nombre), codigo, std::move(identidad), equipo_de_prueba()};
 }
 
 }  // namespace prueba

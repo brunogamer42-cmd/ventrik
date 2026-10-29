@@ -683,3 +683,82 @@ TEST_CASE("La cadena de claves va y vuelve igual por el protocolo y no se lee co
   de_mas.push_back(0);
   CHECK_FALSE(ventrik::protocolo::leer_mensaje<ventrik::protocolo::CadenaDeClaves>(de_mas));
 }
+
+TEST_CASE("Importar con contraseña de arranque deja la bóveda protegida con ella") {
+  Exportado exportado;
+  exportar(exportado);
+  Carpeta destino;
+  const auto importado = ventrik::servidor::importar_servidor(destino.ruta(), exportado.archivo, kContrasena, "General",
+                                                              std::string_view("arranque largo"));
+  REQUIRE(importado.resultado == Mudanza::hecha);
+  CHECK(ventrik::cifrado::cargar_o_crear_identidad(destino.ruta(), std::nullopt, true).resultado ==
+        ventrik::cifrado::ResultadoIdentidad::falta_contrasena);
+  const auto con_arranque =
+      ventrik::cifrado::cargar_o_crear_identidad(destino.ruta(), std::string_view("arranque largo"), true);
+  REQUIRE(con_arranque.identidad);
+  CHECK(con_arranque.identidad->huella() == *exportado.huella);
+}
+
+TEST_CASE("Dos cambios de clave a la vez en la misma carpeta no se pisan, y el candado se suelta solo") {
+  Carpeta carpeta;
+  auto cargada = cargar(carpeta);
+  const Huella antes = cargada.identidad->huella();
+  {
+    const ventrik::Candado otro(carpeta.de(ventrik::servidor::kArchivoCambioDeClave));
+    REQUIRE(otro.tomado());
+    CHECK(ventrik::servidor::cambiar_clave(carpeta.ruta(), *cargada.identidad, *cargada.boveda).resultado ==
+          Mudanza::otro_cambio);
+    CHECK(cargar(carpeta, true).identidad->huella() == antes);
+  }
+  CHECK_FALSE(existe(carpeta.de(ventrik::servidor::kArchivoCambioDeClave)));
+  CHECK(ventrik::servidor::cambiar_clave(carpeta.ruta(), *cargada.identidad, *cargada.boveda).resultado ==
+        Mudanza::hecha);
+  CHECK_FALSE(existe(carpeta.de(ventrik::servidor::kArchivoCambioDeClave)));
+}
+
+TEST_CASE("Después de cambiar la clave, el código del equipo sale de la huella original: por la tarjeta, por Mi servidor y sin tarjeta") {
+  Carpeta carpeta;
+  auto primera = cargar(carpeta);
+  const Huella a = primera.identidad->huella();
+  ventrik::servidor::Opciones opciones;
+  opciones.archivo_base = carpeta.de(kArchivoBase);
+  opciones.segundo_paso = ventrik::SegundoPaso::todos;
+  using EventoDePrueba = ServidorDePrueba::Evento;
+  const auto entra_de_confianza = [](const ServidorDePrueba& servidor, const Huella& huella, std::vector<Huella> atras,
+                                     std::optional<Huella> original) {
+    const int antes = servidor.cuantos(EventoDePrueba::salio);
+    std::optional<Huella> usada;
+    {
+      ventrik::cliente::OpcionesSesion sesion;
+      sesion.conexion.atras = std::move(atras);
+      sesion.conexion.original = original;
+      Cliente ana(servidor.direccion(), huella, "Ana del equipo", {}, sesion);
+      const auto intento = ana.esperar<ventrik::cliente::IntentoDeConexion>();
+      REQUIRE(intento);
+      REQUIRE(intento->estado == EstadoConexion::conectado);
+      CHECK(ana.esperar<ventrik::protocolo::ConfigurarSegundoPaso>());
+      usada = intento->original;
+    }
+    CHECK(esperar_que([&] { return servidor.cuantos(EventoDePrueba::salio) > antes; }));
+    return usada;
+  };
+  {
+    ServidorDePrueba servidor(opciones, &*primera.identidad);
+    CHECK(entra_de_confianza(servidor, a, {}, std::nullopt) == a);
+  }
+  REQUIRE(ventrik::servidor::cambiar_clave(carpeta.ruta(), *primera.identidad, *primera.boveda).resultado ==
+          Mudanza::hecha);
+  auto segunda = cargar(carpeta, true);
+  const Huella b = segunda.identidad->huella();
+  auto cadena = ventrik::servidor::leer_cadena_guardada(carpeta.ruta(), b);
+  REQUIRE(cadena.resultado == Mudanza::hecha);
+  opciones.cadena = cadena.cadena;
+  for (int vez = 0; vez < 2; ++vez) {
+    CAPTURE(vez);
+    ServidorDePrueba servidor(opciones, &*segunda.identidad);
+    CHECK(entra_de_confianza(servidor, a, {}, a) == a);
+    CHECK(entra_de_confianza(servidor, b, {a}, a) == a);
+    CHECK(entra_de_confianza(servidor, b, {}, std::nullopt) == a);
+    CHECK(servidor.cuantos(EventoDePrueba::equipo_nuevo) == 0);
+  }
+}

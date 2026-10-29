@@ -43,6 +43,7 @@ class ProcesoDelServidor {
 std::wstring exe_del_servidor();
 std::wstring carpeta_de_mis_servidores(const std::wstring& carpeta_del_programa, bool propia);
 std::vector<MiServidorEnDisco> leer_mis_servidores(const std::wstring& raiz);
+std::string nombre_del_dueno(const std::string& guardado, std::string_view generico);
 std::wstring carpeta_nueva(const std::wstring& raiz, std::string_view nombre);
 void borrar_carpeta_vacia(const std::wstring& carpeta);
 bool esta_andando(const std::wstring& carpeta);

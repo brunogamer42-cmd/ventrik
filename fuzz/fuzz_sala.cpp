@@ -117,7 +117,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     const std::uint16_t c = lector.leer_u16();
     const TipoCanal tipo = (c & 1) != 0 ? TipoCanal::texto : TipoCanal::voz;
     const bool solo_admins = tipo == TipoCanal::texto && (c & 2) != 0;
-    switch (que % 28) {
+    switch (que % 29) {
       case 0: sala.aplicar(UsuarioEntro{{a, "Alguien", b}}); break;
       case 1: sala.aplicar(UsuarioSalio{a}); break;
       case 2: sala.aplicar(UsuarioCambioCanal{a, b}); break;
@@ -216,6 +216,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       case 25:
         sala.aplicar(UsuarioRol{a, static_cast<Rol>(b % 3)});
         exigir(a != sala.tu_id() || sala.admin() == (b % 3 != 0));
+        break;
+      case 28:
+        sala.aplicar(EstadoSegundoPaso{static_cast<FaltaSegundoPaso>(b % 4), (c & 1) != 0});
+        exigir(sala.leidos().size() <= ventrik::cliente::kMaximoLeidosPorServidor);
         break;
       case 26:
         avisos.seguridad(ventrik::cliente::explicar(

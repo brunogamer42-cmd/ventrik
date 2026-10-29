@@ -48,6 +48,7 @@ struct OpcionesConexion {
   const red::Socket* cancelar = nullptr;
   std::optional<red::Direccion> origen;
   std::vector<cifrado::Huella> atras;
+  std::optional<cifrado::Huella> original;
 };
 
 enum class EstadoConexion {
@@ -73,9 +74,11 @@ enum class EstadoConexion {
   falta_segundo_paso,
   segundo_paso_incorrecto,
   segundo_paso_bloqueado,
+  segundo_paso_usado,
   llave_anulada,
   llave_clonada,
   sin_llave,
+  sin_equipo,
   error_interno,
 };
 
@@ -111,6 +114,7 @@ struct ResultadoConexion {
   std::uint16_t espera = 0;
   std::optional<protocolo::Presentado> presentado;
   std::optional<cifrado::CadenaSeguida> cambio;
+  std::optional<cifrado::Huella> original;
   std::unique_ptr<ConexionAbierta> abierta;
 };
 

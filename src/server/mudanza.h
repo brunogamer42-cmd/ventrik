@@ -13,6 +13,7 @@ namespace ventrik::servidor {
 
 constexpr wchar_t kArchivoBase[] = L"\\ventrik.db";
 constexpr wchar_t kArchivoCadena[] = L"\\cadena_de_claves.dat";
+constexpr wchar_t kArchivoCambioDeClave[] = L"\\cambio_de_clave.lock";
 
 enum class Mudanza {
   hecha,
@@ -33,6 +34,7 @@ enum class Mudanza {
   cadena_danada,
   cadena_de_otra_clave,
   clave_vieja_sin_borrar,
+  otro_cambio,
   error_cifrado
 };
 
@@ -61,7 +63,8 @@ Mudanza exportar_servidor(const std::wstring& carpeta, const cifrado::IdentidadS
                           std::optional<cifrado::Argon2> fijos = std::nullopt);
 
 ResultadoMudanza importar_servidor(const std::wstring& carpeta, const std::wstring& archivo,
-                                   std::string_view contrasena, const std::string& nombre_general);
+                                   std::string_view contrasena, const std::string& nombre_general,
+                                   std::optional<std::string_view> arranque = std::nullopt);
 
 ResultadoMudanza cambiar_clave(const std::wstring& carpeta, const cifrado::IdentidadServidor& actual,
                                const cifrado::Boveda& boveda);

@@ -10,6 +10,7 @@
 #include <gsl/gsl>
 
 #include "common/cifrado/cadena.h"
+#include "common/cifrado/secreto.h"
 #include "common/niveles.h"
 #include "common/protocol/bytes.h"
 #include "common/protocol/marcos.h"
@@ -123,6 +124,7 @@ enum class MotivoPresentacion : std::uint8_t {
   segundo_paso_bloqueado = 13,
   llave_anulada = 14,
   llave_clonada = 15,
+  codigo_usado = 16,
 };
 
 struct PresentacionRechazada {
@@ -352,6 +354,7 @@ struct QuitarSegundoPaso {
 
 struct ConfigurarSegundoPaso {
   static constexpr TipoMensaje kTipo = TipoMensaje::configurar_segundo_paso;
+  ~ConfigurarSegundoPaso() { cifrado::borrar(secreto); }
   std::array<std::uint8_t, kBytesSecretoSegundoPaso> secreto{};
 };
 

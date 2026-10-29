@@ -682,7 +682,8 @@ TEST_CASE("Con segundo paso para todos, quien no lo hizo no chatea, no recibe ch
   tano.entrar();
   prueba::activar_segundo_paso(tano);
   tano.ordenar(proto::CrearCanal{"Charla", proto::TipoCanal::texto});
-  const auto charla = tano.esperar<proto::CanalCreado>();
+  const auto charla =
+      tano.esperar<proto::CanalCreado>([](const proto::CanalCreado& creado) { return creado.canal.nombre == "Charla"; });
   REQUIRE(charla);
   const std::uint32_t canal = charla->canal.id;
   tano.ordenar(proto::MirarCanal{canal});
@@ -787,4 +788,58 @@ TEST_CASE("Diez códigos equivocados bloquean el segundo paso: queda anotado y a
   }
   CHECK(anotado(archivo, proto::Seguridad::segundo_paso_bloqueado, 1));
   borrar_base_de_prueba(archivo);
+}
+
+TEST_CASE("Una generación anulada no se olvida al liberar el nombre: la llave vieja sigue sin entrar, también al reiniciar") {
+  const std::wstring archivo = base_temporal();
+  const auto codigo = cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  auto opciones = sin_bloqueo();
+  opciones.archivo_base = archivo;
+  opciones.codigo_dueno = codigo;
+  auto identidad = prueba::identidad_nueva();
+  const auto de_ana = prueba::identidad_nueva_de_prueba();
+  ConLlave ana(de_ana);
+  {
+    auto base = ventrik::servidor::Base::abrir(archivo, "General");
+    REQUIRE(base);
+    ventrik::servidor::UsuarioGuardado guardada;
+    guardada.clave = de_ana->publica();
+    guardada.nombre = "Ana";
+    guardada.creado_ms = guardada.visto_ms = ms_de_ahora();
+    guardada.entradas = 3;
+    REQUIRE(base->guardar_usuario(guardada));
+    REQUIRE(base->guardar_llaves({guardada.clave, 5, {}}));
+  }
+  {
+    prueba::ServidorDePrueba servidor(opciones, &identidad);
+    prueba::Cliente tano(servidor, "Tano", codigo);
+    tano.entrar();
+    ana.generacion = 4;
+    CHECK(ana.entrar(servidor) == EstadoConexion::llave_anulada);
+    tano.ordenar(proto::LiberarNombre{"Ana"});
+    REQUIRE(tano.esperar<proto::AvisoDeSeguridad>(
+        [](const proto::AvisoDeSeguridad& aviso) { return aviso.tipo == proto::Seguridad::nombre_liberado; }));
+    ana.generacion = 4;
+    CHECK(ana.entrar(servidor) == EstadoConexion::llave_anulada);
+  }
+  {
+    opciones.codigo_dueno.reset();
+    prueba::ServidorDePrueba servidor(opciones, &identidad);
+    CHECK(ana.entrar(servidor) == EstadoConexion::llave_anulada);
+    ana.generacion = 5;
+    CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
+  }
+  borrar_base_de_prueba(archivo);
+}
+
+TEST_CASE("Al agregar una llave se avisa si el reloj de esta PC va más de dos días adelante del servidor") {
+  constexpr std::uint64_t kServidor = 1767225600000ull + 100ull * 24 * 60 * 60 * 1000;
+  constexpr std::uint64_t kMinuto = 60000;
+  CHECK_FALSE(ventrik::cliente::reloj_adelantado(kServidor, kServidor));
+  CHECK_FALSE(ventrik::cliente::reloj_adelantado(kServidor + cifrado::kAdelantoDeGeneracion * kMinuto, kServidor));
+  CHECK(ventrik::cliente::reloj_adelantado(kServidor + (cifrado::kAdelantoDeGeneracion + 1) * kMinuto, kServidor));
+  CHECK_FALSE(ventrik::cliente::reloj_adelantado(kServidor - 100 * kMinuto, kServidor));
+  const std::string_view anulada = ventrik::texto(ventrik::elegir_idioma("es"), ventrik::Clave::conectar_llave_anulada);
+  CHECK(anulada.find("la fecha y la hora de esta PC") != std::string_view::npos);
 }

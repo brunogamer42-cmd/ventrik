@@ -136,4 +136,9 @@ std::optional<CadenaSeguida> seguir_cadena(const Cadena& cadena, const Huella& g
                                                    vistas.end())};
 }
 
+std::optional<Huella> origen_de_la_cadena(const Cadena& cadena, const Huella& de_la_conexion) {
+  const auto primera = cadena.empty() ? std::nullopt : huella_de_publica(cadena.front().vieja);
+  return primera && seguir_cadena(cadena, *primera, de_la_conexion, {}) ? primera : std::nullopt;
+}
+
 }

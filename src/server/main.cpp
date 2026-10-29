@@ -183,6 +183,7 @@ ventrik::Clave clave_de(ventrik::servidor::Mudanza resultado) {
     case Mudanza::cadena_danada: return Clave::servidor_cadena_danada;
     case Mudanza::cadena_de_otra_clave: return Clave::servidor_cadena_de_otra_clave;
     case Mudanza::clave_vieja_sin_borrar: return Clave::servidor_vieja_sin_borrar;
+    case Mudanza::otro_cambio: return Clave::servidor_otro_cambio;
     case Mudanza::hecha:
     case Mudanza::error_cifrado: break;
   }
@@ -441,13 +442,14 @@ int wmain(int cantidad, wchar_t** argumentos) {
     ruta_del_registro = carpeta + ventrik::protocolo::kArchivoRegistro;
     abrir_registro(false);
   }
-  Manija candado(nullptr, &CloseHandle);
-  if (importar.empty() && exportar.empty() && !cambiar_clave && !solo_huella) {
-    candado.reset(CreateMutexW(nullptr, FALSE, ventrik::protocolo::candado_de(carpeta).c_str()));
-    if (!candado || GetLastError() == ERROR_ALREADY_EXISTS) {
-      escribir_linea(texto(ventrik::Clave::servidor_ya_andando) + " " + ventrik::a_utf8(carpeta));
-      return salir(SalidaServidor::andando);
-    }
+  const bool corre = importar.empty() && exportar.empty() && !cambiar_clave && !solo_huella;
+  const ventrik::Candado candado(corre ? carpeta + ventrik::protocolo::kArchivoCandado : std::wstring());
+  if (corre && !candado.tomado()) {
+    const DWORD error = GetLastError();
+    const bool ocupada = error == ERROR_SHARING_VIOLATION || error == ERROR_ACCESS_DENIED;
+    escribir_linea(texto(ocupada ? ventrik::Clave::servidor_ya_andando : ventrik::Clave::servidor_error_carpeta) + " " +
+                   ventrik::a_utf8(carpeta));
+    return ocupada ? salir(SalidaServidor::andando) : 1;
   }
   std::optional<ventrik::protocolo::EntradaPorCano> por_cano;
   const auto cano = [&por_cano, sin_consola]() -> ventrik::protocolo::EntradaPorCano& {
@@ -507,8 +509,10 @@ int wmain(int cantidad, wchar_t** argumentos) {
       escribir_linea(texto(ventrik::Clave::servidor_contrasena_sin_consola));
       return salir(SalidaServidor::contrasena);
     }
+    const std::string_view arranque = sin_consola ? ventrik::cifrado::texto_de(cano().arranque) : std::string_view();
     const auto importado = ventrik::servidor::importar_servidor(
-        carpeta, importar, ventrik::cifrado::texto_de(*contrasena), texto(ventrik::Clave::canal_general));
+        carpeta, importar, ventrik::cifrado::texto_de(*contrasena), texto(ventrik::Clave::canal_general),
+        arranque.empty() ? std::nullopt : std::optional<std::string_view>(arranque));
     const Mudanza resultado = importado.resultado;
     if (resultado != Mudanza::hecha) {
       avisar_mudanza(resultado, resultado == Mudanza::error_lectura ? importar
@@ -517,7 +521,9 @@ int wmain(int cantidad, wchar_t** argumentos) {
                                     : std::wstring());
       return salir(resultado == Mudanza::contrasena ? SalidaServidor::contrasena : SalidaServidor::error);
     }
-    escribir_linea(texto(ventrik::Clave::servidor_importado));
+    escribir_linea(texto(arranque.empty() ? ventrik::Clave::servidor_importado
+                                          : ventrik::Clave::servidor_importado_con_arranque));
+    escribir_linea(texto(ventrik::Clave::servidor_importado_restaura));
     escribir_huella(ventrik::Clave::servidor_huella, *importado.huella);
     return 0;
   }

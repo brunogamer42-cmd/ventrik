@@ -63,6 +63,7 @@ struct PantallaHostear {
   Seguridad seguridad;
   bool ver_opciones = false;
   std::string huella;
+  bool huella_copiada = false;
   bool exportada = false;
   std::string aviso;
   bool aviso_es_error = false;

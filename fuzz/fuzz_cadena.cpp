@@ -47,6 +47,10 @@ bool contiene(gsl::span<const Huella> huellas, const Huella& huella) {
 }
 
 void seguir(const Cadena& cadena, const Huella& guardada, const Huella& conexion, gsl::span<const Huella> atras) {
+  if (const auto origen = ventrik::cifrado::origen_de_la_cadena(cadena, conexion)) {
+    exigir(ventrik::cifrado::huella_de_publica(cadena.front().vieja) == *origen &&
+           std::all_of(cadena.begin(), cadena.end(), es_genuino));
+  }
   const auto seguida = ventrik::cifrado::seguir_cadena(cadena, guardada, conexion, atras);
   if (!seguida) {
     return;

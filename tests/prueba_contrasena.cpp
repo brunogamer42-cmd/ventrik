@@ -39,7 +39,7 @@ Presentacion con_contrasena(Presentacion quien, std::optional<std::string_view> 
   return quien;
 }
 
-Presentacion nueva(std::string nombre) { return {std::move(nombre), {}, identidad_nueva_de_prueba(), nullptr}; }
+Presentacion nueva(std::string nombre) { return {std::move(nombre), {}, identidad_nueva_de_prueba(), equipo_de_prueba()}; }
 
 ventrik::servidor::Opciones con_clave(std::chrono::milliseconds espera = 5s) {
   ventrik::servidor::Opciones opciones;

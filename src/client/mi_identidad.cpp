@@ -80,6 +80,16 @@ std::optional<gsl::span<const std::uint8_t>> desempaquetar(std::uint8_t primero,
   return der;
 }
 
+std::wstring apartar(const std::wstring& archivo, const std::wstring& carpeta, const wchar_t* nombre) {
+  for (int numero = 1; numero < 100; ++numero) {
+    const std::wstring candidata = carpeta + nombre + std::to_wstring(numero) + L".dat";
+    if (MoveFileExW(archivo.c_str(), candidata.c_str(), MOVEFILE_WRITE_THROUGH)) {
+      return candidata;
+    }
+  }
+  return {};
+}
+
 std::optional<cifrado::Clave> clave_de(const std::optional<gsl::span<const std::uint8_t>>& der) {
   return der ? cifrado::Clave::desde_der(*der) : std::nullopt;
 }
@@ -310,14 +320,20 @@ bool hay_que_bloquear(std::uint8_t eleccion, bool windows_bloqueado, std::uint32
          sin_usar_ms / 60000 >= kMinutosDeBloqueo[eleccion];
 }
 
+bool reloj_adelantado(std::uint64_t ahora_ms, std::uint64_t servidor_ms) {
+  return cifrado::generacion_de_la_hora(ahora_ms) > cifrado::generacion_tope(servidor_ms);
+}
+
 std::optional<cifrado::Secreto> secreto_de_equipo(const std::wstring& carpeta) {
   const std::wstring archivo = carpeta + L"\\equipo.dat";
   borrar_temporales_de(archivo);
   for (int intento = 0; intento < 2; ++intento) {
     cifrado::Secreto contenido;
     const LecturaArchivo lectura = leer_archivo(archivo, kMaximoArchivoIdentidad, contenido);
-    if (lectura != LecturaArchivo::no_existe) {
-      return lectura == LecturaArchivo::leido ? leer_archivo_de_equipo(contenido.bytes()) : std::nullopt;
+    auto leido = lectura == LecturaArchivo::leido ? leer_archivo_de_equipo(contenido.bytes()) : std::nullopt;
+    if (leido || lectura == LecturaArchivo::error ||
+        (lectura != LecturaArchivo::no_existe && apartar(archivo, carpeta, L"\\equipo-viejo-").empty())) {
+      return leido;
     }
     cifrado::Secreto nuevo(kBytesSecretoDeEquipo);
     const bool hecho = cifrado::aleatorio(nullptr, nuevo.bytes().data(), nuevo.size()) == 0;
@@ -336,12 +352,7 @@ bool guardar_apartando_la_vieja(const std::wstring& carpeta, const cifrado::Clav
   const std::wstring archivo = carpeta + L"\\identidad.dat";
   std::wstring vieja;
   if (GetFileAttributesW(archivo.c_str()) != INVALID_FILE_ATTRIBUTES) {
-    for (int numero = 1; numero < 100 && vieja.empty(); ++numero) {
-      const std::wstring candidata = carpeta + L"\\identidad-vieja-" + std::to_wstring(numero) + L".dat";
-      if (MoveFileExW(archivo.c_str(), candidata.c_str(), MOVEFILE_WRITE_THROUGH)) {
-        vieja = candidata;
-      }
-    }
+    vieja = apartar(archivo, carpeta, L"\\identidad-vieja-");
     if (vieja.empty()) {
       return false;
     }

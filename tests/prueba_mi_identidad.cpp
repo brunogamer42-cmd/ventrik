@@ -32,7 +32,8 @@ class Carpeta {
   }
   ~Carpeta() {
     for (const auto* nombre :
-         {L"\\identidad.dat", L"\\equipo.dat", L"\\identidad-vieja-1.dat", L"\\identidad-vieja-2.dat", L"\\llaves.dat"}) {
+         {L"\\identidad.dat", L"\\equipo.dat", L"\\identidad-vieja-1.dat", L"\\identidad-vieja-2.dat", L"\\llaves.dat",
+          L"\\equipo-viejo-1.dat"}) {
       DeleteFileW((ruta_ + nombre).c_str());
     }
     RemoveDirectoryW(ruta_.c_str());
@@ -293,14 +294,20 @@ TEST_CASE("El secreto del equipo se crea una vez y no cambia") {
   CHECK_FALSE(std::equal(primero->bytes().begin(), primero->bytes().end(), tercero->bytes().begin()));
 }
 
-TEST_CASE("Un secreto del equipo dañado no se pisa con otro") {
+TEST_CASE("Un secreto del equipo que no abre se aparta como equipo-viejo y se hace otro, que después se lee igual") {
   const Carpeta carpeta;
-  REQUIRE(ventrik::cliente::secreto_de_equipo(carpeta.ruta()));
+  const auto primero = ventrik::cliente::secreto_de_equipo(carpeta.ruta());
+  REQUIRE(primero);
   auto contenido = leer_todo(carpeta.archivo(L"equipo.dat"));
   contenido[contenido.size() / 2] ^= 0x01;
   REQUIRE(ventrik::escribir_archivo_completo(carpeta.archivo(L"equipo.dat"), contenido));
-  CHECK_FALSE(ventrik::cliente::secreto_de_equipo(carpeta.ruta()));
-  CHECK(leer_todo(carpeta.archivo(L"equipo.dat")) == contenido);
+  const auto nuevo = ventrik::cliente::secreto_de_equipo(carpeta.ruta());
+  REQUIRE(nuevo);
+  CHECK_FALSE(std::equal(primero->bytes().begin(), primero->bytes().end(), nuevo->bytes().begin()));
+  CHECK(leer_todo(carpeta.archivo(L"equipo-viejo-1.dat")) == contenido);
+  const auto otra_vez = ventrik::cliente::secreto_de_equipo(carpeta.ruta());
+  REQUIRE(otra_vez);
+  CHECK(std::equal(nuevo->bytes().begin(), nuevo->bytes().end(), otra_vez->bytes().begin()));
 }
 
 TEST_CASE("La identidad que no se pudo abrir se aparta antes de guardar otra") {

@@ -33,6 +33,8 @@ constexpr std::uint64_t kDiasDeUnaSolaVez = 30;
 constexpr std::uint64_t kDiasParaDesalojar = 7;
 constexpr std::size_t kMaximoAvisosPorUsuario = 100;
 constexpr std::size_t kMaximoRegistroPorTipo = 1500;
+constexpr std::size_t kMaximoPedidosEnCola = 4096;
+constexpr std::size_t kMaximoGeneracionesSueltas = 10000;
 using ClaveDeUsuario = std::array<std::uint8_t, protocolo::kBytesClavePublica>;
 using Equipo = std::array<std::uint8_t, protocolo::kBytesEquipo>;
 
@@ -127,6 +129,7 @@ class Base {
   bool guardar_segundo_paso(const SegundoPasoGuardado& guardado);
   bool quitar_segundo_paso(const ClaveDeUsuario& clave);
   std::optional<std::vector<LlavesDeUsuario>> llaves();
+  std::optional<std::vector<LlavesDeUsuario>> generaciones_sueltas();
   bool guardar_llaves(const LlavesDeUsuario& llaves);
   bool leer_seguridad(std::optional<ventrik::Seguridad>& leida);
   bool guardar_seguridad(const ventrik::Seguridad& seguridad);
@@ -188,6 +191,7 @@ class ServicioBase {
   bool arrancar(std::wstring archivo, std::string nombre_general, const red::Despertador& despertador,
                 cifrado::Secreto clave_historial = {});
   bool pedir(Trabajo trabajo, bool sola = false);
+  void limitar(std::size_t maximo);
   void atender_respuestas();
 
  private:
@@ -199,6 +203,7 @@ class ServicioBase {
   std::condition_variable abierta_;
   std::deque<std::pair<Trabajo, bool>> pedidos_;
   std::deque<std::function<void()>> respuestas_;
+  std::size_t maximo_ = kMaximoPedidosEnCola;
   std::optional<bool> pudo_abrir_;
   bool terminar_ = false;
   std::thread hilo_;

@@ -603,8 +603,16 @@ class Dibujo {
       });
       ImGui::EndDisabled();
     }
-    etiqueta(ImVec2(cx, cy + px(2)), Clave::hostear_huella);
     const bool sin_huella = pantalla_.huella.empty();
+    ImGui::BeginDisabled(sin_huella);
+    if (boton_a_la_izquierda("##copiar_huella",
+                             t(pantalla_.huella_copiada ? Clave::hostear_huella_copiada : Clave::hostear_copiar_huella),
+                             Estilo::contorneado, derecha, cy, 40)) {
+      ImGui::SetClipboardText(pantalla_.huella.c_str());
+      pantalla_.huella_copiada = true;
+    }
+    ImGui::EndDisabled();
+    etiqueta(ImVec2(cx, cy + px(2)), Clave::hostear_huella);
     const std::string_view huella = sin_huella ? t(Clave::hostear_huella_al_crear) : std::string_view(pantalla_.huella);
     const float ancho_huella = derecha - cx;
     escribir_envuelto(ImVec2(cx, cy + px(20)), huella, sin_huella ? color::apagado : color::texto, ancho_huella,
@@ -869,12 +877,13 @@ std::optional<Contrasenas> dibujar_dialogo(Idioma idioma, DialogoDeServidor& dia
   const DatosDeDialogo& datos = kDialogos[static_cast<std::size_t>(cual)];
   const bool con_contrasena = cual == PideContrasena::exportar || cual == PideContrasena::importar;
   const bool con_repetir = cual == PideContrasena::exportar;
+  const bool arranque_opcional = cual == PideContrasena::importar;
+  const bool con_arranque = dialogo.con_arranque || arranque_opcional;
   const std::string ayuda = std::string(t(datos.ayuda)) +
                             (cual == PideContrasena::cambiar_clave && dialogo.andando
                                  ? " " + std::string(t(Clave::dialogo_cambiar_andando))
                                  : std::string());
-  const int campos = static_cast<int>(con_contrasena) + static_cast<int>(con_repetir) +
-                     static_cast<int>(dialogo.con_arranque);
+  const int campos = static_cast<int>(con_contrasena) + static_cast<int>(con_repetir) + static_cast<int>(con_arranque);
   const ImVec2 pantalla = ImGui::GetIO().DisplaySize;
   const float ancho = std::min(px(440), pantalla.x - px(20));
   const float interior = ancho - px(40);
@@ -916,8 +925,9 @@ std::optional<Contrasenas> dibujar_dialogo(Idioma idioma, DialogoDeServidor& dia
   if (con_repetir) {
     escribir_campo("##repetir_archivo", Clave::seguridad_repetir, dialogo.repetir);
   }
-  if (dialogo.con_arranque) {
-    escribir_campo("##arranque_servidor", Clave::dialogo_arranque_pista, dialogo.arranque);
+  if (con_arranque) {
+    escribir_campo("##arranque_servidor", arranque_opcional ? Clave::dialogo_arranque_opcional : Clave::dialogo_arranque_pista,
+                   dialogo.arranque);
   }
   if (!dialogo.error.empty()) {
     escribir_cortado(ImVec2(x, y), interior, dialogo.error, color::rojo, Letra::normal, medida::letra_chica);
@@ -935,11 +945,13 @@ std::optional<Contrasenas> dibujar_dialogo(Idioma idioma, DialogoDeServidor& dia
   std::optional<Contrasenas> hechas;
   if (confirmar && !cancelar) {
     const std::string_view primera(dialogo.contrasena.data());
-    dialogo.error = con_repetir && cantidad_de_letras(primera) < cliente::kMinimoContrasena
+    const std::string_view arranque(dialogo.arranque.data());
+    const auto corta = [](std::string_view escrita) { return cantidad_de_letras(escrita) < cliente::kMinimoContrasena; };
+    dialogo.error = (con_repetir && corta(primera)) || (arranque_opcional && !arranque.empty() && corta(arranque))
                         ? con_datos(t(Clave::seguridad_corta), {std::to_string(cliente::kMinimoContrasena)})
                     : con_repetir && primera != std::string_view(dialogo.repetir.data())
                         ? std::string(t(Clave::seguridad_distintas))
-                    : (con_contrasena && primera.empty()) || (dialogo.con_arranque && dialogo.arranque[0] == '\0')
+                    : (con_contrasena && primera.empty()) || (dialogo.con_arranque && arranque.empty())
                         ? std::string(t(Clave::dialogo_falta))
                         : std::string();
     if (dialogo.error.empty()) {

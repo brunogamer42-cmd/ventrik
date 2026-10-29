@@ -479,13 +479,13 @@ TEST_CASE("Borrar el canal que mirabas vuelve al chat de voz, y borrar tu canal 
   CHECK(sala.usuarios().at(9).canal == 1);
 }
 
-TEST_CASE("Un canal nuevo arranca sin leer y uno cambiado no pierde su contador") {
+TEST_CASE("Un canal nuevo arranca sin leer, uno que vuelve a llegar se pone al día y uno cambiado no pierde su contador") {
   Sala sala(presentado());
   sala.aplicar(CanalCreado{{5, "nuevo", TipoCanal::texto, false, 0}});
   sala.aplicar(CanalCreado{{5, "repetido", TipoCanal::texto, false, 0}});
   sala.aplicar(MensajesNuevos{{{5, 2}, {99, 4}}});
   CHECK(sala.canales().size() == 5);
-  CHECK(sala.canal(5)->nombre == "nuevo");
+  CHECK(sala.canal(5)->nombre == "repetido");
   CHECK(sala.nuevos(5) == 2);
   sala.aplicar(CanalCambiado{{4, "avisos", TipoCanal::texto, false, 1}});
   CHECK(sala.canal(4)->nombre == "avisos");
@@ -696,4 +696,57 @@ TEST_CASE("Con un servidor de verdad, la sala vuelve a pedir lo que soltó hacia
   CHECK(sala->chat().autores.size() == 1);
   sesion.ordenar(EnviarChat{1, "otro"});
   REQUIRE(hasta([&] { return sala->chat().mensajes.back().id == 201; }));
+}
+
+TEST_CASE("Con la sala restringida se guardan los leídos de antes y al llegar la sala entera se aplican") {
+  Presentado minimo;
+  minimo.tu_id = 7;
+  minimo.canales = {{1, "General"}};
+  minimo.usuarios = {{7, "Ana", 0}};
+  Sala sala(minimo, {{1, 4}, {3, 2}}, 3);
+  sala.aplicar(EstadoSegundoPaso{FaltaSegundoPaso::activar, true});
+  const auto antes = sala.leidos();
+  REQUIRE(antes.size() == 2);
+  CHECK((antes[0].canal == 1 && antes[0].numero == 4));
+  CHECK((antes[1].canal == 3 && antes[1].numero == 2));
+  sala.aplicar(CanalCreado{{1, "General", TipoCanal::voz, false, 6}});
+  sala.aplicar(CanalCreado{{3, "charla", TipoCanal::texto, false, 5}});
+  sala.aplicar(CanalCreado{{4, "anuncios", TipoCanal::texto, true, 2}});
+  sala.aplicar(UsuarioEntro{{8, "Beto", 1}});
+  sala.aplicar(EstadoSegundoPaso{FaltaSegundoPaso::nada, true});
+  CHECK(sala.canales().size() == 3);
+  CHECK(sala.usuarios().size() == 2);
+  CHECK(sala.nuevos(1) == 2);
+  CHECK(sala.nuevos(3) == 3);
+  CHECK(sala.nuevos(4) == 2);
+  const auto despues = sala.leidos();
+  REQUIRE(despues.size() == 3);
+  CHECK((despues[2].canal == 4 && despues[2].numero == 0));
+}
+
+TEST_CASE("La primera vez en un servidor, la sala que llega al activar el segundo paso queda leída") {
+  Presentado minimo;
+  minimo.tu_id = 7;
+  minimo.canales = {{1, "General"}};
+  minimo.usuarios = {{7, "Ana", 0}};
+  Sala sala(minimo);
+  sala.aplicar(EstadoSegundoPaso{FaltaSegundoPaso::activar, true});
+  CHECK(sala.leidos().empty());
+  sala.aplicar(CanalCreado{{1, "General", TipoCanal::voz, false, 6}});
+  sala.aplicar(CanalCreado{{3, "charla", TipoCanal::texto, false, 5}});
+  sala.aplicar(EstadoSegundoPaso{FaltaSegundoPaso::nada, true});
+  CHECK(sala.nuevos(1) == 0);
+  CHECK(sala.nuevos(3) == 0);
+}
+
+TEST_CASE("Lo leído mientras se veía la sala no se pierde al quedar restringida") {
+  Sala sala(presentado(), {{3, 1}});
+  sala.elegir_texto(3);
+  sala.aplicar(CanalBorrado{3, 1});
+  sala.aplicar(CanalBorrado{4, 1});
+  sala.aplicar(EstadoSegundoPaso{FaltaSegundoPaso::volver_a_entrar, true});
+  const auto leidos = sala.leidos();
+  REQUIRE(leidos.size() == 1);
+  CHECK(leidos[0].canal == 3);
+  CHECK(leidos[0].numero == 5);
 }

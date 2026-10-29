@@ -653,6 +653,13 @@ TEST_CASE("ventrik_servidor.exe crea por el caño, arranca sin consola con y sin
   CHECK(esperar_salida(*mal) == SalidaServidor::arranque);
   CHECK_FALSE(ventrik::cliente::esta_andando(carpeta));
 
+  {
+    const ventrik::Candado otra_sesion(carpeta + ventrik::protocolo::kArchivoCandado);
+    REQUIRE(otra_sesion.tomado());
+    auto ocupado = ProcesoDelServidor::lanzar(exe, argumentos, ventrik::protocolo::armar_entrada(kArranque, {}).bytes());
+    REQUIRE(ocupado);
+    CHECK(esperar_salida(*ocupado) == SalidaServidor::andando);
+  }
   auto andando =
       ProcesoDelServidor::lanzar(exe, argumentos, ventrik::protocolo::armar_entrada(kArranque, {}).bytes(), carpeta);
   REQUIRE(andando);
@@ -669,6 +676,7 @@ TEST_CASE("ventrik_servidor.exe crea por el caño, arranca sin consola con y sin
   REQUIRE(segundo);
   CHECK(esperar_salida(*segundo) == SalidaServidor::andando);
   CHECK(ventrik::cliente::esta_andando(carpeta));
+  CHECK_FALSE(ventrik::Candado(carpeta + ventrik::protocolo::kArchivoCandado).tomado());
 
   REQUIRE(ventrik::cliente::detener_servidor(carpeta));
   CHECK(esperar_salida(*andando) == SalidaServidor::bien);
@@ -677,4 +685,22 @@ TEST_CASE("ventrik_servidor.exe crea por el caño, arranca sin consola con y sin
   CHECK_FALSE(registro.empty());
   CHECK(registro.find(kArranque) == std::string::npos);
   CHECK(registro.find("Desde el exe") != std::string::npos);
+}
+
+TEST_CASE("El nombre del dueño al crear sale de Ventrik o es el genérico, nunca el usuario de Windows") {
+  CHECK(ventrik::cliente::nombre_del_dueno("Tano", "Dueño") == "Tano");
+  CHECK(ventrik::cliente::nombre_del_dueno("", "Dueño") == "Dueño");
+  CHECK(ventrik::cliente::nombre_del_dueno(" mal", "Dueño") == "Dueño");
+}
+
+TEST_CASE("El candado de archivo deja uno solo a la vez y se borra al soltarlo") {
+  Raiz raiz;
+  const std::wstring archivo = raiz.de(L"servidor.lock");
+  {
+    const ventrik::Candado primero(archivo);
+    REQUIRE(primero.tomado());
+    CHECK_FALSE(ventrik::Candado(archivo).tomado());
+  }
+  CHECK_FALSE(existe(archivo));
+  CHECK(ventrik::Candado(archivo).tomado());
 }

@@ -2,6 +2,7 @@
 #include <chrono>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -80,6 +81,7 @@ class Manual {
   }
 
   bool cerrada() { return !leer(); }
+  std::optional<Marco> siguiente() { return leer(); }
 
   void mandar(const Presentarse& presentarse) {
     std::vector<std::uint8_t> marco;
@@ -152,7 +154,7 @@ class Manual {
 
 ventrik::cliente::Presentacion otra_identidad(std::string nombre,
                                               std::optional<ventrik::cifrado::CodigoDueno> codigo = {}) {
-  return {std::move(nombre), codigo, identidad_nueva_de_prueba(), nullptr};
+  return {std::move(nombre), codigo, identidad_nueva_de_prueba(), equipo_de_prueba()};
 }
 
 EstadoConexion estado_de(Cliente& cliente) {
@@ -235,7 +237,7 @@ TEST_CASE("Un nombre queda reservado para su identidad aunque no esté conectada
   Cliente parecido(servidor, otra_identidad("JOSÉ"));
   CHECK(estado_de(parecido) == EstadoConexion::nombre_en_uso);
   {
-    Cliente renombrado(servidor, {"Pepe", {}, identidad_de("José"), nullptr});
+    Cliente renombrado(servidor, {"Pepe", {}, identidad_de("José"), equipo_de_prueba()});
     renombrado.entrar();
   }
   Cliente nuevo(servidor, otra_identidad("José"));
@@ -708,7 +710,7 @@ TEST_CASE("Cortar la conexión mientras se calcula la contraseña no saltea la e
   }
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::contrasena_incorrecta) == 1; }));
   const auto resultado = ventrik::cliente::conectar(servidor.direccion(), servidor.huella(),
-                                                    {"Intruso", {}, intruso, nullptr, secreto_de("sésamo")});
+                                                    {"Intruso", {}, intruso, equipo_de_prueba(), secreto_de("sésamo")});
   CHECK(resultado.estado == EstadoConexion::esperar);
   CHECK(resultado.espera >= 1);
 }
@@ -756,7 +758,7 @@ ConfigurarSegundoPaso oferta_de(Cliente& cliente) {
 
 }  // namespace
 
-TEST_CASE("Con segundo paso para admins, el dueño entra sin permisos hasta activarlo y después le pide el código") {
+TEST_CASE("Con segundo paso para admins, el dueño entra sin permisos hasta activarlo, después le pide el código y uno repetido no cuenta como falla") {
   const auto codigo = ventrik::cifrado::CodigoDueno::generar();
   REQUIRE(codigo);
   ventrik::servidor::Opciones opciones;
@@ -793,12 +795,18 @@ TEST_CASE("Con segundo paso para admins, el dueño entra sin permisos hasta acti
   CHECK(mal.espera >= 1);
   CHECK(estado(codigo_de(oferta, paso + 1)).estado == EstadoConexion::esperar);
   std::this_thread::sleep_for(700ms);
-  CHECK(estado(codigo_de(oferta, paso)).estado == EstadoConexion::segundo_paso_incorrecto);
-  std::this_thread::sleep_for(1300ms);
+  ventrik::cliente::IntentoDeConexion repetido;
+  const auto usado = estado(codigo_de(oferta, paso));
+  repetido.estado = usado.estado;
+  repetido.espera = usado.espera;
+  CHECK(repetido.estado == EstadoConexion::segundo_paso_usado);
+  CHECK(repetido.espera >= 1);
+  CHECK(ventrik::cliente::explicar(ventrik::elegir_idioma("es"), repetido).find(std::to_string(repetido.espera)) !=
+        std::string::npos);
   Cliente vuelve(servidor, con_equipo(ana, "casa", codigo_de(oferta, paso + 1)));
   CHECK(vuelve.entrar().rol == Rol::dueno);
   CHECK(vuelve.no_llega<ConfigurarSegundoPaso>());
-  CHECK(servidor.cuantos(Evento::segundo_paso_incorrecto) == 2);
+  CHECK(servidor.cuantos(Evento::segundo_paso_incorrecto) == 1);
   CHECK(servidor.cuantos(Evento::segundo_paso_configurado) == 1);
 }
 
@@ -1024,7 +1032,7 @@ TEST_CASE("Quien ya tiene segundo paso y lo nombran admin sin haber puesto el c�
   ConfigurarSegundoPaso oferta;
   std::uint64_t paso = 0;
   {
-    Cliente primera(servidor, {"Beto", std::nullopt, beto, nullptr, nullptr});
+    Cliente primera(servidor, {"Beto", std::nullopt, beto, equipo_de_prueba(), nullptr});
     const auto id = primera.entrar().tu_id;
     dueno.ordenar(NombrarAdmin{id, true});
     REQUIRE(primera.esperar<UsuarioRol>([id](const UsuarioRol& rol) { return rol.id == id && rol.rol == Rol::ninguno; }));
@@ -1036,7 +1044,7 @@ TEST_CASE("Quien ya tiene segundo paso y lo nombran admin sin haber puesto el c�
     REQUIRE(primera.esperar<UsuarioRol>([id](const UsuarioRol& rol) { return rol.id == id && rol.rol == Rol::ninguno; }));
   }
   {
-    Cliente sin_codigo(servidor, {"Beto", std::nullopt, beto, nullptr, nullptr});
+    Cliente sin_codigo(servidor, {"Beto", std::nullopt, beto, equipo_de_prueba(), nullptr});
     const auto id = sin_codigo.entrar().tu_id;
     dueno.ordenar(NombrarAdmin{id, true});
     CHECK(sin_codigo.esperar<UsuarioRol>([id](const UsuarioRol& rol) { return rol.id == id; })->rol == Rol::ninguno);
@@ -1044,6 +1052,138 @@ TEST_CASE("Quien ya tiene segundo paso y lo nombran admin sin haber puesto el c�
     CHECK(sin_codigo.esperar<Negado>([](const Negado& negado) { return negado.motivo == MotivoNegado::sin_permiso; }));
     CHECK(sin_codigo.no_llega<ConfigurarSegundoPaso>());
   }
-  Cliente con_codigo(servidor, {"Beto", std::nullopt, beto, nullptr, nullptr, codigo_de(oferta, paso + 1)});
+  Cliente con_codigo(servidor, {"Beto", std::nullopt, beto, equipo_de_prueba(), nullptr, codigo_de(oferta, paso + 1)});
   CHECK(con_codigo.entrar().rol == Rol::admin);
+}
+
+TEST_CASE("Sin el secreto del equipo el programa no se presenta") {
+  ServidorDePrueba servidor;
+  auto quien = presentacion("Sin equipo");
+  quien.equipo.reset();
+  CHECK(ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), quien).estado == EstadoConexion::sin_equipo);
+  CHECK(servidor.cuantos(Evento::conectada) == 0);
+}
+
+TEST_CASE("Un equipo en ceros siempre cuenta como nuevo: nunca es de confianza ni recibe el código para activar") {
+  ventrik::servidor::Opciones opciones;
+  opciones.segundo_paso = ventrik::SegundoPaso::todos;
+  ServidorDePrueba servidor(opciones);
+  const auto ana = identidad_nueva_de_prueba();
+  for (int vez = 0; vez < 3; ++vez) {
+    CAPTURE(vez);
+    Manual manual(servidor);
+    REQUIRE_FALSE(manual.presentar(manual.firmada(*ana, "Ana")));
+    std::optional<EstadoSegundoPaso> estado;
+    while (!estado) {
+      const auto marco = manual.siguiente();
+      REQUIRE(marco);
+      CHECK(marco->tipo != static_cast<std::uint16_t>(TipoMensaje::configurar_segundo_paso));
+      if (marco->tipo == static_cast<std::uint16_t>(TipoMensaje::estado_segundo_paso)) {
+        estado = leer_mensaje<EstadoSegundoPaso>(marco->cuerpo);
+        REQUIRE(estado);
+      }
+    }
+    CHECK(estado->falta == FaltaSegundoPaso::pedir_permiso);
+  }
+  CHECK(esperar_que([&] { return servidor.cuantos(Evento::equipo_nuevo) == 2; }));
+}
+
+TEST_CASE("Con la cola de la base llena, un código malo igual cuenta y el segundo paso queda bloqueado") {
+  const std::wstring archivo = base_temporal();
+  auto identidad = identidad_nueva();
+  const auto ana = identidad_nueva_de_prueba();
+  ventrik::servidor::Opciones opciones;
+  opciones.archivo_base = archivo;
+  opciones.segundo_paso = ventrik::SegundoPaso::todos;
+  ConfigurarSegundoPaso oferta;
+  std::uint64_t paso = 0;
+  {
+    ServidorDePrueba servidor(opciones, &identidad);
+    Cliente primera(servidor, con_equipo(ana, "casa"));
+    primera.entrar();
+    oferta = oferta_de(primera);
+    paso = paso_de_ahora();
+    primera.ordenar(SegundoPaso{codigo_de(oferta, paso)});
+    REQUIRE(primera.esperar<AvisoDeSeguridad>(
+        [](const AvisoDeSeguridad& aviso) { return aviso.tipo == Seguridad::segundo_paso_configurado; }));
+  }
+  {
+    opciones.pedidos_en_la_base = 0;
+    ServidorDePrueba servidor(opciones, &identidad);
+    const auto estado = [&](std::uint32_t codigo) {
+      return ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), con_equipo(ana, "casa", codigo)).estado;
+    };
+    CHECK(estado(codigo_de(oferta, paso + 5)) == EstadoConexion::servidor_lleno);
+    CHECK(estado(codigo_de(oferta, paso + 1)) == EstadoConexion::segundo_paso_bloqueado);
+  }
+  borrar_base(archivo);
+}
+
+TEST_CASE("Sacarle el admin guardado a alguien conectado vuelve a revisar su segundo paso") {
+  const auto codigo = ventrik::cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  ventrik::servidor::Opciones opciones;
+  opciones.codigo_dueno = codigo;
+  opciones.segundo_paso = ventrik::SegundoPaso::admins;
+  ServidorDePrueba servidor(opciones);
+  Cliente dueno(servidor, "Tano", codigo);
+  activar(dueno, dueno.entrar().tu_id);
+  Cliente beto(servidor, "Beto");
+  const auto id = beto.entrar().tu_id;
+  dueno.ordenar(NombrarAdmin{id, true});
+  REQUIRE(beto.esperar<EstadoSegundoPaso>(
+      [](const EstadoSegundoPaso& estado) { return estado.falta != FaltaSegundoPaso::nada; }));
+  dueno.ordenar(SacarAdminGuardado{"Beto"});
+  CHECK(beto.esperar<EstadoSegundoPaso>(
+      [](const EstadoSegundoPaso& estado) { return estado.falta == FaltaSegundoPaso::nada; }));
+}
+
+TEST_CASE("Con segundo paso para todos, quien no lo activó no ve la sala; al activarlo le llega entera y al perderlo se le borra") {
+  const auto codigo = ventrik::cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  ventrik::servidor::Opciones opciones;
+  opciones.codigo_dueno = codigo;
+  opciones.segundo_paso = ventrik::SegundoPaso::todos;
+  ServidorDePrueba servidor(opciones);
+  Cliente tano(servidor, "Tano", codigo);
+  const auto de_tano = tano.entrar();
+  CHECK(de_tano.usuarios.size() == 1);
+  activar(tano, de_tano.tu_id);
+  const auto creado = [&](const std::string& nombre, TipoCanal tipo) {
+    tano.ordenar(CrearCanal{nombre, tipo});
+    const auto canal = tano.esperar<CanalCreado>([&](const CanalCreado& cual) { return cual.canal.nombre == nombre; });
+    REQUIRE(canal);
+    return canal->canal.id;
+  };
+  const std::uint32_t charla = creado("Charla", TipoCanal::texto);
+  Cliente beto(servidor, "Beto");
+  const auto de_beto = beto.entrar();
+  REQUIRE(de_beto.usuarios.size() == 1);
+  CHECK(de_beto.usuarios[0].id == de_beto.tu_id);
+  REQUIRE(de_beto.canales.size() == 1);
+  CHECK(de_beto.canales[0].id == ventrik::servidor::kCanalGeneral);
+  CHECK(de_beto.canales[0].contador == 0);
+  CHECK(tano.esperar<UsuarioEntro>([&](const UsuarioEntro& entro) { return entro.usuario.id == de_beto.tu_id; }));
+  Cliente carla(servidor, "Carla");
+  const auto de_carla = carla.entrar();
+  const std::uint32_t otro = creado("Otro", TipoCanal::voz);
+  CHECK(beto.no_llega<UsuarioEntro>());
+  CHECK(beto.no_llega<CanalCreado>(0ms));
+  activar(beto, de_beto.tu_id);
+  std::set<std::string> canales;
+  for (int i = 0; i < 3; ++i) {
+    const auto llegado = beto.esperar<CanalCreado>();
+    REQUIRE(llegado);
+    canales.insert(llegado->canal.nombre);
+  }
+  CHECK(canales == std::set<std::string>{"General", "Charla", "Otro"});
+  CHECK(beto.esperar<UsuarioEntro>([&](const UsuarioEntro& entro) { return entro.usuario.id == de_tano.tu_id; }));
+  CHECK(beto.esperar<UsuarioEntro>([&](const UsuarioEntro& entro) { return entro.usuario.id == de_carla.tu_id; }));
+  tano.ordenar(QuitarSegundoPaso{"Beto"});
+  CHECK(beto.esperar<UsuarioSalio>([&](const UsuarioSalio& salio) { return salio.id == de_tano.tu_id; }));
+  CHECK(beto.esperar<UsuarioSalio>([&](const UsuarioSalio& salio) { return salio.id == de_carla.tu_id; }));
+  CHECK(beto.esperar<CanalBorrado>([&](const CanalBorrado& borrado) { return borrado.id == charla; }));
+  CHECK(beto.esperar<CanalBorrado>([&](const CanalBorrado& borrado) { return borrado.id == otro; }));
+  creado("Tercero", TipoCanal::texto);
+  CHECK(beto.no_llega<CanalCreado>());
 }
