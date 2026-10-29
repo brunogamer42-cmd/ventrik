@@ -14,6 +14,8 @@
 #include <vector>
 
 #include "common/cifrado/secreto.h"
+#include "common/cifrado/sobre.h"
+#include "common/niveles.h"
 #include "common/protocol/pedidos.h"
 #include "common/red/red.h"
 
@@ -42,6 +44,18 @@ struct UsuarioGuardado {
   std::uint64_t creado_ms = 0;
   std::uint64_t visto_ms = 0;
   std::uint32_t entradas = 0;
+};
+
+constexpr std::size_t kBytesSegundoPasoSellado =
+    cifrado::kBytesNonce + protocolo::kBytesSecretoSegundoPaso + cifrado::kBytesEtiqueta;
+constexpr std::uint32_t kFallasDeSegundoPaso = 10;
+
+struct SegundoPasoGuardado {
+  ClaveDeUsuario clave{};
+  std::vector<std::uint8_t> sellado;
+  std::uint64_t paso = 0;
+  std::uint32_t fallas = 0;
+  std::uint64_t desde_ms = 0;
 };
 
 struct AvisosPendientes {
@@ -93,6 +107,12 @@ class Base {
                      const protocolo::AvisoDeSeguridad& aviso);
   AvisosPendientes avisos_para(const ClaveDeUsuario& clave, const Equipo& equipo);
   bool entregados(const ClaveDeUsuario& clave, const Equipo& equipo, std::int64_t hasta);
+  std::optional<bool> avisa_de(const ClaveDeUsuario& clave, const Equipo& equipo);
+  std::optional<std::vector<SegundoPasoGuardado>> segundos_pasos();
+  bool guardar_segundo_paso(const SegundoPasoGuardado& guardado);
+  bool quitar_segundo_paso(const ClaveDeUsuario& clave);
+  bool leer_seguridad(std::optional<ventrik::Seguridad>& leida);
+  bool guardar_seguridad(const ventrik::Seguridad& seguridad);
   bool quitar_dueno();
   std::string texto_guardado(const std::string& clave);
   bool guardar_texto(const std::string& clave, const std::string& valor);

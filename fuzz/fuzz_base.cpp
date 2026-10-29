@@ -201,7 +201,20 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       const auto pendientes = base->avisos_para(usuario.clave, equipo);
       avisos_validos(pendientes.lista, ventrik::servidor::kMaximoAvisosPorUsuario);
       base->entregados(usuario.clave, equipo, pendientes.hasta);
+      base->avisa_de(usuario.clave, equipo);
     }
+  }
+  if (const auto segundos = base->segundos_pasos()) {
+    exigir(segundos->size() <= ventrik::servidor::kMaximoUsuariosGuardados);
+    for (const auto& segundo : *segundos) {
+      exigir(segundo.fallas <= ventrik::servidor::kFallasDeSegundoPaso);
+      exigir(segundo.sellado.empty() || segundo.sellado.size() == ventrik::servidor::kBytesSegundoPasoSellado);
+    }
+  }
+  std::optional<ventrik::Seguridad> seguridad;
+  if (base->leer_seguridad(seguridad) && seguridad) {
+    exigir(ventrik::es_valida(*seguridad));
+    base->guardar_seguridad(*seguridad);
   }
   ventrik::servidor::UsuarioGuardado nuevo;
   nuevo.clave.fill(4);
@@ -212,10 +225,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   base->anotar({ventrik::protocolo::Seguridad::canal_borrado, 1, "Ana", "Juegos"});
   base->guardar_aviso(nuevo.clave, std::nullopt, {ventrik::protocolo::Seguridad::canal_borrado, 1, "Ana", "Juegos"});
   avisos_validos(base->avisos_para(nuevo.clave, {}).lista, ventrik::servidor::kMaximoAvisosPorUsuario);
+  base->guardar_segundo_paso({nuevo.clave, std::vector<std::uint8_t>(ventrik::servidor::kBytesSegundoPasoSellado, 3), 9, 1, 1});
   base->guardar_texto("nombre", "Taberna");
   base->texto_guardado("nombre");
   base->quitar_dueno();
   base->liberar_nombre("Ana");
+  base->quitar_segundo_paso(nuevo.clave);
   base->borrar_usuarios({nuevo.clave});
   base->borrar_viejos(UINT64_MAX / 2);
   revisar_cifrado(*base, archivo, sana);

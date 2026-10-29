@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <iterator>
 #include <optional>
 #include <utility>
@@ -12,6 +13,8 @@
 #include "client/horas.h"
 #include "client/ui/inicio.h"
 #include "client/ui/menu_avisos.h"
+#include "common/cifrado/base32.h"
+#include "common/cifrado/totp.h"
 #include "common/utf.h"
 
 namespace ventrik::ui {
@@ -107,6 +110,7 @@ class Dibujo {
     chat();
     estado();
     dialogo();
+    segundo_paso();
     avisos_de_seguridad();
     EleccionDeAvisos eleccion = dialogo_avisos(pantalla_.idioma, pantalla_.nombre_servidor, pantalla_.avisos,
                                                &sala_.canales(), ahora_, pantalla_.abrir_avisos);
@@ -357,8 +361,8 @@ class Dibujo {
                                                                   : sala_.admin() ? protocolo::Rol::admin
                                                                                   : protocolo::Rol::ninguno,
                       ahora_);
-    if (eleccion.liberar_nombre) {
-      abrir(Dialogo::liberar, 0, "", false);
+    if (eleccion.liberar_nombre || eleccion.quitar_segundo_paso) {
+      abrir(eleccion.liberar_nombre ? Dialogo::liberar : Dialogo::quitar_segundo_paso, 0, "", false);
     }
     if (eleccion.avisos) {
       pedido_.avisos = eleccion.avisos;
@@ -1200,7 +1204,7 @@ class Dibujo {
   }
 
   void dialogo() {
-    if (pantalla_.dialogo == Dialogo::ninguno) {
+    if (pantalla_.dialogo == Dialogo::ninguno || pantalla_.dialogo == Dialogo::segundo_paso) {
       return;
     }
     if (pantalla_.abrir_dialogo) {
@@ -1215,6 +1219,7 @@ class Dibujo {
                            (cual == Dialogo::cambiar && canal != nullptr && canal->tipo == TipoCanal::texto);
     const std::string_view ayuda = cual == Dialogo::admin     ? t(Clave::servidor_admin_ayuda)
                                    : cual == Dialogo::liberar ? t(Clave::servidor_liberar_ayuda)
+                                   : cual == Dialogo::quitar_segundo_paso ? t(Clave::servidor_quitar_segundo_paso_ayuda)
                                                               : std::string_view();
     const float ancho = px(380);
     const float alto_ayuda = ayuda.empty() ? 0 : alto_envuelto(ayuda, ancho - px(40)) + px(10);
@@ -1246,6 +1251,7 @@ class Dibujo {
         cual == Dialogo::crear_texto ? std::string(t(Clave::servidor_nuevo_texto))
         : cual == Dialogo::crear_voz ? std::string(t(Clave::servidor_nuevo_voz))
         : cual == Dialogo::liberar   ? std::string(t(Clave::servidor_liberar_titulo))
+        : cual == Dialogo::quitar_segundo_paso ? std::string(t(Clave::servidor_quitar_segundo_paso_titulo))
         : cual == Dialogo::admin     ? con_datos(t(Clave::servidor_admin_titulo), {pantalla_.nombre_dialogo.data()})
         : cual == Dialogo::cambiar
             ? con_datos(t(es_texto ? Clave::servidor_cambiar_canal_texto : Clave::servidor_cambiar_canal), {nombre_canal})
@@ -1259,7 +1265,9 @@ class Dibujo {
       }
       ImGui::SetCursorScreenPos(ImVec2(x, y));
       confirmar = campo("##nombre_canal",
-                        t(cual == Dialogo::liberar ? Clave::servidor_nombre_a_liberar : Clave::servidor_nombre_del_canal),
+                        t(cual == Dialogo::liberar               ? Clave::servidor_nombre_a_liberar
+                          : cual == Dialogo::quitar_segundo_paso ? Clave::servidor_nombre_sin_segundo_paso
+                                                                 : Clave::servidor_nombre_del_canal),
                         pantalla_.nombre_dialogo, ImVec2(interior, px(36)), Icono::ninguno,
                         ImGuiInputTextFlags_EnterReturnsTrue, color::pozo);
       y += px(46);
@@ -1289,6 +1297,7 @@ class Dibujo {
                                   : cual == Dialogo::cambiar ? Clave::servidor_guardar
                                   : cual == Dialogo::admin   ? Clave::servidor_hacer_admin
                                   : cual == Dialogo::liberar ? Clave::servidor_liberar_si
+                                  : cual == Dialogo::quitar_segundo_paso ? Clave::servidor_quitar_segundo_paso_si
                                                              : Clave::servidor_crear);
     const std::string_view no = t(Clave::inicio_cancelar);
     const float ancho_no = ancho_boton(no, Estilo::contorneado);
@@ -1299,6 +1308,96 @@ class Dibujo {
     ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no - px(10) - ancho_si, y + px(6)));
     confirmar = boton("##si", si, Estilo::principal, ImVec2(ancho_si, px(medida::alto_principal))) || confirmar;
     if (cancelar || (confirmar && confirmar_dialogo(canal, con_marca))) {
+      cerrar_ventana_emergente();
+      pantalla_.dialogo = Dialogo::ninguno;
+    }
+    ImGui::EndPopup();
+  }
+
+  void segundo_paso() {
+    const bool hay_otro = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    if (pantalla_.letras_segundo_paso.size() > 0 && pantalla_.dialogo == Dialogo::ninguno && !hay_otro) {
+      pantalla_.dialogo = Dialogo::segundo_paso;
+      poner(pantalla_.nombre_dialogo, "");
+      pantalla_.error_dialogo.clear();
+      ImGui::OpenPopup("##segundo_paso");
+    }
+    if (pantalla_.dialogo != Dialogo::segundo_paso) {
+      return;
+    }
+    const std::string_view ayuda = t(Clave::segundo_paso_ayuda);
+    const float ancho = px(440);
+    const float interior = ancho - px(40);
+    const float modulo = std::max(2.0f, std::floor(px(3)));
+    const float lado = static_cast<float>(pantalla_.qr.lado) * modulo;
+    const float alto_ayuda = alto_envuelto(ayuda, interior) + px(12);
+    const float alto = px(56) + alto_ayuda + lado + px(12) + px(44) + px(46) +
+                       (pantalla_.error_dialogo.empty() ? 0 : px(22)) + px(56);
+    ImGui::SetNextWindowPos(ImVec2(ancho_ / 2, alto_ / 2), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(ancho, alto));
+    if (!ImGui::BeginPopupModal("##segundo_paso", nullptr,
+                                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                    ImGuiWindowFlags_NoScrollbar)) {
+      olvidar_segundo_paso(pantalla_);
+      pantalla_.dialogo = Dialogo::ninguno;
+      return;
+    }
+    if (pantalla_.letras_segundo_paso.size() == 0) {
+      cerrar_ventana_emergente();
+      ImGui::EndPopup();
+      pantalla_.dialogo = Dialogo::ninguno;
+      return;
+    }
+    const ImVec2 desde = ImGui::GetWindowPos();
+    ImDrawList& dibujo = *ImGui::GetWindowDrawList();
+    triangulos(dibujo, desde, ImVec2(desde.x + ancho, desde.y + alto));
+    const float x = desde.x + px(20);
+    float y = desde.y + px(20);
+    escribir_cortado(ImVec2(x, y), interior, t(Clave::segundo_paso_titulo), color::texto, Letra::titulo,
+                     medida::letra_tarjeta);
+    y += px(36);
+    escribir_envuelto(ImVec2(x, y), ayuda, color::texto2, interior);
+    y += alto_ayuda;
+    dibujar_qr(dibujo, pantalla_.qr, ImVec2(std::floor(x + (interior - lado) / 2), std::floor(y)), modulo);
+    y += lado + px(12);
+    escribir_cortado(ImVec2(x, y), interior, t(Clave::segundo_paso_a_mano), color::apagado, Letra::normal,
+                     medida::letra_chica);
+    escribir_cortado(ImVec2(x, y + px(18)), interior, cifrado::texto_de(pantalla_.letras_segundo_paso), color::texto,
+                     Letra::fuerte);
+    y += px(44);
+    if (ImGui::IsWindowAppearing() || std::exchange(pantalla_.enfocar_dialogo, false)) {
+      ImGui::SetKeyboardFocusHere();
+    }
+    ImGui::SetCursorScreenPos(ImVec2(x, y));
+    bool confirmar = campo("##codigo_segundo_paso", t(Clave::segundo_paso_codigo), pantalla_.nombre_dialogo,
+                           ImVec2(interior, px(36)), Icono::ninguno,
+                           ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CharsDecimal, color::pozo);
+    y += px(46);
+    if (!pantalla_.error_dialogo.empty()) {
+      escribir_cortado(ImVec2(x, y), interior, pantalla_.error_dialogo, color::rojo, Letra::normal, medida::letra_chica);
+      y += px(22);
+    }
+    const std::string_view si = t(Clave::segundo_paso_activar);
+    const std::string_view no = t(Clave::segundo_paso_ahora_no);
+    const float ancho_no = ancho_boton(no, Estilo::contorneado);
+    const float ancho_si = ancho_boton(si, Estilo::principal);
+    ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no, y + px(6)));
+    const bool cancelar = boton("##no", no, Estilo::contorneado, ImVec2(ancho_no, px(medida::alto_principal))) ||
+                          (!ImGui::IsWindowAppearing() && ImGui::IsKeyPressed(ImGuiKey_Escape));
+    ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no - px(10) - ancho_si, y + px(6)));
+    confirmar = boton("##si", si, Estilo::principal, ImVec2(ancho_si, px(medida::alto_principal))) || confirmar;
+    if (confirmar && !cancelar) {
+      const auto codigo = cifrado::leer_codigo_totp(pantalla_.nombre_dialogo.data());
+      pantalla_.error_dialogo = codigo ? std::string() : std::string(t(Clave::segundo_paso_seis_cifras));
+      pantalla_.enfocar_dialogo = true;
+      if (codigo) {
+        pedido_.ordenes.emplace_back(protocolo::SegundoPaso{*codigo});
+        poner(pantalla_.nombre_dialogo, "");
+        olvidar_lo_escrito();
+      }
+    }
+    if (cancelar) {
+      olvidar_segundo_paso(pantalla_);
       cerrar_ventana_emergente();
       pantalla_.dialogo = Dialogo::ninguno;
     }
@@ -1365,6 +1464,8 @@ class Dibujo {
       return false;
     } else if (pantalla_.dialogo == Dialogo::liberar) {
       pedido_.ordenes.emplace_back(protocolo::LiberarNombre{nombre});
+    } else if (pantalla_.dialogo == Dialogo::quitar_segundo_paso) {
+      pedido_.ordenes.emplace_back(protocolo::QuitarSegundoPaso{nombre});
     } else if (pantalla_.dialogo == Dialogo::cambiar) {
       pedido_.ordenes.emplace_back(protocolo::CambiarCanal{canal->id, nombre, solo_admins});
     } else {
@@ -1461,6 +1562,29 @@ PedidoServidor dibujar_servidor(PantallaServidor& pantalla, cliente::Sala& sala)
 void soltar_lejanos(PantallaServidor& pantalla) {
   pantalla.caras.clear();
   pantalla.fechas.clear();
+}
+
+void mostrar_segundo_paso(PantallaServidor& pantalla, std::string_view cuenta, gsl::span<const std::uint8_t> secreto) {
+  olvidar_segundo_paso(pantalla);
+  std::string texto = cifrado::texto_otpauth(cuenta, secreto);
+  std::string letras = cifrado::a_base32(secreto);
+  if (auto qr = armar_qr(texto)) {
+    pantalla.qr = std::move(*qr);
+    pantalla.letras_segundo_paso = cifrado::secreto_de(letras);
+  }
+  mbedtls_platform_zeroize(&texto[0], texto.size());
+  mbedtls_platform_zeroize(&letras[0], letras.size());
+}
+
+void olvidar_segundo_paso(PantallaServidor& pantalla) {
+  auto& tramos = pantalla.qr.tramos;
+  mbedtls_platform_zeroize(tramos.data(), tramos.size() * sizeof(TramoQr));
+  pantalla.qr = Qr{};
+  pantalla.letras_segundo_paso = cifrado::Secreto();
+  if (pantalla.dialogo == Dialogo::segundo_paso) {
+    mbedtls_platform_zeroize(pantalla.nombre_dialogo.data(), pantalla.nombre_dialogo.size());
+    olvidar_lo_escrito();
+  }
 }
 
 }

@@ -61,6 +61,9 @@ struct Opciones {
   bool quitar_dueno = false;
   std::optional<std::string> poner_contrasena;
   std::optional<bool> cifrar_historial;
+  std::optional<SegundoPaso> segundo_paso;
+  std::optional<Seguridad> seguridad;
+  std::string quitar_segundo_paso;
   std::string liberar_nombre;
   std::string nombre_servidor;
   std::string nombre_de_fabrica = "Ventrik";
@@ -97,6 +100,10 @@ enum class Evento {
   canal_borrado,
   nombre_liberado,
   equipo_nuevo,
+  segundo_paso_incorrecto,
+  segundo_paso_bloqueado,
+  segundo_paso_configurado,
+  segundo_paso_quitado,
 };
 
 using Avisar = std::function<void(Evento, const red::Direccion&, const std::string&)>;
@@ -117,6 +124,9 @@ class Servidor {
   bool pide_contrasena() const { return contrasena_.has_value(); }
   void clave_del_historial(cifrado::Secreto clave) { clave_historial_ = std::move(clave); }
   bool historial_cifrado() const { return historial_cifrado_; }
+  void clave_del_segundo_paso(cifrado::Secreto clave) { clave_segundo_paso_ = std::move(clave); }
+  const std::string& segundo_paso_quitado() const { return segundo_paso_quitado_; }
+  const Seguridad& seguridad() const { return seguridad_; }
 
   void correr(const std::atomic<bool>& seguir);
 
@@ -128,6 +138,7 @@ class Servidor {
   };
   struct Registrado {
     UsuarioGuardado guardado;
+    std::optional<SegundoPasoGuardado> segundo_paso;
     std::wstring comparable;
     std::chrono::steady_clock::time_point desde_reemplazos{};
     int reemplazos = 0;
@@ -151,6 +162,14 @@ class Servidor {
   void borrar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void nombrar_admin(Conexion& conexion, const protocolo::Marco& marco);
   void liberar_nombre(Conexion& conexion, const protocolo::Marco& marco);
+  void segundo_paso(Conexion& conexion, const protocolo::Marco& marco);
+  void quitar_segundo_paso(Conexion& conexion, const protocolo::Marco& marco);
+  bool pide_segundo_paso(const UsuarioGuardado& usuario, bool reclama = false) const;
+  bool comprobar_segundo_paso(Conexion& conexion, Registrado& yo, const protocolo::Presentarse& presentacion);
+  void revisar_segundo_paso(Conexion& conexion);
+  void ofrecer_segundo_paso(Conexion& conexion);
+  bool guardar_segundo_paso(const SegundoPasoGuardado& guardado);
+  std::vector<Registrado>::iterator registrado_de(const ClaveDeUsuario& clave);
   void avisar_al_dueno(const protocolo::AvisoDeSeguridad& aviso);
   bool anotar(const protocolo::AvisoDeSeguridad& aviso, const std::optional<UsuarioGuardado>& usuario = std::nullopt);
   bool guardar_entrada(std::uint32_t id, const UsuarioGuardado& usuario, const Equipo& equipo, bool nueva);
@@ -215,6 +234,9 @@ class Servidor {
   std::optional<ContrasenaGuardada> contrasena_;
   cifrado::Secreto clave_historial_;
   bool historial_cifrado_ = false;
+  cifrado::Secreto clave_segundo_paso_;
+  std::string segundo_paso_quitado_;
+  Seguridad seguridad_;
   std::uint64_t proxima_marca_ = 0;
   std::map<std::uint32_t, Espera> esperas_por_ip_;
   std::map<ClaveDeUsuario, Espera> esperas_por_clave_;

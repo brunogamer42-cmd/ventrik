@@ -933,7 +933,7 @@ TEST_CASE("El ▾ del servidor lo silencia por 1 hora y la cabecera lo dice; el 
   pedidos.clear();
 
   tocar(nombre);
-  tocar(ImVec2(100, 243));
+  tocar(ImVec2(100, 265));
   const bool desconectar = std::any_of(pedidos.begin(), pedidos.end(),
                                        [](const ui::PedidoServidor& pedido) { return pedido.desconectar; });
   CHECK(desconectar);
@@ -2440,4 +2440,205 @@ TEST_CASE("El ▾ del servidor abre la configuración solo para el dueño") {
     tocar(ImVec2(100, 192));
     CHECK(configurar == dueno);
   }
+}
+
+namespace {
+std::vector<std::uint8_t> secreto_de_prueba() {
+  std::vector<std::uint8_t> secreto(ventrik::protocolo::kBytesSecretoSegundoPaso);
+  for (std::size_t i = 0; i < secreto.size(); ++i) {
+    secreto[i] = static_cast<std::uint8_t>(i * 13 + 7);
+  }
+  return secreto;
+}
+}
+
+TEST_CASE("El cuadro para activar el segundo paso muestra el QR y la clave a cualquier tamaño, pide 6 cifras y manda el código") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.0f, ImVec2(1376, 768)),
+                                       std::make_pair(1.25f, ImVec2(1375, 800)), std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    CAPTURE(escala);
+    SinPantalla sin_pantalla(escala, tamano);
+    auto sala = sala_llena(false, 4, 3, 5);
+    auto pantalla = pantalla_servidor();
+    ui::mostrar_segundo_paso(pantalla, "Persona con nombre largo 1 en 203.0.113.20:7700", secreto_de_prueba());
+    REQUIRE(pantalla.letras_segundo_paso.size() > 0);
+    CHECK(pantalla.qr.lado > 0);
+    std::vector<ui::PedidoServidor> pedidos;
+    const auto cuadro = [&](ImVec2 donde = ImVec2(5, 5)) { pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, donde)); };
+    for (int i = 0; i < 3; ++i) {
+      cuadro();
+    }
+    REQUIRE(pantalla.dialogo == ui::Dialogo::segundo_paso);
+    REQUIRE(hay_ventana_emergente());
+    const ImGuiWindow& dialogo = *ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+    CHECK(dialogo.Pos.y >= 0);
+    CHECK(dialogo.Pos.y + dialogo.Size.y <= tamano.y);
+    for (float y = 5; y < tamano.y; y += 47) {
+      for (float x = 5; x < tamano.x; x += 97) {
+        cuadro(ImVec2(x, y));
+      }
+    }
+    sin_pantalla.apretar(ImGuiKey_Enter);
+    cuadro();
+    cuadro();
+    CHECK_FALSE(pantalla.error_dialogo.empty());
+    CHECK(ordenes_de<SegundoPaso>(pedidos).empty());
+    cuadro();
+    sin_pantalla.teclear("123456");
+    cuadro();
+    sin_pantalla.apretar(ImGuiKey_Enter);
+    cuadro();
+    cuadro();
+    const auto mandados = ordenes_de<SegundoPaso>(pedidos);
+    REQUIRE(mandados.size() == 1);
+    CHECK(mandados[0].codigo == 123456);
+    CHECK(pantalla.dialogo == ui::Dialogo::segundo_paso);
+    CHECK(pantalla.nombre_dialogo[0] == '\0');
+    ui::olvidar_segundo_paso(pantalla);
+    cuadro();
+    cuadro();
+    CHECK(pantalla.dialogo == ui::Dialogo::ninguno);
+    CHECK_FALSE(hay_ventana_emergente());
+    ui::mostrar_segundo_paso(pantalla, "Ana en Servidor", secreto_de_prueba());
+    cuadro();
+    cuadro();
+    REQUIRE(pantalla.dialogo == ui::Dialogo::segundo_paso);
+    sin_pantalla.apretar(ImGuiKey_Escape);
+    cuadro();
+    cuadro();
+    CHECK(pantalla.dialogo == ui::Dialogo::ninguno);
+    CHECK(pantalla.letras_segundo_paso.size() == 0);
+    CHECK(pantalla.qr.tramos.empty());
+  }
+}
+
+TEST_CASE("El cuadro del segundo paso espera a que se cierre otro cuadro abierto") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  pantalla.dialogo = ui::Dialogo::crear_texto;
+  pantalla.abrir_dialogo = true;
+  ui::mostrar_segundo_paso(pantalla, "Ana en Servidor", secreto_de_prueba());
+  for (int i = 0; i < 3; ++i) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  }
+  CHECK(pantalla.dialogo == ui::Dialogo::crear_texto);
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  for (int i = 0; i < 3; ++i) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+  }
+  CHECK(pantalla.dialogo == ui::Dialogo::segundo_paso);
+  CHECK(hay_ventana_emergente());
+}
+
+TEST_CASE("En Inicio, el cuadro del segundo paso se dibuja a cualquier tamaño, pide 6 cifras y pide entrar con el código") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.25f, ImVec2(1375, 800)),
+                                       std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    CAPTURE(escala);
+    SinPantalla sin_pantalla(escala, tamano);
+    ui::PantallaInicio pantalla;
+    const Guardados guardados = muchos();
+    pantalla.pedir_segundo_paso = true;
+    pantalla.error_segundo_paso = std::string(200, 'e');
+    std::vector<ui::Pedido> pedidos;
+    const auto cuadro = [&](ImVec2 donde = ImVec2(5, 5)) {
+      pedidos.push_back(sin_pantalla.cuadro(pantalla, guardados, donde));
+    };
+    for (float y = 5; y < tamano.y; y += 47) {
+      for (float x = 5; x < tamano.x; x += 97) {
+        cuadro(ImVec2(x, y));
+      }
+    }
+    REQUIRE(hay_ventana_emergente());
+    pantalla.error_segundo_paso.clear();
+    sin_pantalla.apretar(ImGuiKey_Enter);
+    cuadro();
+    cuadro();
+    CHECK_FALSE(pantalla.error_segundo_paso.empty());
+    CHECK(pantalla.pedir_segundo_paso);
+    cuadro();
+    sin_pantalla.teclear("654 321");
+    cuadro();
+    sin_pantalla.apretar(ImGuiKey_Enter);
+    cuadro();
+    cuadro();
+    const auto pedido = std::find_if(pedidos.begin(), pedidos.end(),
+                                     [](const ui::Pedido& cual) { return cual.accion == ui::Accion::segundo_paso; });
+    REQUIRE(pedido != pedidos.end());
+    CHECK(pedido->codigo == 654321);
+    CHECK_FALSE(pantalla.pedir_segundo_paso);
+    CHECK(pantalla.segundo_paso[0] == '\0');
+    CHECK_FALSE(hay_ventana_emergente());
+    pantalla.pedir_segundo_paso = true;
+    cuadro();
+    cuadro();
+    sin_pantalla.apretar(ImGuiKey_Escape);
+    cuadro();
+    cuadro();
+    CHECK_FALSE(pantalla.pedir_segundo_paso);
+    CHECK_FALSE(hay_ventana_emergente());
+  }
+}
+
+TEST_CASE("El ▾ del servidor del dueño quita el segundo paso de alguien por su nombre") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  std::vector<ui::PedidoServidor> pedidos;
+  const auto cuadro = [&](ImVec2 donde, bool clic = false) {
+    pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, donde, clic));
+  };
+  for (float y = 221; y < 300 && pantalla.dialogo != ui::Dialogo::quitar_segundo_paso; y += 4) {
+    for (const ImVec2 donde : {ImVec2(150, 20), ImVec2(100, y)}) {
+      cuadro(donde);
+      cuadro(donde, true);
+      cuadro(donde);
+    }
+    for (int i = 0; i < 3 && pantalla.dialogo != ui::Dialogo::quitar_segundo_paso && hay_ventana_emergente(); ++i) {
+      sin_pantalla.apretar(ImGuiKey_Escape);
+      cuadro(ImVec2(5, 5));
+      cuadro(ImVec2(5, 5));
+    }
+  }
+  REQUIRE(pantalla.dialogo == ui::Dialogo::quitar_segundo_paso);
+  cuadro(ImVec2(5, 5));
+  sin_pantalla.teclear("Beto");
+  cuadro(ImVec2(5, 5));
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  cuadro(ImVec2(5, 5));
+  cuadro(ImVec2(5, 5));
+  CHECK(pantalla.dialogo == ui::Dialogo::ninguno);
+  const auto quitados = ordenes_de<QuitarSegundoPaso>(pedidos);
+  REQUIRE(quitados.size() == 1);
+  CHECK(quitados[0].nombre == "Beto");
+  CHECK(ordenes_de<LiberarNombre>(pedidos).empty());
+}
+
+TEST_CASE("banco del segundo paso" * doctest::skip()) {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(false, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  ui::mostrar_segundo_paso(pantalla, "Persona con nombre largo 1 en 203.0.113.20:7700", secreto_de_prueba());
+  for (int i = 0; i < 30; ++i) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(600, 400));
+  }
+  auto desde = std::chrono::steady_clock::now();
+  for (int i = 0; i < 1000; ++i) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(600, 400));
+  }
+  MESSAGE("activar el segundo paso: "
+          << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde).count() / 1000
+          << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
+  ui::PantallaInicio inicio;
+  const Guardados guardados = muchos();
+  inicio.pedir_segundo_paso = true;
+  for (int i = 0; i < 30; ++i) {
+    sin_pantalla.cuadro(inicio, guardados, ImVec2(600, 400));
+  }
+  desde = std::chrono::steady_clock::now();
+  for (int i = 0; i < 1000; ++i) {
+    sin_pantalla.cuadro(inicio, guardados, ImVec2(600, 400));
+  }
+  MESSAGE("pedir el código en Inicio: "
+          << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde).count() / 1000
+          << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
 }

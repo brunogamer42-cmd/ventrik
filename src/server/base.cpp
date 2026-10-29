@@ -23,7 +23,7 @@ constexpr std::size_t kMaximoPedidosEnCola = 4096;
 constexpr std::size_t kPedidosPorTanda = 64;
 constexpr std::chrono::hours kCadaCuantoLimpiar{1};
 constexpr std::chrono::minutes kCadaCuantoAsentar{1};
-constexpr int kVersionEsquema = 5;
+constexpr int kVersionEsquema = 6;
 constexpr int kMaximoFila = 64 * 1024;
 
 const char kAjustes[] =
@@ -71,7 +71,9 @@ const char kEsquema[] =
     "CREATE INDEX IF NOT EXISTS avisos_por_clave ON avisos(clave, id);"
     "CREATE TABLE IF NOT EXISTS seguridad(id INTEGER PRIMARY KEY, tipo INTEGER NOT NULL, hora INTEGER NOT NULL,"
     " quien TEXT NOT NULL, detalle TEXT NOT NULL);"
-    "CREATE INDEX IF NOT EXISTS seguridad_por_tipo ON seguridad(tipo, id);";
+    "CREATE INDEX IF NOT EXISTS seguridad_por_tipo ON seguridad(tipo, id);"
+    "CREATE TABLE IF NOT EXISTS segundo_paso(clave BLOB PRIMARY KEY, sellado BLOB NOT NULL, paso INTEGER NOT NULL,"
+    " fallas INTEGER NOT NULL, desde INTEGER NOT NULL) WITHOUT ROWID;";
 
 const char kParaEsteEquipo[] =
     "clave = ?1 AND (salvo IS NULL OR (salvo <> ?2 AND EXISTS (SELECT 1 FROM equipos"
@@ -79,7 +81,8 @@ const char kParaEsteEquipo[] =
 
 const char kHuerfanos[] =
     "DELETE FROM equipos WHERE clave NOT IN (SELECT clave FROM usuarios);"
-    "DELETE FROM avisos WHERE clave NOT IN (SELECT clave FROM usuarios);";
+    "DELETE FROM avisos WHERE clave NOT IN (SELECT clave FROM usuarios);"
+    "DELETE FROM segundo_paso WHERE clave NOT IN (SELECT clave FROM usuarios);";
 
 const char kMigrarDe1[] =
     "BEGIN;"
@@ -202,7 +205,7 @@ bool es_nombre_o_nada(const std::string& nombre) {
 }
 
 bool es_aviso_valido(const protocolo::AvisoDeSeguridad& aviso) {
-  return aviso.tipo >= protocolo::Seguridad::entrada_nueva && aviso.tipo <= protocolo::Seguridad::ip_bloqueada &&
+  return aviso.tipo >= protocolo::Seguridad::entrada_nueva && aviso.tipo <= protocolo::kUltimaSeguridad &&
          aviso.hora_ms <= kMaximoMs && es_nombre_o_nada(aviso.quien) && es_nombre_o_nada(aviso.detalle);
 }
 
@@ -331,8 +334,8 @@ std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string
       sqlite3_db_config(abierta, SQLITE_DBCONFIG_ENABLE_TRIGGER, 0, nullptr) != SQLITE_OK ||
       sqlite3_db_config(abierta, SQLITE_DBCONFIG_ENABLE_VIEW, 0, nullptr) != SQLITE_OK ||
       guardada < 0 || guardada > kVersionEsquema || !ejecutar(abierta, kEsquema) ||
-      (guardada == 1 && !ejecutar(abierta, kMigrarDe1)) ||
-      !ejecutar(abierta, guardada >= 1 && guardada < kVersionEsquema ? kMigrarA5 : "PRAGMA user_version=5")) {
+      (guardada == 1 && !ejecutar(abierta, kMigrarDe1)) || (guardada >= 1 && guardada < 5 && !ejecutar(abierta, kMigrarA5)) ||
+      !ejecutar(abierta, "PRAGMA user_version=6")) {
     return nullptr;
   }
   Consulta general(abierta,
@@ -582,6 +585,12 @@ bool Base::historial_cifrado() {
 }
 
 bool Base::cifrar_historial(bool cifrar) {
+  if (es_su_hilo() && !en_tanda() && historial_cifrado() == cifrar) {
+    Consulta en_claro(base_, "SELECT EXISTS (SELECT 1 FROM mensajes WHERE sellado IS NULL)");
+    if (!cifrar || (en_claro.paso() == SQLITE_ROW && en_claro.columna_entero(0) == 0)) {
+      return true;
+    }
+  }
   if (!es_su_hilo() || en_tanda() || clave_historial_.size() != cifrado::kBytesClaveSimetrica ||
       !correr(Sentencia::empezar)) {
     return false;
@@ -697,10 +706,13 @@ bool Base::borrar_usuarios(const std::vector<ClaveDeUsuario>& claves) {
     Consulta usuario(base_, "DELETE FROM usuarios WHERE clave = ?1 AND dueno = 0 AND admin = 0");
     Consulta equipos(base_, "DELETE FROM equipos WHERE clave = ?1 AND clave NOT IN (SELECT clave FROM usuarios)");
     Consulta avisos(base_, "DELETE FROM avisos WHERE clave = ?1 AND clave NOT IN (SELECT clave FROM usuarios)");
+    Consulta segundo(base_, "DELETE FROM segundo_paso WHERE clave = ?1 AND clave NOT IN (SELECT clave FROM usuarios)");
     usuario.bytes(1, clave);
     equipos.bytes(1, clave);
     avisos.bytes(1, clave);
-    bien = usuario.paso() == SQLITE_DONE && equipos.paso() == SQLITE_DONE && avisos.paso() == SQLITE_DONE && bien;
+    segundo.bytes(1, clave);
+    bien = usuario.paso() == SQLITE_DONE && equipos.paso() == SQLITE_DONE && avisos.paso() == SQLITE_DONE &&
+           segundo.paso() == SQLITE_DONE && bien;
   }
   return bien;
 }
@@ -816,6 +828,133 @@ bool Base::entregados(const ClaveDeUsuario& clave, const Equipo& equipo, std::in
   Consulta borrados(base_, (std::string("DELETE FROM avisos WHERE ") + kParaEsteEquipo + " AND id <= ?3").c_str());
   borrados.bytes(1, clave).bytes(2, equipo).entero(3, hasta);
   return borrados.paso() == SQLITE_DONE;
+}
+
+std::optional<bool> Base::avisa_de(const ClaveDeUsuario& clave, const Equipo& equipo) {
+  if (!es_su_hilo()) {
+    return std::nullopt;
+  }
+  Consulta consulta(base_, "SELECT EXISTS (SELECT 1 FROM avisos WHERE clave = ?1 AND salvo = ?2)");
+  consulta.bytes(1, clave).bytes(2, equipo);
+  return consulta.paso() == SQLITE_ROW ? std::optional<bool>(consulta.columna_entero(0) == 1) : std::nullopt;
+}
+
+std::optional<std::vector<SegundoPasoGuardado>> Base::segundos_pasos() {
+  if (!es_su_hilo()) {
+    return std::nullopt;
+  }
+  Consulta consulta(base_,
+                    "SELECT clave, sellado, paso, fallas, desde FROM segundo_paso"
+                    " WHERE clave IN (SELECT clave FROM usuarios) LIMIT ?1");
+  consulta.entero(1, static_cast<std::int64_t>(kMaximoUsuariosGuardados));
+  std::vector<SegundoPasoGuardado> lista;
+  int paso = SQLITE_ROW;
+  while ((paso = consulta.paso()) == SQLITE_ROW) {
+    SegundoPasoGuardado guardado;
+    std::array<std::uint8_t, kBytesSegundoPasoSellado> sellado{};
+    const std::int64_t ultimo = consulta.columna_entero(2);
+    const std::int64_t fallas = consulta.columna_entero(3);
+    const std::int64_t desde = consulta.columna_entero(4);
+    if (!consulta.columna_bytes(0, guardado.clave)) {
+      continue;
+    }
+    if (consulta.columna_bytes(1, sellado) && ultimo >= 0 && fallas >= 0 && desde >= 0) {
+      guardado.sellado.assign(sellado.begin(), sellado.end());
+      guardado.paso = static_cast<std::uint64_t>(ultimo);
+      guardado.desde_ms = static_cast<std::uint64_t>(desde);
+    }
+    guardado.fallas = static_cast<std::uint32_t>(std::clamp<std::int64_t>(fallas, 0, kFallasDeSegundoPaso));
+    lista.push_back(std::move(guardado));
+  }
+  if (paso != SQLITE_DONE) {
+    return std::nullopt;
+  }
+  return lista;
+}
+
+bool Base::guardar_segundo_paso(const SegundoPasoGuardado& guardado) {
+  if (!es_su_hilo() || guardado.sellado.size() != kBytesSegundoPasoSellado || guardado.paso > kMaximoMs ||
+      guardado.desde_ms > kMaximoMs) {
+    return false;
+  }
+  Consulta consulta(base_,
+                    "INSERT OR REPLACE INTO segundo_paso(clave, sellado, paso, fallas, desde) SELECT ?1, ?2, ?3, ?4, ?5"
+                    " WHERE EXISTS (SELECT 1 FROM usuarios WHERE clave = ?1)");
+  consulta.bytes(1, guardado.clave)
+      .bytes(2, guardado.sellado)
+      .entero(3, static_cast<std::int64_t>(guardado.paso))
+      .entero(4, guardado.fallas)
+      .entero(5, static_cast<std::int64_t>(guardado.desde_ms));
+  return consulta.paso() == SQLITE_DONE && sqlite3_changes(base_) == 1;
+}
+
+bool Base::quitar_segundo_paso(const ClaveDeUsuario& clave) {
+  if (!es_su_hilo()) {
+    return false;
+  }
+  Consulta consulta(base_, "DELETE FROM segundo_paso WHERE clave = ?1");
+  consulta.bytes(1, clave);
+  return consulta.paso() == SQLITE_DONE;
+}
+
+namespace {
+std::string clave_de_opcion(std::size_t cual) {
+  return cual == kOpciones ? std::string("nivel") : "opcion" + std::to_string(cual);
+}
+}
+
+bool Base::leer_seguridad(std::optional<ventrik::Seguridad>& leida) {
+  leida.reset();
+  if (!es_su_hilo()) {
+    return false;
+  }
+  std::array<std::int64_t, kOpciones + 1> valores{};
+  std::size_t filas = 0;
+  for (std::size_t i = 0; i < valores.size(); ++i) {
+    Consulta consulta(base_, "SELECT valor FROM config WHERE clave = ?1");
+    consulta.texto(1, clave_de_opcion(i));
+    const int paso = consulta.paso();
+    if (paso == SQLITE_ROW) {
+      valores[i] = consulta.columna_entero(0);
+      ++filas;
+    } else if (paso != SQLITE_DONE) {
+      return false;
+    }
+  }
+  if (filas == 0) {
+    return true;
+  }
+  ventrik::Seguridad seguridad;
+  seguridad.nivel = static_cast<Nivel>(valores[kOpciones] & 0xFF);
+  for (std::size_t i = 0; i < kOpciones; ++i) {
+    seguridad.opciones.valores[i] = static_cast<std::uint8_t>(valores[i] & 0xFF);
+  }
+  if (filas != valores.size() ||
+      std::any_of(valores.begin(), valores.end(), [](std::int64_t valor) { return valor < 0 || valor > 0xFF; }) ||
+      !es_valida(seguridad)) {
+    return false;
+  }
+  leida = seguridad;
+  return true;
+}
+
+bool Base::guardar_seguridad(const ventrik::Seguridad& seguridad) {
+  if (!es_su_hilo() || !es_valida(seguridad) || !correr(Sentencia::marcar)) {
+    return false;
+  }
+  bool bien = true;
+  for (std::size_t i = 0; i <= kOpciones && bien; ++i) {
+    Consulta consulta(base_, "INSERT OR REPLACE INTO config(clave, valor) VALUES (?1, ?2)");
+    consulta.texto(1, clave_de_opcion(i))
+        .entero(2, i == kOpciones ? static_cast<std::int64_t>(seguridad.nivel) : seguridad.opciones.valores[i]);
+    bien = consulta.paso() == SQLITE_DONE;
+  }
+  if (!bien || !correr(Sentencia::soltar)) {
+    correr(Sentencia::volver);
+    correr(Sentencia::soltar);
+    return false;
+  }
+  return true;
 }
 
 bool Base::quitar_dueno() {

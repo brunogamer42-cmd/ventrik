@@ -117,7 +117,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     const std::uint16_t c = lector.leer_u16();
     const TipoCanal tipo = (c & 1) != 0 ? TipoCanal::texto : TipoCanal::voz;
     const bool solo_admins = tipo == TipoCanal::texto && (c & 2) != 0;
-    switch (que % 27) {
+    switch (que % 28) {
       case 0: sala.aplicar(UsuarioEntro{{a, "Alguien", b}}); break;
       case 1: sala.aplicar(UsuarioSalio{a}); break;
       case 2: sala.aplicar(UsuarioCambioCanal{a, b}); break;
@@ -164,7 +164,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
         break;
       }
       case 9: {
-        const Negado negado{static_cast<TipoMensaje>(10 + c % 9), static_cast<MotivoNegado>(1 + b % 8)};
+        const Negado negado{static_cast<TipoMensaje>(10 + c % 16), static_cast<MotivoNegado>(1 + b % 9)};
         if (negado.pedido == TipoMensaje::pedir_historial && avisos.pidiendo() && !sala.esperando()) {
           avisos.negado();
         } else {
@@ -191,6 +191,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       case 19: exigir(sala.salir_de_la_voz().empty() == (sala.tu_canal() == 0)); break;
       case 20: sala.aplicar(UsuarioSilencio{a, static_cast<std::uint8_t>(b % 3 == 2 ? 3 : b % 3)}); break;
       case 21: avisos.fuera((b & 1) != 0); break;
+      case 27: {
+        ConfigurarSegundoPaso oferta;
+        oferta.secreto.fill(static_cast<std::uint8_t>(a));
+        exigir(sala.aplicar(oferta).empty());
+        break;
+      }
       case 24: {
         ventrik::cliente::AvisosDelServidor ajustes;
         ajustes.servidor = {(b & 1) != 0 ? c * 1000ull : 0, (b & 2) != 0,
@@ -211,7 +217,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       case 26:
         avisos.seguridad(ventrik::cliente::explicar(
             ventrik::elegir_idioma((b & 1) != 0 ? "es" : "en"),
-            AvisoDeSeguridad{static_cast<Seguridad>(1 + b % 7), c * 1000ull, nombres[a % 5], nombres[b % 5]}));
+            AvisoDeSeguridad{static_cast<Seguridad>(1 + b % static_cast<int>(kUltimaSeguridad)), c * 1000ull,
+                             nombres[a % 5], nombres[b % 5]}));
         break;
       default: break;
     }

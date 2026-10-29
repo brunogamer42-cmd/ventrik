@@ -56,6 +56,11 @@ std::string explicar(Idioma idioma, const IntentoDeConexion& intento) {
       return con_datos(texto(idioma, Clave::conectar_esperar), {std::to_string(intento.espera)});
     case EstadoConexion::ocupado: return std::string(texto(idioma, Clave::conectar_ocupado));
     case EstadoConexion::sin_identidad: return std::string(texto(idioma, Clave::conectar_sin_identidad));
+    case EstadoConexion::falta_segundo_paso: return std::string(texto(idioma, Clave::conectar_falta_segundo_paso));
+    case EstadoConexion::segundo_paso_incorrecto:
+      return con_datos(texto(idioma, Clave::conectar_segundo_paso_incorrecto), {std::to_string(intento.espera)});
+    case EstadoConexion::segundo_paso_bloqueado:
+      return std::string(texto(idioma, Clave::conectar_segundo_paso_bloqueado));
     default: return std::string(texto(idioma, Clave::conectar_error_interno));
   }
 }
@@ -69,10 +74,11 @@ std::string explicar(Idioma idioma, const Fin& fin) {
 }
 
 std::string explicar(Idioma idioma, protocolo::MotivoNegado motivo) {
-  constexpr std::array<Clave, 8> kNegados = {Clave::negado_sin_permiso,    Clave::negado_no_existe,
+  constexpr std::array<Clave, 9> kNegados = {Clave::negado_sin_permiso,    Clave::negado_no_existe,
                                              Clave::negado_texto_invalido, Clave::negado_demasiado_rapido,
                                              Clave::negado_lleno,          Clave::negado_nombre_en_uso,
-                                             Clave::negado_tipo_de_canal,  Clave::negado_nombre_libre};
+                                             Clave::negado_tipo_de_canal,  Clave::negado_nombre_libre,
+                                             Clave::negado_codigo_incorrecto};
   const auto indice = static_cast<std::size_t>(motivo) - 1;
   return std::string(texto(idioma, indice < kNegados.size() ? kNegados[indice] : Clave::negado_sin_permiso));
 }
@@ -224,6 +230,8 @@ bool Sesion::procesar(const protocolo::Marco& marco) {
       return publicar_si(protocolo::UsuarioRol{});
     case TipoMensaje::aviso_de_seguridad:
       return publicar_si(protocolo::AvisoDeSeguridad{});
+    case TipoMensaje::configurar_segundo_paso:
+      return publicar_si(protocolo::ConfigurarSegundoPaso{});
     case TipoMensaje::desplazado:
       desplazada_ = protocolo::leer_mensaje<protocolo::Desplazado>(marco.cuerpo).has_value();
       return false;

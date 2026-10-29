@@ -80,6 +80,10 @@ std::string explicar(Idioma idioma, const protocolo::AvisoDeSeguridad& aviso) {
       return con_datos(texto(idioma, Clave::seguridad_aviso_equipo_nuevo), {cuando});
     case protocolo::Seguridad::nombre_liberado:
       return con_datos(texto(idioma, Clave::seguridad_aviso_nombre_liberado), {aviso.detalle});
+    case protocolo::Seguridad::segundo_paso_configurado:
+      return std::string(texto(idioma, Clave::seguridad_aviso_segundo_paso_configurado));
+    case protocolo::Seguridad::segundo_paso_quitado:
+      return con_datos(texto(idioma, Clave::seguridad_aviso_segundo_paso_quitado), {aviso.detalle});
     default:
       return con_datos(texto(idioma, Clave::seguridad_aviso_otro), {cuando});
   }

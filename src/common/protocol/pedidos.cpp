@@ -216,7 +216,7 @@ bool sigue(Sentido sentido, std::uint64_t anterior, std::uint64_t id) {
 
 bool es_pedido(std::uint16_t tipo) {
   return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
-         tipo <= static_cast<std::uint16_t>(TipoMensaje::liberar_nombre);
+         tipo <= static_cast<std::uint16_t>(TipoMensaje::quitar_segundo_paso);
 }
 
 bool son_ids_validos(const std::vector<std::uint32_t>& usuarios) {
@@ -239,6 +239,10 @@ void escribir_sin_firma(Escritor& escritor, const Presentarse& mensaje) {
   escritor.escribir_bytes(mensaje.clave);
   escritor.escribir_bytes(mensaje.equipo);
   escritor.escribir_texto(mensaje.contrasena, kMaximoBytesContrasena);
+  if (mensaje.segundo_paso && *mensaje.segundo_paso >= kTopeCodigoSegundoPaso) {
+    escritor.marcar_error();
+  }
+  escritor.escribir_u32(mensaje.segundo_paso.value_or(kSinCodigo));
 }
 
 std::vector<std::uint8_t> lo_que_se_firma(const Presentarse& mensaje, std::uint16_t protocolo,
@@ -281,9 +285,14 @@ void leer(Lector& lector, Presentarse& mensaje) {
   const auto clave = lector.leer_bytes(mensaje.clave.size());
   const auto equipo = lector.leer_bytes(mensaje.equipo.size());
   mensaje.contrasena = lector.leer_texto(kMaximoBytesContrasena);
+  const std::uint32_t codigo = lector.leer_u32();
+  if (codigo != kSinCodigo) {
+    mensaje.segundo_paso = codigo;
+  }
   const std::size_t largo_firma = lector.leer_u8();
   const auto firma = lector.leer_bytes(largo_firma);
-  if (!lector.ok() || largo_firma == 0 || largo_firma > kMaximoFirma) {
+  if (!lector.ok() || largo_firma == 0 || largo_firma > kMaximoFirma ||
+      (codigo != kSinCodigo && codigo >= kTopeCodigoSegundoPaso)) {
     lector.marcar_error();
     return;
   }
@@ -320,7 +329,7 @@ void escribir(Escritor& escritor, const PresentacionRechazada& mensaje) {
 void leer(Lector& lector, PresentacionRechazada& mensaje) {
   const std::uint8_t motivo = lector.leer_u8();
   if (motivo < static_cast<std::uint8_t>(MotivoPresentacion::nombre_invalido) ||
-      motivo > static_cast<std::uint8_t>(MotivoPresentacion::esperar)) {
+      motivo > static_cast<std::uint8_t>(MotivoPresentacion::segundo_paso_bloqueado)) {
     lector.marcar_error();
     return;
   }
@@ -598,7 +607,7 @@ void leer(Lector& lector, Negado& mensaje) {
     return;
   }
   if (!es_pedido(pedido) || motivo < static_cast<std::uint8_t>(MotivoNegado::sin_permiso) ||
-      motivo > static_cast<std::uint8_t>(MotivoNegado::nombre_libre)) {
+      motivo > static_cast<std::uint8_t>(MotivoNegado::codigo_incorrecto)) {
     lector.marcar_error();
     return;
   }
@@ -639,7 +648,7 @@ void leer(Lector& lector, LiberarNombre& mensaje) {
 }
 
 void escribir(Escritor& escritor, const AvisoDeSeguridad& mensaje) {
-  if (mensaje.tipo < Seguridad::entrada_nueva || mensaje.tipo > Seguridad::ip_bloqueada) {
+  if (mensaje.tipo < Seguridad::entrada_nueva || mensaje.tipo > kUltimaSeguridad) {
     escritor.marcar_error();
     return;
   }
@@ -654,7 +663,7 @@ void leer(Lector& lector, AvisoDeSeguridad& mensaje) {
   mensaje.hora_ms = lector.leer_u64();
   leer_nombre_o_nada(lector, mensaje.quien);
   leer_nombre_o_nada(lector, mensaje.detalle);
-  if (tipo < static_cast<std::uint8_t>(Seguridad::entrada_nueva) || tipo > static_cast<std::uint8_t>(Seguridad::ip_bloqueada)) {
+  if (tipo < static_cast<std::uint8_t>(Seguridad::entrada_nueva) || tipo > static_cast<std::uint8_t>(kUltimaSeguridad)) {
     lector.marcar_error();
   }
   mensaje.tipo = static_cast<Seguridad>(tipo);
@@ -663,6 +672,37 @@ void leer(Lector& lector, AvisoDeSeguridad& mensaje) {
 void escribir(Escritor& escritor, const CadenaDeClaves& mensaje) { cifrado::escribir_cadena(escritor, mensaje.cadena); }
 
 void leer(Lector& lector, CadenaDeClaves& mensaje) { cifrado::leer_cadena(lector, mensaje.cadena); }
+
+void escribir(Escritor& escritor, const SegundoPaso& mensaje) {
+  if (mensaje.codigo >= kTopeCodigoSegundoPaso) {
+    escritor.marcar_error();
+  }
+  escritor.escribir_u32(mensaje.codigo);
+}
+
+void leer(Lector& lector, SegundoPaso& mensaje) {
+  mensaje.codigo = lector.leer_u32();
+  if (mensaje.codigo >= kTopeCodigoSegundoPaso) {
+    lector.marcar_error();
+  }
+}
+
+void escribir(Escritor& escritor, const QuitarSegundoPaso& mensaje) {
+  escribir_nombre(escritor, mensaje.nombre);
+}
+
+void leer(Lector& lector, QuitarSegundoPaso& mensaje) {
+  leer_nombre(lector, mensaje.nombre);
+}
+
+void escribir(Escritor& escritor, const ConfigurarSegundoPaso& mensaje) {
+  escritor.escribir_bytes(mensaje.secreto);
+}
+
+void leer(Lector& lector, ConfigurarSegundoPaso& mensaje) {
+  const auto secreto = lector.leer_bytes(mensaje.secreto.size());
+  std::copy(secreto.begin(), secreto.end(), mensaje.secreto.begin());
+}
 
 void escribir(Escritor& escritor, const Ping& mensaje) {
   escritor.escribir_u64(mensaje.marca);

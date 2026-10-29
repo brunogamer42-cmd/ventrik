@@ -10,6 +10,7 @@
 #include "client/ui/menu_avisos.h"
 #include "client/ui/piezas.h"
 #include "common/cifrado/huella.h"
+#include "common/cifrado/totp.h"
 #include "common/texto.h"
 #include "common/utf.h"
 #include "common/version.h"
@@ -47,6 +48,7 @@ class Dibujo {
     ImGui::EndChild();
     pie();
     avisos();
+    segundo_paso();
     return pedido_;
   }
 
@@ -329,6 +331,75 @@ class Dibujo {
       pedido_.cual = static_cast<std::size_t>(guardado - servidores.begin());
     }
     pedido_.guardar = pedido_.guardar || eleccion.cerrado;
+  }
+
+  void segundo_paso() {
+    if (pantalla_.pedir_segundo_paso && !ImGui::IsPopupOpen("##segundo_paso")) {
+      ImGui::OpenPopup("##segundo_paso");
+    }
+    const float ancho = px(380);
+    const float interior = ancho - px(40);
+    const std::string_view ayuda = t(Clave::segundo_paso_pedir);
+    const std::string& error = pantalla_.error_segundo_paso;
+    const float alto_ayuda = alto_envuelto(ayuda, interior) + px(10);
+    const float alto_error = error.empty() ? 0 : alto_envuelto(error, interior, medida::letra_chica) + px(8);
+    const float alto = px(56) + alto_ayuda + px(46) + alto_error + px(56);
+    ImGui::SetNextWindowPos(ImVec2(ancho_ / 2, alto_ / 2), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(ancho, alto));
+    if (!ImGui::BeginPopupModal("##segundo_paso", nullptr,
+                                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                    ImGuiWindowFlags_NoScrollbar)) {
+      return;
+    }
+    const ImVec2 desde = ImGui::GetWindowPos();
+    triangulos(*ImGui::GetWindowDrawList(), desde, ImVec2(desde.x + ancho, desde.y + alto));
+    const float x = desde.x + px(20);
+    float y = desde.y + px(20);
+    escribir_cortado(ImVec2(x, y), interior, t(Clave::segundo_paso_titulo_entrar), color::texto, Letra::titulo,
+                     medida::letra_tarjeta);
+    y += px(36);
+    escribir_envuelto(ImVec2(x, y), ayuda, color::texto2, interior);
+    y += alto_ayuda;
+    if (ImGui::IsWindowAppearing()) {
+      ImGui::SetKeyboardFocusHere();
+    }
+    ImGui::SetCursorScreenPos(ImVec2(x, y));
+    bool confirmar = campo("##codigo_segundo_paso", t(Clave::segundo_paso_codigo), pantalla_.segundo_paso,
+                           ImVec2(interior, px(36)), Icono::ninguno,
+                           ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CharsDecimal, color::pozo);
+    if (confirmar && !cifrado::leer_codigo_totp(pantalla_.segundo_paso.data())) {
+      ImGui::SetKeyboardFocusHere(-1);
+    }
+    y += px(46);
+    if (!error.empty()) {
+      escribir_envuelto(ImVec2(x, y), error, color::rojo, interior, medida::letra_chica);
+      y += alto_error;
+    }
+    const std::string_view si = t(Clave::inicio_entrar);
+    const std::string_view no = t(Clave::inicio_cancelar);
+    const float ancho_no = ancho_boton(no, Estilo::contorneado);
+    const float ancho_si = ancho_boton(si, Estilo::principal);
+    ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no, y + px(6)));
+    const bool cancelar = boton("##no", no, Estilo::contorneado, ImVec2(ancho_no, px(medida::alto_principal))) ||
+                          (!ImGui::IsWindowAppearing() && ImGui::IsKeyPressed(ImGuiKey_Escape)) ||
+                          !pantalla_.pedir_segundo_paso;
+    ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no - px(10) - ancho_si, y + px(6)));
+    confirmar = boton("##si", si, Estilo::principal, ImVec2(ancho_si, px(medida::alto_principal))) || confirmar;
+    const auto codigo = confirmar && !cancelar ? cifrado::leer_codigo_totp(pantalla_.segundo_paso.data()) : std::nullopt;
+    if (confirmar && !cancelar && !codigo) {
+      pantalla_.error_segundo_paso = t(Clave::segundo_paso_seis_cifras);
+    }
+    if (codigo) {
+      pedido_.accion = Accion::segundo_paso;
+      pedido_.codigo = *codigo;
+    }
+    if (cancelar || codigo) {
+      SecureZeroMemory(pantalla_.segundo_paso.data(), pantalla_.segundo_paso.size());
+      olvidar_lo_escrito();
+      pantalla_.pedir_segundo_paso = false;
+      cerrar_ventana_emergente();
+    }
+    ImGui::EndPopup();
   }
 
   template <typename Contenido>

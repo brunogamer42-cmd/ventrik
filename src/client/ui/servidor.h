@@ -17,6 +17,8 @@
 #include "client/puente_voz.h"
 #include "client/sala.h"
 #include "client/ui/piezas.h"
+#include "client/ui/qr.h"
+#include "common/cifrado/secreto.h"
 #include "common/texto.h"
 #include "common/textos.h"
 
@@ -73,7 +75,7 @@ struct TextosGuardados {
   std::deque<TextoGuardado> etapas;
 };
 
-enum class Dialogo { ninguno, crear_texto, crear_voz, cambiar, borrar, admin, liberar };
+enum class Dialogo { ninguno, crear_texto, crear_voz, cambiar, borrar, admin, liberar, quitar_segundo_paso, segundo_paso };
 
 struct DatosDiagnostico {
   bool voz_lista = false;
@@ -127,6 +129,8 @@ struct PantallaServidor {
   int marca_dialogo = 0;
   std::string error_dialogo;
   bool enfocar_dialogo = false;
+  Qr qr;
+  cifrado::Secreto letras_segundo_paso;
   std::vector<std::string> seguridad;
   TextosGuardados textos;
   std::map<std::string, Cara, std::less<>> caras;
@@ -157,6 +161,8 @@ std::string nombre_tecla(Idioma idioma, std::uint8_t tecla);
 std::string lista_de_nombres(Idioma idioma, const std::vector<std::string>& nombres);
 std::string a_quien(Idioma idioma, const cliente::Susurro& susurro);
 PedidoServidor dibujar_servidor(PantallaServidor& pantalla, cliente::Sala& sala);
+void mostrar_segundo_paso(PantallaServidor& pantalla, std::string_view cuenta, gsl::span<const std::uint8_t> secreto);
+void olvidar_segundo_paso(PantallaServidor& pantalla);
 void soltar_lejanos(PantallaServidor& pantalla);
 
 }

@@ -11,6 +11,7 @@
 #include <winsock2.h>
 
 #include "common/cifrado/clave.h"
+#include "common/cifrado/totp.h"
 #include "common/texto.h"
 
 namespace ventrik::servidor {
@@ -31,6 +32,9 @@ constexpr std::size_t kMaximoHistorial = protocolo::kMaximoCuerpo - 64;
 constexpr std::chrono::seconds kEntreAvisos{1};
 constexpr std::chrono::hours kVentanaDeIdentidadesNuevas{1};
 constexpr std::size_t kMaximoIpsAnotadas = 4096;
+static_assert(protocolo::kBytesSecretoSegundoPaso == cifrado::kBytesSecretoTotp &&
+                  protocolo::kTopeCodigoSegundoPaso == cifrado::kTopeCodigoTotp,
+              "El segundo paso del protocolo y el de TOTP tienen que coincidir");
 
 cifrado::Secreto sacar_contrasena(std::string& texto) {
   cifrado::Secreto secreto(texto.size());
@@ -60,6 +64,23 @@ protocolo::CanalInfo info_de(const Canal& canal) {
   return {canal.id, canal.nombre, canal.tipo, canal.solo_admins, canal.contador};
 }
 
+std::string solo_letras(std::string_view texto) {
+  std::string letras;
+  for (const char letra : texto) {
+    if (letra != '-' && letra != ' ') {
+      letras.push_back(letra >= 'a' && letra <= 'z' ? static_cast<char>(letra - 'a' + 'A') : letra);
+    }
+  }
+  return letras;
+}
+
+bool es_identidad_corta(const ClaveDeUsuario& clave, std::string_view texto) {
+  constexpr std::size_t kLetrasCortas = 16;
+  const auto huella = cifrado::huella_de_publica(clave);
+  const std::string buscada = solo_letras(texto);
+  return huella && buscada.size() == kLetrasCortas && solo_letras(huella->a_texto()).compare(0, kLetrasCortas, buscada) == 0;
+}
+
 }
 
 struct Servidor::Conexion {
@@ -68,8 +89,11 @@ struct Servidor::Conexion {
            estado == Estado::presentando || estado == Estado::comprobando;
   }
   bool tiene_limite() const { return pendiente() || estado == Estado::cerrando; }
-  Persona persona() const { return Persona{dueno, admin, canal}; }
-  protocolo::Rol rol() const { return dueno ? protocolo::Rol::dueno : admin ? protocolo::Rol::admin : protocolo::Rol::ninguno; }
+  bool es_dueno() const { return dueno && !sin_segundo_paso; }
+  Persona persona() const { return Persona{es_dueno(), admin && !sin_segundo_paso, canal}; }
+  protocolo::Rol rol() const {
+    return es_dueno() ? protocolo::Rol::dueno : persona().admin ? protocolo::Rol::admin : protocolo::Rol::ninguno;
+  }
   protocolo::UsuarioInfo info() const { return {id, nombre, canal, silencio, rol()}; }
   std::size_t por_enviar() const { return salida.size() - enviado; }
 
@@ -95,6 +119,9 @@ struct Servidor::Conexion {
   std::wstring comparable;
   bool dueno = false;
   bool admin = false;
+  bool sin_segundo_paso = false;
+  bool puede_configurar = false;
+  std::optional<cifrado::Secreto> ofrecido;
   std::uint32_t canal = 0;
   std::uint32_t mirando = 0;
   std::uint8_t silencio = 0;
@@ -135,28 +162,43 @@ bool Servidor::escuchar() {
     std::string nombre;
     std::string contrasena;
     bool cifra = false;
+    Seguridad seguridad;
+    std::optional<std::vector<SegundoPasoGuardado>> segundos;
     bool bien = false;
   };
   std::promise<Cargado> cargado;
   auto futuro = cargado.get_future();
   if (!base_.pedir([&cargado, this](Base& base) -> std::function<void()> {
-        const bool bien = (!opciones_.quitar_dueno || base.quitar_dueno()) &&
-                          (opciones_.liberar_nombre.empty() || base.liberar_nombre(opciones_.liberar_nombre)) &&
-                          (!es_nombre_valido(opciones_.nombre_servidor) ||
-                           base.guardar_texto("nombre", opciones_.nombre_servidor)) &&
-                          (!opciones_.poner_contrasena || base.guardar_texto("contrasena", *opciones_.poner_contrasena)) &&
-                          (!opciones_.cifrar_historial || base.cifrar_historial(*opciones_.cifrar_historial));
+        std::optional<Seguridad> guardada;
+        bool bien = (!opciones_.quitar_dueno || base.quitar_dueno()) &&
+                    (opciones_.liberar_nombre.empty() || base.liberar_nombre(opciones_.liberar_nombre)) &&
+                    (!es_nombre_valido(opciones_.nombre_servidor) ||
+                     base.guardar_texto("nombre", opciones_.nombre_servidor)) &&
+                    (!opciones_.poner_contrasena || base.guardar_texto("contrasena", *opciones_.poner_contrasena)) &&
+                    (!opciones_.cifrar_historial || base.cifrar_historial(*opciones_.cifrar_historial)) &&
+                    base.leer_seguridad(guardada);
+        Seguridad seguridad = opciones_.seguridad ? *opciones_.seguridad : guardada.value_or(Seguridad{});
+        if (!guardada && !opciones_.seguridad) {
+          cambiar_opcion(seguridad, Opcion::sin_historial, base.retencion() == Retencion::no_guardar);
+        }
+        if (opciones_.segundo_paso) {
+          cambiar_opcion(seguridad, Opcion::segundo_paso, static_cast<std::uint8_t>(*opciones_.segundo_paso));
+        }
+        cambiar_opcion(seguridad, Opcion::historial_cifrado, base.historial_cifrado());
+        bien = bien && base.guardar_seguridad(seguridad);
         cargado.set_value({base.canales(), base.retencion(), base.usuarios(ahora_ms()), base.texto_guardado("nombre"),
-                           base.texto_guardado("contrasena"), base.historial_cifrado(), bien});
+                           base.texto_guardado("contrasena"), base.historial_cifrado(), seguridad,
+                           base.segundos_pasos(), bien});
         return {};
       })) {
     return false;
   }
-  auto [canales, retencion, usuarios, nombre, contrasena, cifra, bien] = futuro.get();
+  auto [canales, retencion, usuarios, nombre, contrasena, cifra, seguridad, segundos, bien] = futuro.get();
   contrasena_ = contrasena.empty() ? std::nullopt : leer_contrasena(contrasena);
-  if (!bien || !usuarios || (!contrasena.empty() && !contrasena_)) {
+  if (!bien || !usuarios || !segundos || (!contrasena.empty() && !contrasena_)) {
     return false;
   }
+  seguridad_ = seguridad;
   if (contrasena_) {
     comprobador_.arrancar();
   }
@@ -165,7 +207,28 @@ bool Servidor::escuchar() {
   nombre_ = es_nombre_valido(nombre) ? nombre : opciones_.nombre_de_fabrica;
   for (auto& usuario : *usuarios) {
     std::wstring comparable = nombre_para_comparar(usuario.nombre);
-    registrados_.push_back(Registrado{std::move(usuario), std::move(comparable)});
+    registrados_.push_back(Registrado{std::move(usuario), std::nullopt, std::move(comparable)});
+  }
+  for (auto& guardado : *segundos) {
+    const auto yo = registrado_de(guardado.clave);
+    if (yo != registrados_.end()) {
+      yo->segundo_paso = std::move(guardado);
+    }
+  }
+  const auto a_quitar = std::find_if(registrados_.begin(), registrados_.end(), [this](const Registrado& cual) {
+    return cual.segundo_paso && es_identidad_corta(cual.guardado.clave, opciones_.quitar_segundo_paso);
+  });
+  if (a_quitar != registrados_.end() &&
+      base_.pedir([this, clave = a_quitar->guardado.clave,
+                   aviso = protocolo::AvisoDeSeguridad{protocolo::Seguridad::segundo_paso_quitado, ahora_ms(), {},
+                                                       a_quitar->guardado.nombre}](Base& base) -> std::function<void()> {
+        if (base.quitar_segundo_paso(clave) && base.anotar(aviso)) {
+          return {};
+        }
+        return [this] { avisar(Evento::error_base, red::Direccion{}); };
+      })) {
+    segundo_paso_quitado_ = a_quitar->guardado.nombre;
+    a_quitar->segundo_paso.reset();
   }
   for (auto& canal : canales) {
     canales_.push_back(Canal{canal.id, canal.nombre, nombre_para_comparar(canal.nombre),
@@ -624,6 +687,10 @@ void Servidor::continuar_presentacion(Conexion& conexion, protocolo::Presentarse
     comprobar_contrasena(conexion, std::move(presentacion), std::move(*contrasena));
     return;
   }
+  if (yo != registrados_.end() && yo->segundo_paso && pide_segundo_paso(yo->guardado, reclama) &&
+      !comprobar_segundo_paso(conexion, *yo, presentacion)) {
+    return;
+  }
   const std::wstring comparable = nombre_para_comparar(presentacion.nombre);
   if (comparable.empty() ||
       std::any_of(registrados_.begin(), registrados_.end(), [&](const Registrado& registrado) {
@@ -664,6 +731,7 @@ void Servidor::continuar_presentacion(Conexion& conexion, protocolo::Presentarse
   conexion.comparable = comparable;
   conexion.dueno = yo->guardado.dueno;
   conexion.admin = yo->guardado.admin;
+  conexion.sin_segundo_paso = pide_segundo_paso(yo->guardado) && !yo->segundo_paso;
   conexion.estado = Estado::conectada;
   conexion.ultimo_dato = ahora;
   conexion.chat = Cubeta(opciones_.rafaga_chat, opciones_.chat_por_segundo, ahora);
@@ -737,6 +805,12 @@ void Servidor::atender_pedido(Conexion& conexion, const protocolo::Marco& marco)
       return;
     case TipoMensaje::liberar_nombre:
       liberar_nombre(conexion, marco);
+      return;
+    case TipoMensaje::segundo_paso:
+      segundo_paso(conexion, marco);
+      return;
+    case TipoMensaje::quitar_segundo_paso:
+      quitar_segundo_paso(conexion, marco);
       return;
     case TipoMensaje::ping:
       if (const auto ping = protocolo::leer_mensaje<protocolo::Ping>(marco.cuerpo)) {
@@ -1027,7 +1101,7 @@ void Servidor::borrar_canal(Conexion& conexion, const protocolo::Marco& marco) {
     return;
   }
   const std::uint32_t quien = conexion.id;
-  const bool del_dueno = conexion.dueno;
+  const bool del_dueno = conexion.es_dueno();
   const protocolo::AvisoDeSeguridad aviso{protocolo::Seguridad::canal_borrado, ahora_ms(), conexion.nombre,
                                           buscar_canal(canales_, pedido->canal)->nombre};
   const bool pedido_aceptado =
@@ -1085,7 +1159,7 @@ void Servidor::nombrar_admin(Conexion& conexion, const protocolo::Marco& marco) 
   const auto registrado = std::find_if(registrados_.begin(), registrados_.end(), [otra](const Registrado& cual) {
     return otra != nullptr && cual.guardado.clave == otra->clave;
   });
-  if (!conexion.dueno || otra == nullptr || otra->dueno || registrado == registrados_.end()) {
+  if (!conexion.es_dueno() || otra == nullptr || otra->dueno || registrado == registrados_.end()) {
     negar(conexion, TipoMensaje::nombrar_admin, MotivoNegado::sin_permiso);
     return;
   }
@@ -1102,6 +1176,7 @@ void Servidor::nombrar_admin(Conexion& conexion, const protocolo::Marco& marco) 
   }
   registrado->guardado = std::move(cambiado);
   otra->admin = pedido->admin;
+  revisar_segundo_paso(*otra);
   difundir(protocolo::UsuarioRol{otra->id, otra->rol()});
   avisar(pedido->admin ? Evento::admin_nombrado : Evento::admin_quitado, *otra);
 }
@@ -1115,7 +1190,7 @@ void Servidor::liberar_nombre(Conexion& conexion, const protocolo::Marco& marco)
   const std::wstring comparable = nombre_para_comparar(pedido->nombre);
   const auto registrado = std::find_if(registrados_.begin(), registrados_.end(),
                                        [&comparable](const Registrado& cual) { return cual.comparable == comparable; });
-  if (!conexion.dueno || (registrado != registrados_.end() &&
+  if (!conexion.es_dueno() || (registrado != registrados_.end() &&
                           (registrado->guardado.dueno || conectada(registrado->guardado.clave)))) {
     negar(conexion, TipoMensaje::liberar_nombre, MotivoNegado::sin_permiso);
     return;
@@ -1145,10 +1220,182 @@ void Servidor::liberar_nombre(Conexion& conexion, const protocolo::Marco& marco)
   registrados_.erase(registrado);
 }
 
+std::vector<Servidor::Registrado>::iterator Servidor::registrado_de(const ClaveDeUsuario& clave) {
+  return std::find_if(registrados_.begin(), registrados_.end(),
+                      [&clave](const Registrado& cual) { return cual.guardado.clave == clave; });
+}
+
+bool Servidor::pide_segundo_paso(const UsuarioGuardado& usuario, bool reclama) const {
+  const auto pedido = static_cast<SegundoPaso>(seguridad_.opciones[Opcion::segundo_paso]);
+  return pedido == SegundoPaso::todos || (pedido == SegundoPaso::admins && (usuario.dueno || usuario.admin || reclama));
+}
+
+bool Servidor::comprobar_segundo_paso(Conexion& conexion, Registrado& yo, const protocolo::Presentarse& presentacion) {
+  using protocolo::MotivoPresentacion;
+  SegundoPasoGuardado cambiado = *yo.segundo_paso;
+  if (cambiado.fallas >= kFallasDeSegundoPaso || !presentacion.segundo_paso) {
+    rechazar_presentacion(conexion, cambiado.fallas >= kFallasDeSegundoPaso ? MotivoPresentacion::segundo_paso_bloqueado
+                                                                             : MotivoPresentacion::falta_segundo_paso);
+    return false;
+  }
+  if (const std::uint16_t espera = segundos_de_espera(conexion.origen.ipv4, presentacion.clave)) {
+    rechazar_presentacion(conexion, MotivoPresentacion::esperar, espera);
+    return false;
+  }
+  const auto secreto = cifrado::abrir_sellado(clave_segundo_paso_.bytes(), presentacion.clave, cambiado.sellado);
+  if (!secreto) {
+    avisar(Evento::no_se_pudo_comprobar, conexion.origen);
+    rechazar_presentacion(conexion, MotivoPresentacion::ocupado);
+    return false;
+  }
+  const std::uint64_t hoy = ahora_ms();
+  const auto paso = cifrado::verificar_totp(secreto->bytes(), *presentacion.segundo_paso, hoy / 1000, cambiado.paso);
+  if (!paso && hoy >= cambiado.desde_ms + kMsPorDia) {
+    cambiado.fallas = 0;
+    cambiado.desde_ms = hoy;
+  }
+  cambiado.fallas = paso ? 0 : cambiado.fallas + 1;
+  cambiado.paso = paso.value_or(cambiado.paso);
+  if (!guardar_segundo_paso(cambiado)) {
+    rechazar_presentacion(conexion, MotivoPresentacion::lleno);
+    return false;
+  }
+  yo.segundo_paso = std::move(cambiado);
+  if (paso) {
+    esperas_por_ip_.erase(conexion.origen.ipv4);
+    esperas_por_clave_.erase(presentacion.clave);
+    return true;
+  }
+  const bool bloqueado = yo.segundo_paso->fallas >= kFallasDeSegundoPaso;
+  const std::uint16_t espera = anotar_fallo(conexion.origen.ipv4, presentacion.clave);
+  if (avisar_) {
+    avisar_(bloqueado ? Evento::segundo_paso_bloqueado : Evento::segundo_paso_incorrecto, conexion.origen,
+            yo.guardado.nombre);
+  }
+  falla(conexion.origen);
+  rechazar_presentacion(conexion,
+                        bloqueado ? MotivoPresentacion::segundo_paso_bloqueado
+                                  : MotivoPresentacion::segundo_paso_incorrecto,
+                        espera);
+  return false;
+}
+
+void Servidor::revisar_segundo_paso(Conexion& conexion) {
+  const auto yo = registrado_de(conexion.clave);
+  conexion.sin_segundo_paso = yo != registrados_.end() && pide_segundo_paso(yo->guardado) && !yo->segundo_paso;
+  if (!conexion.sin_segundo_paso) {
+    conexion.ofrecido.reset();
+  }
+  ofrecer_segundo_paso(conexion);
+}
+
+void Servidor::ofrecer_segundo_paso(Conexion& conexion) {
+  if (!conexion.sin_segundo_paso || !conexion.puede_configurar || conexion.ofrecido) {
+    return;
+  }
+  conexion.ofrecido = cifrado::secreto_totp_nuevo();
+  protocolo::ConfigurarSegundoPaso oferta;
+  if (conexion.ofrecido) {
+    std::copy(conexion.ofrecido->bytes().begin(), conexion.ofrecido->bytes().end(), oferta.secreto.begin());
+    encolar(conexion, oferta);
+  }
+  mbedtls_platform_zeroize(oferta.secreto.data(), oferta.secreto.size());
+}
+
+bool Servidor::guardar_segundo_paso(const SegundoPasoGuardado& guardado) {
+  return base_.pedir([this, guardado](Base& base) -> std::function<void()> {
+    if (base.guardar_segundo_paso(guardado)) {
+      return {};
+    }
+    return [this] { avisar(Evento::error_base, red::Direccion{}); };
+  });
+}
+
+void Servidor::segundo_paso(Conexion& conexion, const protocolo::Marco& marco) {
+  const auto pedido = protocolo::leer_mensaje<protocolo::SegundoPaso>(marco.cuerpo);
+  if (!pedido) {
+    error_de_protocolo(conexion);
+    return;
+  }
+  const auto yo = registrado_de(conexion.clave);
+  if (!conexion.ofrecido || yo == registrados_.end() || yo->segundo_paso) {
+    negar(conexion, TipoMensaje::segundo_paso, MotivoNegado::sin_permiso);
+    return;
+  }
+  const auto paso = cifrado::verificar_totp(conexion.ofrecido->bytes(), pedido->codigo, ahora_ms() / 1000, 0);
+  if (!paso) {
+    negar(conexion, TipoMensaje::segundo_paso, MotivoNegado::codigo_incorrecto);
+    return;
+  }
+  auto sellado = cifrado::sellar(clave_segundo_paso_.bytes(), conexion.clave, conexion.ofrecido->bytes());
+  const SegundoPasoGuardado nuevo{conexion.clave, sellado.value_or(std::vector<std::uint8_t>()), *paso, 0, 0};
+  const protocolo::AvisoDeSeguridad aviso{protocolo::Seguridad::segundo_paso_configurado, ahora_ms(), conexion.nombre,
+                                          {}};
+  if (!sellado || !base_.pedir([this, nuevo, aviso](Base& base) -> std::function<void()> {
+        if (base.guardar_segundo_paso(nuevo) && base.anotar(aviso)) {
+          return {};
+        }
+        return [this] { avisar(Evento::error_base, red::Direccion{}); };
+      })) {
+    negar(conexion, TipoMensaje::segundo_paso, MotivoNegado::lleno);
+    return;
+  }
+  yo->segundo_paso = nuevo;
+  conexion.ofrecido.reset();
+  conexion.sin_segundo_paso = false;
+  encolar(conexion, aviso);
+  difundir(protocolo::UsuarioRol{conexion.id, conexion.rol()});
+  avisar(Evento::segundo_paso_configurado, conexion);
+}
+
+void Servidor::quitar_segundo_paso(Conexion& conexion, const protocolo::Marco& marco) {
+  const auto pedido = protocolo::leer_mensaje<protocolo::QuitarSegundoPaso>(marco.cuerpo);
+  if (!pedido) {
+    error_de_protocolo(conexion);
+    return;
+  }
+  const std::wstring comparable = nombre_para_comparar(pedido->nombre);
+  const auto registrado = std::find_if(registrados_.begin(), registrados_.end(),
+                                       [&comparable](const Registrado& cual) { return cual.comparable == comparable; });
+  if (!conexion.es_dueno()) {
+    negar(conexion, TipoMensaje::quitar_segundo_paso, MotivoNegado::sin_permiso);
+    return;
+  }
+  if (registrado == registrados_.end() || !registrado->segundo_paso) {
+    negar(conexion, TipoMensaje::quitar_segundo_paso, MotivoNegado::no_existe);
+    return;
+  }
+  const std::uint32_t quien = conexion.id;
+  const protocolo::AvisoDeSeguridad aviso{protocolo::Seguridad::segundo_paso_quitado, ahora_ms(), conexion.nombre,
+                                          registrado->guardado.nombre};
+  if (!base_.pedir([this, quien, aviso, clave = registrado->guardado.clave](Base& base) -> std::function<void()> {
+        const bool hecho = base.quitar_segundo_paso(clave) && base.anotar(aviso);
+        return [this, quien, aviso, hecho] {
+          Conexion* conexion = buscar_conectada(quien);
+          if (!hecho) {
+            avisar(Evento::error_base, red::Direccion{});
+          } else if (conexion != nullptr) {
+            encolar(*conexion, aviso);
+          }
+        };
+      })) {
+    negar(conexion, TipoMensaje::quitar_segundo_paso, MotivoNegado::lleno);
+    return;
+  }
+  registrado->segundo_paso.reset();
+  avisar(Evento::segundo_paso_quitado, conexion);
+  for (auto& otra : conexiones_) {
+    if (otra->estado == Estado::conectada && !otra->terminar && otra->clave == registrado->guardado.clave) {
+      revisar_segundo_paso(*otra);
+      difundir(protocolo::UsuarioRol{otra->id, otra->rol()});
+    }
+  }
+}
+
 void Servidor::avisar_al_dueno(const protocolo::AvisoDeSeguridad& aviso) {
   bool avisado = false;
   for (auto& conexion : conexiones_) {
-    if (conexion->estado == Estado::conectada && !conexion->terminar && conexion->dueno) {
+    if (conexion->estado == Estado::conectada && !conexion->terminar && conexion->es_dueno()) {
       encolar(*conexion, aviso);
       avisado = true;
     }
@@ -1187,7 +1434,8 @@ bool Servidor::guardar_entrada(std::uint32_t id, const UsuarioGuardado& usuario,
                       base.anotar_equipo(usuario.clave, equipo, usuario.visto_ms) &&
                       (!(nueva || equipo_nuevo) || base.anotar(aviso)) &&
                       (!equipo_nuevo || base.guardar_aviso(usuario.clave, equipo, aviso));
-    return [this, id, bien, equipo_nuevo, clave = usuario.clave, equipo,
+    const bool conocido_de_antes = nueva || (conocido == true && base.avisa_de(usuario.clave, equipo) == false);
+    return [this, id, bien, equipo_nuevo, conocido_de_antes, clave = usuario.clave, equipo,
             pendientes = base.avisos_para(usuario.clave, equipo)] {
       if (!bien) {
         avisar(Evento::error_base, red::Direccion{});
@@ -1196,6 +1444,8 @@ bool Servidor::guardar_entrada(std::uint32_t id, const UsuarioGuardado& usuario,
       if (conexion == nullptr) {
         return;
       }
+      conexion->puede_configurar = conocido_de_antes;
+      ofrecer_segundo_paso(*conexion);
       if (equipo_nuevo) {
         avisar(Evento::equipo_nuevo, *conexion);
       }

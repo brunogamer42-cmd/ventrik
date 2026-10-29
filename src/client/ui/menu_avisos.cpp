@@ -164,6 +164,8 @@ EleccionDeServidor menu_servidor(Idioma idioma, const AvisosDelServidor& avisos,
   eleccion.configurar =
       ImGui::MenuItem(s(idioma, Clave::avisos_configuracion).c_str(), dueno ? nullptr : solo.c_str(), false, dueno);
   eleccion.liberar_nombre = conectado && dueno && ImGui::MenuItem(s(idioma, Clave::avisos_liberar_nombre).c_str());
+  eleccion.quitar_segundo_paso =
+      conectado && dueno && ImGui::MenuItem(s(idioma, Clave::avisos_quitar_segundo_paso).c_str());
   if (conectado) {
     ImGui::Separator();
     eleccion.desconectar = ImGui::MenuItem(s(idioma, Clave::inicio_desconectar).c_str());

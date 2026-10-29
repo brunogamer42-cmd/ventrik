@@ -406,7 +406,7 @@ TEST_CASE("Una base de una versión futura o que no es una base no se abre") {
       archivo, gsl::make_span(reinterpret_cast<const std::uint8_t*>(basura.data()), basura.size())));
   CHECK_FALSE(Base::abrir(archivo, "General"));
   REQUIRE(DeleteFileW(archivo.c_str()));
-  armar_base(archivo, "PRAGMA user_version=6");
+  armar_base(archivo, "PRAGMA user_version=7");
   CHECK_FALSE(Base::abrir(archivo, "General"));
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master") == 0);
   CHECK(DeleteFileW(archivo.c_str()));
@@ -556,7 +556,7 @@ TEST_CASE("Las identidades se guardan, se renombran y las que no vuelven en 180 
   }
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM equipos") == 0);
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM usuarios") == 0);
-  CHECK(leer_numero(archivo, "PRAGMA user_version") == 5);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 6);
   for (const auto* final : {L"", L"-wal", L"-shm"}) {
     DeleteFileW((archivo + final).c_str());
   }
@@ -677,7 +677,7 @@ TEST_CASE("El registro de seguridad guarda lo último de cada tipo, así muchas 
   for (std::size_t i = 0; i < kMaximoRegistroPorTipo + 50; ++i) {
     REQUIRE(base->anotar({Seguridad::ip_bloqueada, 3 + i, "", "203.0.113.9:4000"}));
   }
-  CHECK_FALSE(base->anotar({static_cast<Seguridad>(9), 1, "", ""}));
+  CHECK_FALSE(base->anotar({static_cast<Seguridad>(200), 1, "", ""}));
   const auto registro = base->registro(100000);
   REQUIRE(registro.size() == kMaximoRegistroPorTipo + 2);
   CHECK(registro.front().hora_ms == 3 + kMaximoRegistroPorTipo + 49);
@@ -706,7 +706,7 @@ TEST_CASE("Una base de la versión 2 pasa sola a la 5 y suma las tablas de ident
     CHECK(base->canales().size() == 2);
     CHECK(base->usuarios(1800000000000ull)->empty());
   }
-  CHECK(leer_numero(archivo, "PRAGMA user_version") == 5);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 6);
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM pragma_table_info('mensajes') WHERE name = 'sellado'") == 1);
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('usuarios', 'equipos', 'textos', 'avisos', 'seguridad')") == 5);
   for (const auto* final : {L"", L"-wal", L"-shm"}) {
@@ -731,7 +731,7 @@ TEST_CASE("Una base de la versión 4 pasa a la 5: sus mensajes se siguen leyendo
     REQUIRE(base->cifrar_historial(true));
     CHECK(base->historial({kCanalGeneral, 0}, 65536).mensajes.at(0).texto == "de antes");
   }
-  CHECK(leer_numero(archivo, "PRAGMA user_version") == 5);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 6);
   CHECK_FALSE(en_el_disco(archivo, "de antes"));
   borrar_base(archivo);
 }
@@ -993,4 +993,183 @@ TEST_CASE("banco del historial cifrado" * doctest::skip()) {
                                << convertir << " us por mensaje al " << std::string(cifrado ? "descifrar" : "cifrar")
                                << " todo");
   }
+}
+
+TEST_CASE("El segundo paso de cada identidad se guarda sellado, se quita y se va con la identidad") {
+  auto base = base_en_memoria();
+  UsuarioGuardado ana;
+  ana.clave.fill(4);
+  ana.nombre = "Ana";
+  ana.creado_ms = ana.visto_ms = 1000;
+  SegundoPasoGuardado guardado{ana.clave, std::vector<std::uint8_t>(kBytesSegundoPasoSellado, 7), 55, 3, 9000};
+  CHECK_FALSE(base->guardar_segundo_paso(guardado));
+  REQUIRE(base->guardar_usuario(ana));
+  REQUIRE(base->guardar_segundo_paso(guardado));
+  guardado.paso = 56;
+  REQUIRE(base->guardar_segundo_paso(guardado));
+  auto leidos = base->segundos_pasos();
+  REQUIRE(leidos);
+  REQUIRE(leidos->size() == 1);
+  CHECK(leidos->at(0).clave == ana.clave);
+  CHECK(leidos->at(0).sellado == guardado.sellado);
+  CHECK(leidos->at(0).paso == 56);
+  CHECK(leidos->at(0).fallas == 3);
+  CHECK(leidos->at(0).desde_ms == 9000);
+  SegundoPasoGuardado corto = guardado;
+  corto.sellado.pop_back();
+  CHECK_FALSE(base->guardar_segundo_paso(corto));
+  REQUIRE(base->quitar_segundo_paso(ana.clave));
+  CHECK(base->segundos_pasos()->empty());
+  REQUIRE(base->guardar_segundo_paso(guardado));
+  REQUIRE(base->borrar_usuarios({ana.clave}));
+  CHECK(base->segundos_pasos()->empty());
+  REQUIRE(base->guardar_usuario(ana));
+  REQUIRE(base->guardar_segundo_paso(guardado));
+  REQUIRE(base->liberar_nombre("Ana"));
+  CHECK(base->segundos_pasos()->empty());
+}
+
+TEST_CASE("Un segundo paso dañado en la base sigue pidiendo el código: no se toma como si no estuviera") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  UsuarioGuardado ana;
+  ana.clave.fill(4);
+  ana.nombre = "Ana";
+  ana.creado_ms = ana.visto_ms = 1000;
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    REQUIRE(base->guardar_usuario(ana));
+    REQUIRE(base->guardar_segundo_paso({ana.clave, std::vector<std::uint8_t>(kBytesSegundoPasoSellado, 7), 5, 99, 0}));
+  }
+  armar_base(archivo, "UPDATE segundo_paso SET sellado = x'0102', paso = -4, fallas = 40;");
+  auto base = Base::abrir(archivo, "General");
+  REQUIRE(base);
+  const auto leidos = base->segundos_pasos();
+  REQUIRE(leidos);
+  REQUIRE(leidos->size() == 1);
+  CHECK(leidos->at(0).sellado.empty());
+  CHECK(leidos->at(0).fallas == kFallasDeSegundoPaso);
+  base.reset();
+  borrar_base(archivo);
+}
+
+TEST_CASE("La configuración de seguridad se guarda entera y una dañada no se lee") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    std::optional<ventrik::Seguridad> leida;
+    REQUIRE(base->leer_seguridad(leida));
+    CHECK_FALSE(leida);
+    ventrik::Seguridad seguridad;
+    ventrik::elegir_nivel(seguridad, ventrik::Nivel::reforzado);
+    REQUIRE(ventrik::cambiar_opcion(seguridad, ventrik::Opcion::segundo_paso, 2));
+    REQUIRE(base->guardar_seguridad(seguridad));
+    REQUIRE(base->leer_seguridad(leida));
+    REQUIRE(leida);
+    CHECK(leida->nivel == ventrik::Nivel::personalizado);
+    CHECK(leida->opciones == seguridad.opciones);
+    ventrik::Seguridad mala;
+    mala.nivel = ventrik::Nivel::maximo;
+    CHECK_FALSE(base->guardar_seguridad(mala));
+  }
+  for (const char* dano : {"UPDATE config SET valor = 3 WHERE clave = 'opcion3';",
+                           "DELETE FROM config WHERE clave = 'opcion12';", "UPDATE config SET valor = 0 WHERE clave = 'nivel';",
+                           "UPDATE config SET valor = 258 WHERE clave = 'opcion0';"}) {
+    CAPTURE(dano);
+    {
+      auto base = Base::abrir(archivo, "General");
+      REQUIRE(base);
+      ventrik::Seguridad seguridad;
+      ventrik::elegir_nivel(seguridad, ventrik::Nivel::reforzado);
+      REQUIRE(base->guardar_seguridad(seguridad));
+    }
+    armar_base(archivo, dano);
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    std::optional<ventrik::Seguridad> leida;
+    CHECK_FALSE(base->leer_seguridad(leida));
+    CHECK_FALSE(leida);
+  }
+  borrar_base(archivo);
+}
+
+TEST_CASE("Se sabe si una identidad tiene un aviso pendiente de equipo nuevo para un equipo") {
+  auto base = base_en_memoria();
+  UsuarioGuardado ana;
+  ana.clave.fill(4);
+  ana.nombre = "Ana";
+  ana.creado_ms = ana.visto_ms = 1000;
+  REQUIRE(base->guardar_usuario(ana));
+  Equipo casa{};
+  casa.fill(1);
+  Equipo otro{};
+  otro.fill(2);
+  CHECK(base->avisa_de(ana.clave, otro) == false);
+  REQUIRE(base->guardar_aviso(ana.clave, otro, {ventrik::protocolo::Seguridad::equipo_nuevo, 2000, "Ana", ""}));
+  CHECK(base->avisa_de(ana.clave, otro) == true);
+  CHECK(base->avisa_de(ana.clave, casa) == false);
+}
+
+TEST_CASE("Pedir el estado en que ya está el historial no lo convierte otra vez") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  auto clave = clave_de_prueba();
+  ventrik::cifrado::Secreto copia = ventrik::cifrado::copiar(clave.bytes());
+  {
+    auto base = Base::abrir(archivo, "General", std::move(clave));
+    REQUIRE(base);
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1, "hola"));
+    REQUIRE(base->cifrar_historial(true));
+  }
+  armar_base(archivo, "CREATE TABLE marca(x INTEGER); INSERT INTO marca VALUES (1);");
+  const auto paginas = leer_numero(archivo, "PRAGMA freelist_count");
+  armar_base(archivo, "DROP TABLE marca;");
+  REQUIRE(leer_numero(archivo, "PRAGMA freelist_count") > paginas);
+  {
+    auto base = Base::abrir(archivo, "General", std::move(copia));
+    REQUIRE(base);
+    REQUIRE(base->cifrar_historial(true));
+    CHECK(base->historial_cifrado());
+  }
+  CHECK(leer_numero(archivo, "PRAGMA freelist_count") > paginas);
+  auto sin_clave = Base::abrir(archivo, "General");
+  REQUIRE(sin_clave);
+  CHECK(sin_clave->cifrar_historial(true));
+  CHECK_FALSE(sin_clave->cifrar_historial(false));
+  sin_clave.reset();
+  borrar_base(archivo);
+}
+
+TEST_CASE("Un trigger o una vista armados en la base no pueden usar las funciones del historial cifrado") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  auto clave = clave_de_prueba();
+  ventrik::cifrado::Secreto copia = ventrik::cifrado::copiar(clave.bytes());
+  {
+    auto base = Base::abrir(archivo, "General", std::move(clave));
+    REQUIRE(base);
+    REQUIRE(base->cifrar_historial(true));
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1, "secreto viejo"));
+  }
+  armar_base(archivo,
+             "CREATE TABLE robado(texto);"
+             "CREATE VIEW abierto AS SELECT ventrik_abrir(canal, numero, hora, autor, sellado) AS texto FROM mensajes;"
+             "CREATE TRIGGER al_guardar AFTER INSERT ON mensajes BEGIN INSERT INTO robado"
+             " SELECT ventrik_abrir(NEW.canal, NEW.numero, NEW.hora, NEW.autor, NEW.sellado); END;"
+             "CREATE TRIGGER al_cambiar AFTER UPDATE ON mensajes BEGIN INSERT INTO robado"
+             " SELECT ventrik_sellar(OLD.canal, OLD.numero, OLD.hora, OLD.autor, 'x'); END;");
+  {
+    auto base = Base::abrir(archivo, "General", std::move(copia));
+    REQUIRE(base);
+    CHECK(base->historial({kCanalGeneral, 0}, 65536).mensajes.at(0).texto == "secreto viejo");
+    CHECK_FALSE(base->guardar_mensaje(kCanalGeneral, 2, "Ana", 2, "secreto nuevo"));
+    CHECK_FALSE(base->cifrar_historial(false));
+    CHECK(base->historial_cifrado());
+  }
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM robado") == 0);
+  CHECK_FALSE(en_el_disco(archivo, "secreto nuevo"));
+  borrar_base(archivo);
 }

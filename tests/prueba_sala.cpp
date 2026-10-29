@@ -600,7 +600,7 @@ TEST_CASE("Un rechazo con un motivo que no se conoce se explica como falta de pe
   const auto idioma = ventrik::elegir_idioma("es");
   CHECK(ventrik::cliente::explicar(idioma, static_cast<MotivoNegado>(0)) ==
         ventrik::cliente::explicar(idioma, MotivoNegado::sin_permiso));
-  CHECK(ventrik::cliente::explicar(idioma, static_cast<MotivoNegado>(9)) ==
+  CHECK(ventrik::cliente::explicar(idioma, static_cast<MotivoNegado>(200)) ==
         ventrik::cliente::explicar(idioma, MotivoNegado::sin_permiso));
   CHECK(ventrik::cliente::explicar(idioma, MotivoNegado::tipo_de_canal) !=
         ventrik::cliente::explicar(idioma, MotivoNegado::sin_permiso));

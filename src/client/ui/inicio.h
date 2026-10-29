@@ -46,6 +46,9 @@ struct PantallaInicio {
   Campo contrasena{};
   bool enfocar_codigo = false;
   bool enfocar_contrasena = false;
+  bool pedir_segundo_paso = false;
+  Campo segundo_paso{};
+  std::string error_segundo_paso;
   std::optional<red::Direccion> avisos_de;
   bool abrir_avisos = false;
   Copia copia = Copia::sin_saber;
@@ -61,12 +64,14 @@ enum class Accion {
   hostear,
   iniciar_mio,
   detener_mio,
-  configurar_mio
+  configurar_mio,
+  segundo_paso
 };
 
 struct Pedido {
   Accion accion = Accion::ninguna;
   std::size_t cual = 0;
+  std::uint32_t codigo = 0;
   std::optional<cliente::AvisosDelServidor> avisos;
   bool guardar = false;
   bool ajustes = false;

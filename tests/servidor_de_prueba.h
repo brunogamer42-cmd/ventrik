@@ -25,6 +25,15 @@ inline ventrik::cifrado::IdentidadServidor identidad_nueva() {
   return std::move(*identidad);
 }
 
+inline const ventrik::cifrado::Secreto& clave_de_segundo_paso() {
+  static const ventrik::cifrado::Secreto clave = [] {
+    ventrik::cifrado::Secreto nueva(ventrik::cifrado::kBytesClaveSimetrica);
+    REQUIRE(ventrik::cifrado::aleatorio(nullptr, nueva.bytes().data(), nueva.size()) == 0);
+    return nueva;
+  }();
+  return clave;
+}
+
 inline bool esperar_que(const std::function<bool()>& condicion,
                         std::chrono::milliseconds limite = 5s) {
   const auto hasta = std::chrono::steady_clock::now() + limite;
@@ -53,6 +62,7 @@ class ServidorDePrueba {
     ventrik::cifrado::Secreto clave(ventrik::cifrado::kBytesClaveSimetrica);
     REQUIRE(ventrik::cifrado::aleatorio(nullptr, clave.bytes().data(), clave.size()) == 0);
     servidor_->clave_del_historial(std::move(clave));
+    servidor_->clave_del_segundo_paso(ventrik::cifrado::copiar(clave_de_segundo_paso().bytes()));
     REQUIRE(servidor_->escuchar());
     hilo_ = std::thread([this] { servidor_->correr(seguir_); });
   }
@@ -69,7 +79,7 @@ class ServidorDePrueba {
 
  private:
   ventrik::cifrado::IdentidadServidor identidad_;
-  std::array<std::atomic<int>, 32> eventos_{};
+  std::array<std::atomic<int>, 48> eventos_{};
   std::atomic<bool> seguir_{true};
   std::unique_ptr<ventrik::servidor::Servidor> servidor_;
   std::thread hilo_;

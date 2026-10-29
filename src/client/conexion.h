@@ -25,6 +25,7 @@ struct Presentacion {
   std::shared_ptr<const cifrado::Clave> identidad;
   std::shared_ptr<const cifrado::Secreto> equipo;
   std::shared_ptr<const cifrado::Secreto> contrasena;
+  std::optional<std::uint32_t> segundo_paso;
 };
 
 struct OpcionesConexion {
@@ -56,6 +57,9 @@ enum class EstadoConexion {
   esperar,
   ocupado,
   sin_identidad,
+  falta_segundo_paso,
+  segundo_paso_incorrecto,
+  segundo_paso_bloqueado,
   error_interno,
 };
 
