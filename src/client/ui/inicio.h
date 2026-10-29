@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <imgui.h>
 
@@ -25,7 +26,11 @@ struct Intento {
   std::string mensaje;
 };
 
-void poner(Campo& campo, std::string_view texto);
+struct MiServidor {
+  std::string nombre;
+  std::uint16_t puerto = 7700;
+  bool andando = false;
+};
 
 struct PantallaInicio {
   Idioma idioma;
@@ -44,9 +49,20 @@ struct PantallaInicio {
   std::optional<red::Direccion> avisos_de;
   bool abrir_avisos = false;
   Copia copia = Copia::sin_saber;
+  std::vector<MiServidor> mis_servidores;
 };
 
-enum class Accion { ninguna, entrar_con_formulario, entrar_a_guardado, quitar, desconectar };
+enum class Accion {
+  ninguna,
+  entrar_con_formulario,
+  entrar_a_guardado,
+  quitar,
+  desconectar,
+  hostear,
+  iniciar_mio,
+  detener_mio,
+  configurar_mio
+};
 
 struct Pedido {
   Accion accion = Accion::ninguna;

@@ -13,6 +13,7 @@
 #include <imgui.h>
 
 #include "client/ui/theme.h"
+#include "common/textos.h"
 
 namespace ventrik::ui {
 enum class Letra { normal, fuerte, negrita, titulo };
@@ -46,7 +47,9 @@ enum class Icono {
   flecha_arriba,
   campana,
   flecha_izquierda,
-  reproducir
+  reproducir,
+  atras,
+  adelante
 };
 
 using Campo = std::array<char, 128>;
@@ -91,6 +94,9 @@ bool casilla(std::string_view etiqueta, ImVec2 donde, bool valor);
 std::optional<float> deslizador(const char* id, ImVec2 desde, float ancho, float valor);
 std::optional<int> desplegable(const char* id, ImVec2 donde, float ancho, const std::vector<std::string>& opciones,
                                int elegida, std::string_view vista = {});
+std::optional<int> desplegable(const char* id, ImVec2 donde, float ancho, Idioma idioma,
+                               std::initializer_list<Clave> claves, int elegida);
+void poner(Campo& campo, std::string_view texto);
 bool por_aparecer();
 void olvidar_lo_escrito();
 
@@ -98,6 +104,7 @@ void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, I
 void dibujar_icono_tachado(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, ImU32 color);
 void escuadras(ImDrawList& dibujo, ImVec2 desde, ImVec2 hasta, float largo, float grosor, ImU32 color);
 void triangulos(ImDrawList& dibujo, ImVec2 desde, ImVec2 hasta);
+void punteado(ImDrawList& dibujo, ImVec2 desde, ImVec2 hasta, ImU32 color);
 void panel(ImVec2 desde, ImVec2 hasta);
 void avatar(ImVec2 desde, float lado, std::string_view letras, ImU32 fondo, ImU32 color_letra,
             float tamano_letra, ImU32 aro = 0);
@@ -107,6 +114,10 @@ void emblema(ImVec2 desde, float lado, ImTextureID logo);
 float ancho_boton(std::string_view texto, Estilo estilo, Icono icono = Icono::ninguno);
 bool boton(const char* id, std::string_view texto, Estilo estilo, ImVec2 tamano,
            Icono icono = Icono::ninguno);
+bool barra_con_volver(std::string_view volver, std::string_view titulo, std::string_view junto,
+                      std::string_view derecha);
+bool boton_a_la_izquierda(const char* id, std::string_view texto, Estilo estilo, float& derecha, float y,
+                          float alto = 36, Icono icono = Icono::ninguno);
 bool campo(const char* id, std::string_view pista, gsl::span<char> texto, ImVec2 tamano,
            Icono icono = Icono::ninguno, ImGuiInputTextFlags opciones = 0, ImU32 relleno = color::fondo);
 float ancho_selector_modo(std::string_view rendimiento, std::string_view visual);
@@ -122,5 +133,13 @@ float contador_nuevos(ImVec2 derecha, std::uint32_t cantidad);
 float ancho_chip(std::string_view texto);
 void chip(ImVec2 desde, std::string_view texto);
 void marco_cabecera(ImVec2 desde, ImVec2 hasta);
+
+template <typename Dibujar>
+void apagado(std::string_view aviso, Dibujar&& dibujar) {
+  ImGui::BeginDisabled();
+  dibujar();
+  ImGui::EndDisabled();
+  cartel(aviso);
+}
 
 }

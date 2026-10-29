@@ -124,6 +124,7 @@ add_custom_command(
 
 add_library(ventrik_comun STATIC
   src/common/archivos.cpp
+  src/common/niveles.cpp
   src/common/cifrado/base32.cpp
   src/common/cifrado/cadena.cpp
   src/common/cifrado/clave.cpp
@@ -207,7 +208,7 @@ target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus minia
                       comdlg32)
 add_library(ventrik_interfaz STATIC
   src/client/ui/aviso_ventana.cpp src/client/ui/aviso_windows.cpp src/client/ui/dibujante.cpp src/client/ui/iconos.cpp src/client/ui/inicio.cpp
-  src/client/ui/ajustes.cpp src/client/ui/menu_avisos.cpp src/client/ui/piezas.cpp
+  src/client/ui/ajustes.cpp src/client/ui/hostear.cpp src/client/ui/menu_avisos.cpp src/client/ui/piezas.cpp
   src/client/ui/programa.cpp src/client/ui/qr.cpp src/client/ui/servidor.cpp src/client/ui/ventana.cpp)
 target_link_libraries(ventrik_interfaz PUBLIC ventrik_cliente_base imgui qrcodegen d3d9 user32 gdi32)
 
@@ -244,6 +245,7 @@ add_executable(ventrik_pruebas
   tests/prueba_mbedtls.cpp
   tests/prueba_mi_identidad.cpp
   tests/prueba_motor_voz.cpp
+  tests/prueba_niveles.cpp
   tests/prueba_miniaudio.cpp
   tests/prueba_miniupnpc.cpp
   tests/prueba_opus.cpp

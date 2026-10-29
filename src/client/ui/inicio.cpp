@@ -55,12 +55,9 @@ class Dibujo {
 
   std::string llega_en(std::string_view etapa) const { return con_datos(t(Clave::inicio_llega_en), {etapa}); }
 
-  void apagado(const char* id, std::string_view etiqueta, Estilo estilo, ImVec2 tamano, Icono icono,
-               std::string_view etapa) const {
-    ImGui::BeginDisabled();
-    boton(id, etiqueta, estilo, tamano, icono);
-    ImGui::EndDisabled();
-    cartel(llega_en(etapa));
+  void boton_apagado(const char* id, std::string_view etiqueta, Estilo estilo, ImVec2 tamano, Icono icono,
+                     std::string_view etapa) const {
+    apagado(llega_en(etapa), [&] { boton(id, etiqueta, estilo, tamano, icono); });
   }
 
   void barra() {
@@ -94,7 +91,7 @@ class Dibujo {
       if (std::string_view(etapa).empty()) {
         pedido_.ajustes = boton(id, t(clave), Estilo::biselado, ImVec2(ancho, px(medida::alto_biselado)), icono);
       } else {
-        apagado(id, t(clave), Estilo::biselado, ImVec2(ancho, px(medida::alto_biselado)), icono, etapa);
+        boton_apagado(id, t(clave), Estilo::biselado, ImVec2(ancho, px(medida::alto_biselado)), icono, etapa);
       }
       x -= px(8);
     }
@@ -113,7 +110,7 @@ class Dibujo {
     const std::array<std::tuple<Clave, Icono, const char*, const char*>, 3> botones = {
         std::make_tuple(Clave::inicio_explorar, Icono::lupa, "7", "##explorar"),
         std::make_tuple(Clave::inicio_buscar_red, Icono::pantalla, "6", "##buscar_red"),
-        std::make_tuple(Clave::inicio_hostear, Icono::mas, "6", "##hostear")};
+        std::make_tuple(Clave::inicio_hostear, Icono::mas, "", "##hostear")};
     float ancho_botones = px(16);
     for (const auto& [clave, icono, etapa, id] : botones) {
       ancho_botones += ancho_boton(t(clave), Estilo::esquineros, icono);
@@ -128,7 +125,14 @@ class Dibujo {
     for (const auto& [clave, icono, etapa, id] : botones) {
       const float ancho = ancho_boton(t(clave), Estilo::esquineros, icono);
       ImGui::SetCursorScreenPos(ImVec2(x, px(debajo ? 160.0f : 110.0f)));
-      apagado(id, t(clave), Estilo::esquineros, ImVec2(ancho, px(medida::alto_esquineros)), icono, etapa);
+      const ImVec2 tamano_boton(ancho, px(medida::alto_esquineros));
+      if (std::string_view(etapa).empty()) {
+        if (boton(id, t(clave), Estilo::esquineros, tamano_boton, icono)) {
+          pedido_.accion = Accion::hostear;
+        }
+      } else {
+        boton_apagado(id, t(clave), Estilo::esquineros, tamano_boton, icono, etapa);
+      }
       x += ancho + px(8);
     }
     ImGui::SetCursorScreenPos(ImVec2(izquierda, px(164) + bajada));
@@ -136,6 +140,13 @@ class Dibujo {
           ImVec2(std::min(px(420), derecha - izquierda), px(42)), Icono::lupa, 0, color::panel);
 
     const std::wstring buscado = nombre_para_comparar(pantalla_.buscar.data());
+    std::vector<std::size_t> mios;
+    for (std::size_t i = 0; i < pantalla_.mis_servidores.size(); ++i) {
+      if (buscado.empty() ||
+          nombre_para_comparar(pantalla_.mis_servidores[i].nombre).find(buscado) != std::wstring::npos) {
+        mios.push_back(i);
+      }
+    }
     std::vector<std::size_t> visibles;
     for (std::size_t i = 0; i < guardados_.servidores.size(); ++i) {
       const auto& servidor = guardados_.servidores[i];
@@ -151,24 +162,31 @@ class Dibujo {
     ImGui::SetCursorScreenPos(ImVec2(izquierda, arriba));
     ImGui::BeginChild("##tarjetas", tamano);
     const ImVec2 origen = ImGui::GetCursorScreenPos();
-    if (visibles.empty()) {
-      escribir_parrafo(t(guardados_.servidores.empty() ? Clave::inicio_sin_servidores : Clave::inicio_sin_resultados),
+    const std::size_t cuantas = mios.size() + visibles.size();
+    if (cuantas == 0) {
+      escribir_parrafo(t(guardados_.servidores.empty() && pantalla_.mis_servidores.empty() ? Clave::inicio_sin_servidores
+                                                                                           : Clave::inicio_sin_resultados),
                        color::apagado, std::min(tamano.x, px(560)));
     }
     const std::size_t columnas = tamano.x >= px(600) ? 2 : 1;
-    const std::size_t filas = (visibles.size() + columnas - 1) / columnas;
+    const std::size_t filas = (cuantas + columnas - 1) / columnas;
     const float alto_total = static_cast<float>(filas) * px(kAltoTarjeta + kEntreTarjetas);
     const float util =
         tamano.x - (alto_total - px(kEntreTarjetas) > tamano.y ? ImGui::GetStyle().ScrollbarSize + px(4) : 0);
     const float ancho = (util - px(kEntreTarjetas) * static_cast<float>(columnas - 1)) / static_cast<float>(columnas);
-    for (std::size_t k = 0; k < visibles.size(); ++k) {
-      ImGui::PushID(red::a_texto(guardados_.servidores[visibles[k]].direccion).c_str());
-      tarjeta(visibles[k], ImVec2(origen.x + static_cast<float>(k % columnas) * (ancho + px(kEntreTarjetas)),
-                                  origen.y + static_cast<float>(k / columnas) * px(kAltoTarjeta + kEntreTarjetas)),
-              ancho);
+    for (std::size_t k = 0; k < cuantas; ++k) {
+      const ImVec2 lugar(origen.x + static_cast<float>(k % columnas) * (ancho + px(kEntreTarjetas)),
+                         origen.y + static_cast<float>(k / columnas) * px(kAltoTarjeta + kEntreTarjetas));
+      if (k < mios.size()) {
+        ImGui::PushID(static_cast<int>(mios[k]));
+        tarjeta_mia(mios[k], lugar, ancho);
+      } else {
+        ImGui::PushID(red::a_texto(guardados_.servidores[visibles[k - mios.size()]].direccion).c_str());
+        tarjeta(visibles[k - mios.size()], lugar, ancho);
+      }
       ImGui::PopID();
     }
-    if (!visibles.empty()) {
+    if (cuantas > 0) {
       ImGui::SetCursorScreenPos(origen);
       ImGui::Dummy(ImVec2(util, alto_total - px(kEntreTarjetas)));
     }
@@ -259,6 +277,40 @@ class Dibujo {
         pantalla_.abrir_avisos = true;
       }
       ImGui::EndPopup();
+    }
+  }
+
+  void tarjeta_mia(std::size_t cual, ImVec2 desde, float ancho) {
+    const MiServidor& mio = pantalla_.mis_servidores[cual];
+    ImDrawList& dibujo = *ImGui::GetWindowDrawList();
+    const ImVec2 hasta(desde.x + ancho, desde.y + px(kAltoTarjeta));
+    punteado(dibujo, desde, hasta, tono(color::linea2));
+    const float x = desde.x + px(15);
+    const float interior = ancho - px(30);
+    avatar(ImVec2(x, desde.y + px(15)), px(48), "", color::elevado, color::texto2, medida::letra);
+    dibujar_icono(dibujo, Icono::servidor, ImVec2(x + px(24), desde.y + px(39)), px(20), tono(color::texto2));
+    escribir_cortado(ImVec2(x + px(60), desde.y + px(17)), interior - px(60), mio.nombre, color::texto, Letra::fuerte,
+                     medida::letra_tarjeta);
+    dibujo.AddRectFilled(ImVec2(x + px(60), desde.y + px(46)), ImVec2(x + px(66), desde.y + px(52)),
+                         tono(mio.andando ? color::verde : color::apagado));
+    escribir_cortado(ImVec2(x + px(73), desde.y + px(42)), interior - px(73),
+                     t(mio.andando ? Clave::inicio_mio_andando : Clave::inicio_mio_apagado), color::apagado,
+                     Letra::normal, medida::letra_mini);
+    escribir_cortado(ImVec2(x, desde.y + px(76)), interior,
+                     con_datos(t(Clave::inicio_mio_puerto), {std::to_string(mio.puerto)}), color::texto2);
+    const float y = desde.y + px(107);
+    float derecha = hasta.x - px(15);
+    if (boton_a_la_izquierda("##configurar", t(Clave::inicio_configurar), Estilo::esquineros, derecha, y, kAltoBoton)) {
+      pedido_ = {Accion::configurar_mio, cual};
+    }
+    if (mio.andando &&
+        boton_a_la_izquierda("##detener", t(Clave::inicio_detener), Estilo::esquineros, derecha, y, kAltoBoton)) {
+      pedido_ = {Accion::detener_mio, cual};
+    }
+    ImGui::SetCursorScreenPos(ImVec2(x, y));
+    if (boton("##iniciar", t(mio.andando ? Clave::inicio_entrar : Clave::inicio_iniciar_y_entrar),
+              mio.andando ? Estilo::principal : Estilo::contorneado, ImVec2(derecha + px(4) - x, px(kAltoBoton)))) {
+      pedido_ = {Accion::iniciar_mio, cual};
     }
   }
 
@@ -394,11 +446,6 @@ class Dibujo {
   Pedido pedido_;
 };
 
-}
-
-void poner(Campo& campo, std::string_view texto) {
-  campo.fill('\0');
-  std::copy_n(texto.begin(), std::min(texto.size(), campo.size() - 1), campo.begin());
 }
 
 Pedido dibujar_inicio(PantallaInicio& pantalla, const cliente::Guardados& guardados) {

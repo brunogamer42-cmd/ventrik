@@ -149,6 +149,7 @@ struct PedidoServidor {
   std::vector<std::uint32_t> leidos;
   bool guardar = false;
   bool ajustes = false;
+  bool configurar = false;
   std::vector<cliente::Orden> ordenes;
 };
 

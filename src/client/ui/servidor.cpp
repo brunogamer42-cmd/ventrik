@@ -87,18 +87,6 @@ const std::string& guardado(TextoGuardado& lugar, Idioma idioma, std::uint64_t d
   return lugar.texto;
 }
 
-void punteado(ImDrawList& dibujo, ImVec2 desde, ImVec2 hasta, ImU32 color) {
-  const float paso = px(4);
-  for (float x = desde.x; x < hasta.x; x += paso) {
-    dibujo.AddRectFilled(ImVec2(x, desde.y), ImVec2(std::min(x + px(2), hasta.x), desde.y + 1), color);
-    dibujo.AddRectFilled(ImVec2(x, hasta.y - 1), ImVec2(std::min(x + px(2), hasta.x), hasta.y), color);
-  }
-  for (float y = desde.y; y < hasta.y; y += paso) {
-    dibujo.AddRectFilled(ImVec2(desde.x, y), ImVec2(desde.x + 1, std::min(y + px(2), hasta.y)), color);
-    dibujo.AddRectFilled(ImVec2(hasta.x - 1, y), ImVec2(hasta.x, std::min(y + px(2), hasta.y)), color);
-  }
-}
-
 class Dibujo {
  public:
   Dibujo(PantallaServidor& pantalla, cliente::Sala& sala)
@@ -158,14 +146,6 @@ class Dibujo {
 
   void agregar(std::vector<cliente::Orden> ordenes) {
     std::move(ordenes.begin(), ordenes.end(), std::back_inserter(pedido_.ordenes));
-  }
-
-  template <typename Dibujar>
-  void apagado(std::string_view aviso, Dibujar dibujar) const {
-    ImGui::BeginDisabled();
-    dibujar();
-    ImGui::EndDisabled();
-    cartel(aviso);
   }
 
   void abrir(Dialogo cual, std::uint32_t canal, std::string_view nombre, bool solo_admins) {
@@ -391,6 +371,7 @@ class Dibujo {
       }
     }
     pedido_.desconectar = pedido_.desconectar || eleccion.desconectar;
+    pedido_.configurar = eleccion.configurar;
     ImGui::EndPopup();
   }
 

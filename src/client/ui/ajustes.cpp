@@ -228,7 +228,8 @@ class Dibujo {
       y += px(24);
     }
     float derecha = x + interior;
-    confirmar = a_la_izquierda("##desbloquear", t(Clave::bloqueo_desbloquear), Estilo::principal, derecha, y + px(6)) ||
+    confirmar = boton_a_la_izquierda("##desbloquear", t(Clave::bloqueo_desbloquear), Estilo::principal, derecha,
+                                     y + px(6)) ||
                 confirmar;
     y += px(56);
     if (!conectado) {
@@ -237,11 +238,11 @@ class Dibujo {
       escribir_envuelto(ImVec2(x, y), olvido, color::apagado, interior, medida::letra_chica);
       y += alto_envuelto(olvido, interior, medida::letra_chica) + px(10);
       derecha = x + interior;
-      if (a_la_izquierda("##crear_otra", t(Clave::seguridad_crear_otra), Estilo::contorneado, derecha, y)) {
+      if (boton_a_la_izquierda("##crear_otra", t(Clave::seguridad_crear_otra), Estilo::contorneado, derecha, y)) {
         abrir_dialogo(DialogoIdentidad::crear);
       }
       pedido_.importar_identidad =
-          a_la_izquierda("##importar_copia", t(Clave::bloqueo_importar), Estilo::esquineros, derecha, y);
+          boton_a_la_izquierda("##importar_copia", t(Clave::bloqueo_importar), Estilo::esquineros, derecha, y);
     }
     ImGui::EndDisabled();
     pedido_.desbloquear = confirmar && !pantalla_.calculando && pantalla_.contrasena[0] != '\0' &&
@@ -266,21 +267,10 @@ class Dibujo {
   void fijar(Ajuste ajuste, std::uint8_t nuevo) { cliente::poner_ajuste(cambiar(), ajuste, nuevo); }
 
   void barra() {
-    ImDrawList& dibujo = *ImGui::GetWindowDrawList();
-    const float alto = px(kAltoBarra);
-    dibujo.AddRectFilled(ImVec2(0, 0), ImVec2(ancho_, alto), tono(color::panel));
-    dibujo.AddRectFilled(ImVec2(0, alto), ImVec2(ancho_, alto + 1), tono(color::borde_oscuro));
-    triangulos(dibujo, ImVec2(0, 0), ImVec2(ancho_, alto));
-    const std::string_view volver = t(Clave::ajustes_volver);
-    const float ancho = ancho_boton(volver, Estilo::contorneado, Icono::flecha_izquierda);
-    ImGui::SetCursorScreenPos(ImVec2(px(16), (alto - px(32)) / 2));
-    pedido_.volver = boton("##volver", volver, Estilo::contorneado, ImVec2(ancho, px(32)), Icono::flecha_izquierda) ||
-                     (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !pantalla_.ocupado && !pantalla_.eligiendo_tecla &&
-                      !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
-    const float fin = escribir_en(px(32) + ancho, alto / 2, t(Clave::ajustes_titulo), color::texto, Letra::titulo,
-                                  medida::letra_servidor);
-    escribir_en(fin + px(16), alto / 2, t(Clave::ajustes_se_guardan), color::apagado, Letra::normal,
-                medida::letra_chica);
+    pedido_.volver =
+        barra_con_volver(t(Clave::ajustes_volver), t(Clave::ajustes_titulo), t(Clave::ajustes_se_guardan), {}) ||
+        (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && !pantalla_.ocupado && !pantalla_.eligiendo_tecla &&
+         !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
   }
 
   void buscar() {
@@ -380,11 +370,7 @@ class Dibujo {
   }
 
   std::optional<int> lista(const char* id, ImVec2 donde, float ancho, std::initializer_list<Clave> claves, int elegida) {
-    std::vector<std::string> opciones;
-    for (const Clave clave : claves) {
-      opciones.push_back(s(clave));
-    }
-    return desplegable(id, donde, ancho, opciones, elegida);
+    return desplegable(id, donde, ancho, pantalla_.idioma, claves, elegida);
   }
 
   void contenido() {
@@ -1109,15 +1095,6 @@ class Dibujo {
     ImGui::PopID();
   }
 
-  bool a_la_izquierda(const char* id, std::string_view texto_boton, Estilo estilo, float& derecha, float y) {
-    const float ancho = ancho_boton(texto_boton, estilo);
-    derecha -= ancho;
-    ImGui::SetCursorScreenPos(ImVec2(derecha, y));
-    const bool tocado = boton(id, texto_boton, estilo, ImVec2(ancho, px(36)));
-    derecha -= px(12);
-    return tocado;
-  }
-
   float fila_de_seguridad(float x, float y, float interior, Clave nombre, Clave ayuda, float derecha) {
     const float fila = px(61);
     const float ancho_texto = derecha - x - px(12);
@@ -1144,14 +1121,14 @@ class Dibujo {
     float derecha = x + interior - px(12);
     ImGui::BeginDisabled(estado != EstadoDeIdentidad::lista || pantalla_.calculando);
     if (con_maestra) {
-      if (a_la_izquierda("##quitar_maestra", t(Clave::maestra_quitar), Estilo::contorneado, derecha, y + boton_y)) {
+      if (boton_a_la_izquierda("##quitar_maestra", t(Clave::maestra_quitar), Estilo::contorneado, derecha, y + boton_y)) {
         abrir_dialogo(DialogoIdentidad::quitar);
       }
-      if (a_la_izquierda("##cambiar_maestra", t(Clave::ajustes_cambiar), Estilo::contorneado, derecha, y + boton_y)) {
+      if (boton_a_la_izquierda("##cambiar_maestra", t(Clave::ajustes_cambiar), Estilo::contorneado, derecha, y + boton_y)) {
         abrir_dialogo(DialogoIdentidad::cambiar);
       }
-    } else if (a_la_izquierda("##activar_maestra", t(Clave::maestra_activar), Estilo::contorneado, derecha,
-                              y + boton_y)) {
+    } else if (boton_a_la_izquierda("##activar_maestra", t(Clave::maestra_activar), Estilo::contorneado, derecha,
+                                    y + boton_y)) {
       abrir_dialogo(DialogoIdentidad::activar);
     }
     ImGui::EndDisabled();
@@ -1170,11 +1147,11 @@ class Dibujo {
                           derecha - px(12));
     derecha = x + interior - px(12);
     ImGui::BeginDisabled(estado == EstadoDeIdentidad::cargando || pantalla_.calculando);
-    pedido_.importar_identidad = a_la_izquierda("##importar_identidad", t(Clave::seguridad_importar),
-                                                Estilo::esquineros, derecha, y + boton_y);
-    if (a_la_izquierda("##exportar_identidad",
-                       t(sin_identidad ? Clave::seguridad_crear_otra : Clave::seguridad_exportar), Estilo::principal,
-                       derecha, y + boton_y)) {
+    pedido_.importar_identidad = boton_a_la_izquierda("##importar_identidad", t(Clave::seguridad_importar),
+                                                      Estilo::esquineros, derecha, y + boton_y);
+    if (boton_a_la_izquierda("##exportar_identidad",
+                             t(sin_identidad ? Clave::seguridad_crear_otra : Clave::seguridad_exportar),
+                             Estilo::principal, derecha, y + boton_y)) {
       if (sin_identidad) {
         abrir_dialogo(DialogoIdentidad::crear);
       } else {

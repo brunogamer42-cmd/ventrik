@@ -21,6 +21,7 @@ struct IUnknown;
 #include "client/ui/ajustes.h"
 #include "client/ui/aviso_ventana.h"
 #include "client/ui/dibujante.h"
+#include "client/ui/hostear.h"
 #include "client/ui/inicio.h"
 #include "client/ui/menu_avisos.h"
 #include "client/ui/piezas.h"
@@ -1979,4 +1980,464 @@ TEST_CASE("banco de la contraseña maestra" * doctest::skip()) {
   MESSAGE("contraseña maestra: "
           << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde).count() / 1000
           << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
+}
+
+namespace {
+ui::PedidoHostear hostear(SinPantalla& sin_pantalla, ui::PantallaHostear& pantalla, ImVec2 mouse, bool clic = false) {
+  ui::PedidoHostear pedido;
+  sin_pantalla.cuadro([&] { pedido = ui::dibujar_hostear(pantalla); }, mouse, clic);
+  return pedido;
+}
+
+std::vector<ui::PedidoHostear> tocar_hostear(SinPantalla& sin_pantalla, ui::PantallaHostear& pantalla, ImVec2 donde) {
+  std::vector<ui::PedidoHostear> pedidos;
+  for (const bool clic : {false, true, false}) {
+    pedidos.push_back(hostear(sin_pantalla, pantalla, donde, clic));
+  }
+  return pedidos;
+}
+
+bool vacio(const ui::PedidoHostear& pedido) {
+  return !pedido.cerrar && !pedido.crear && !pedido.nombre && !pedido.contrasena && !pedido.seguridad &&
+         !pedido.exportar && !pedido.importar && !pedido.cambiar_clave && !pedido.sacar_admin;
+}
+
+bool todos_vacios(const std::vector<ui::PedidoHostear>& pedidos) {
+  return std::all_of(pedidos.begin(), pedidos.end(), vacio);
+}
+
+ui::PantallaHostear asistente_es() { return ui::asistente(ventrik::elegir_idioma("es")); }
+
+ui::PantallaHostear configuracion_llena(bool en_esta_pc) {
+  auto pantalla = ui::configuracion(ventrik::elegir_idioma("es"), "Mi servidor", en_esta_pc);
+  pantalla.huella = "CTBC-P44I-2FC4-QX7M-AB3D-EFGH-JKLM-NPQR-STUV-WXYZ-2345-67AB-CD";
+  pantalla.admins = {{"Sofi", "CTBC-P44I-2FC4-QX7M"}, {"Un nombre bastante largo, de 32", "AAAA-BBBB-CCCC-DDDD"}};
+  for (int i = 0; i < 150; ++i) {
+    pantalla.registro.push_back({"hoy 21:" + std::to_string(i % 60), "Tano borró #partidas con un nombre bastante largo"});
+  }
+  return pantalla;
+}
+
+std::size_t cambios_quieto(SinPantalla& sin_pantalla, ui::PantallaHostear& pantalla) {
+  for (int i = 0; i < 3; ++i) {
+    hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  }
+  ui::Zonas zonas;
+  zonas.cambiadas(*ImGui::GetDrawData());
+  std::size_t cambios = 0;
+  for (int i = 0; i < 60; ++i) {
+    hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+    cambios += zonas.cambiadas(*ImGui::GetDrawData()).size();
+  }
+  return cambios;
+}
+
+}
+
+TEST_CASE("Hostear y la configuración del servidor se dibujan sin errores en cada paso, a cualquier tamaño y escala") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.0f, ImVec2(1376, 768)),
+                                       std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    SinPantalla sin_pantalla(escala, tamano);
+    for (const bool configurando : {false, true}) {
+      for (std::size_t paso = 0; paso < ui::kPasos; ++paso) {
+        for (const bool ver_opciones : {false, true}) {
+          if (ver_opciones && static_cast<ui::Paso>(paso) != ui::Paso::seguridad) {
+            continue;
+          }
+          auto pantalla = configurando ? configuracion_llena(paso % 2 == 0) : asistente_es();
+          pantalla.paso = static_cast<ui::Paso>(paso);
+          pantalla.ver_opciones = ver_opciones;
+          pantalla.xp = true;
+          pantalla.limitado = paso % 2 == 1;
+          pantalla.exportada = paso % 3 == 0;
+          ventrik::elegir_nivel(pantalla.seguridad, ver_opciones ? ventrik::Nivel::maximo : ventrik::Nivel::reforzado);
+          pantalla.error = std::string(300, 'e');
+          pantalla.aviso = "Se guardó la identidad del servidor.";
+          ui::poner(pantalla.nombre, "Un nombre bastante largo, de 32");
+          for (float y = 5; y < tamano.y; y += 61) {
+            for (float x = 5; x < tamano.x; x += 97) {
+              CHECK(vacio(hostear(sin_pantalla, pantalla, ImVec2(x, y))));
+            }
+          }
+          sin_pantalla.rodar(-60);
+          for (float y = 5; y < tamano.y; y += 61) {
+            CHECK(vacio(hostear(sin_pantalla, pantalla, ImVec2(tamano.x / 2, y))));
+          }
+          CHECK(pantalla.paso == static_cast<ui::Paso>(paso));
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("Hostear y la configuración no se animan con el mouse quieto") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  for (const bool configurando : {false, true}) {
+    for (std::size_t paso = 0; paso < 7; ++paso) {
+      auto pantalla = configurando ? configuracion_llena(true) : asistente_es();
+      pantalla.paso = static_cast<ui::Paso>(paso);
+      pantalla.ver_opciones = true;
+      CHECK_MESSAGE(cambios_quieto(sin_pantalla, pantalla) == 0, "el paso " << paso + 1 << " cambió solo");
+    }
+  }
+}
+
+TEST_CASE("banco de hostear" * doctest::skip()) {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  const auto medir = [&](const std::string& nombre, ui::PantallaHostear& pantalla) {
+    for (int i = 0; i < 30; ++i) {
+      hostear(sin_pantalla, pantalla, ImVec2(900, 400));
+    }
+    const auto desde = std::chrono::steady_clock::now();
+    for (int i = 0; i < 1000; ++i) {
+      hostear(sin_pantalla, pantalla, ImVec2(900, 400));
+    }
+    MESSAGE(nombre << ": "
+                   << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde).count() / 1000
+                   << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
+  };
+  for (const auto paso : {ui::Paso::nombre, ui::Paso::conexion, ui::Paso::seguridad, ui::Paso::revisar}) {
+    auto pantalla = asistente_es();
+    pantalla.paso = paso;
+    medir("asistente, paso " + std::to_string(static_cast<int>(paso) + 1), pantalla);
+  }
+  auto opciones = asistente_es();
+  opciones.paso = ui::Paso::seguridad;
+  opciones.ver_opciones = true;
+  ventrik::elegir_nivel(opciones.seguridad, ventrik::Nivel::reforzado);
+  medir("asistente, paso 4 con las opciones abiertas", opciones);
+  auto configuracion = configuracion_llena(true);
+  configuracion.paso = ui::Paso::nombre;
+  medir("configuracion, nombre y acceso", configuracion);
+  configuracion.paso = ui::Paso::seguridad;
+  medir("configuracion, seguridad con 2 admins y 150 entradas del registro", configuracion);
+  configuracion.ver_opciones = true;
+  medir("configuracion, seguridad con las opciones abiertas", configuracion);
+}
+
+TEST_CASE("En Hostear, Siguiente y Atrás recorren los pasos con clic, Dejar el resto lleva a Revisar y la lista salta a cualquiera") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1280, 1300));
+  auto pantalla = asistente_es();
+  const auto tocar = [&](ImVec2 donde) { CHECK(todos_vacios(tocar_hostear(sin_pantalla, pantalla, donde))); };
+  const auto en_lista = [](int paso) { return ImVec2(150, 113 + 53 * static_cast<float>(paso)); };
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  tocar(ImVec2(1170, 453));
+  CHECK(pantalla.paso == ui::Paso::conexion);
+  tocar(ImVec2(350, 488));
+  CHECK(pantalla.paso == ui::Paso::nombre);
+  tocar(ImVec2(1170, 453));
+  tocar(ImVec2(1150, 488));
+  CHECK(pantalla.paso == ui::Paso::capacidad);
+  tocar(ImVec2(350, 436));
+  CHECK(pantalla.paso == ui::Paso::conexion);
+  tocar(en_lista(5));
+  CHECK(pantalla.paso == ui::Paso::pantallas);
+  tocar(ImVec2(1155, 436));
+  CHECK(pantalla.paso == ui::Paso::revisar);
+  tocar(ImVec2(350, 850));
+  CHECK(pantalla.paso == ui::Paso::pantallas);
+  tocar(en_lista(0));
+  CHECK(pantalla.paso == ui::Paso::nombre);
+  tocar(ImVec2(940, 453));
+  CHECK(pantalla.paso == ui::Paso::revisar);
+  tocar(ImVec2(1208, 242 + 53 * 3));
+  CHECK(pantalla.paso == ui::Paso::seguridad);
+  tocar(en_lista(7));
+  CHECK(pantalla.paso == ui::Paso::seguridad);
+  tocar(en_lista(6));
+  CHECK(pantalla.paso == ui::Paso::revisar);
+
+  const auto cierra = [&](const std::vector<ui::PedidoHostear>& pedidos) {
+    return std::any_of(pedidos.begin(), pedidos.end(), [](const ui::PedidoHostear& pedido) { return pedido.cerrar; });
+  };
+  CHECK(cierra(tocar_hostear(sin_pantalla, pantalla, ImVec2(60, 27))));
+  sin_pantalla.apretar(ImGuiKey_Escape);
+  CHECK(hostear(sin_pantalla, pantalla, ImVec2(5, 5)).cerrar);
+  pantalla.paso = ui::Paso::nombre;
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  CHECK(cierra(tocar_hostear(sin_pantalla, pantalla, ImVec2(350, 453))));
+}
+
+TEST_CASE("En Hostear, elegir un nivel trae sus opciones y tocar una opción de otro nivel pasa a Personalizado") {
+  using ventrik::Nivel;
+  using ventrik::Opcion;
+  for (const bool configurando : {false, true}) {
+    SinPantalla sin_pantalla(1.0f, ImVec2(1280, 1300));
+    auto pantalla = configurando ? configuracion_llena(true) : asistente_es();
+    pantalla.paso = ui::Paso::seguridad;
+    const float arriba = configurando ? 26.0f : 0.0f;
+    const auto pedida = [&](const std::vector<ui::PedidoHostear>& pedidos) {
+      std::optional<ventrik::Seguridad> seguridad;
+      for (const auto& pedido : pedidos) {
+        CHECK_FALSE(pedido.crear);
+        if (pedido.seguridad) {
+          seguridad = pedido.seguridad;
+        }
+      }
+      return seguridad;
+    };
+    const auto tocar = [&](float x, float y) { return pedida(tocar_hostear(sin_pantalla, pantalla, ImVec2(x, y - arriba))); };
+    hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+    auto seguridad = tocar(670, 260);
+    CHECK(pantalla.seguridad.nivel == Nivel::reforzado);
+    CHECK(pantalla.seguridad.opciones == ventrik::opciones_de(Nivel::reforzado));
+    CHECK(seguridad.has_value() == configurando);
+    CHECK_FALSE(tocar(670, 260));
+    tocar(600, 350);
+    REQUIRE(pantalla.ver_opciones);
+    seguridad = tocar(351, 840);
+    CHECK(pantalla.seguridad.nivel == Nivel::personalizado);
+    CHECK(pantalla.seguridad.opciones[Opcion::voz_fija] == 1);
+    CHECK(pantalla.seguridad.opciones[Opcion::antivirus] == 1);
+    CHECK(seguridad.has_value() == configurando);
+    if (seguridad) {
+      CHECK(seguridad->nivel == Nivel::personalizado);
+      CHECK(seguridad->opciones == pantalla.seguridad.opciones);
+    }
+    tocar(351, 840);
+    CHECK(pantalla.seguridad.nivel == Nivel::reforzado);
+    tocar(351, 720);
+    CHECK(pantalla.seguridad.opciones[Opcion::historial_cifrado] == 0);
+    CHECK(pantalla.seguridad.nivel == Nivel::personalizado);
+    tocar(440, 260);
+    CHECK(pantalla.seguridad.nivel == Nivel::basico);
+    CHECK(pantalla.seguridad.opciones == ventrik::Opciones{});
+    tocar(1130, 260);
+    CHECK(pantalla.seguridad.nivel == Nivel::personalizado);
+    CHECK(pantalla.seguridad.opciones == ventrik::Opciones{});
+  }
+}
+
+TEST_CASE("En Hostear, lo que llega en otras etapas está apagado y no hace nada") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1280, 1300));
+  auto pantalla = asistente_es();
+  const auto tocar = [&](ImVec2 donde) { CHECK(todos_vacios(tocar_hostear(sin_pantalla, pantalla, donde))); };
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  tocar(ImVec2(338, 323));
+  tocar(ImVec2(150, 484));
+  CHECK(pantalla.paso == ui::Paso::nombre);
+
+  pantalla.paso = ui::Paso::seguridad;
+  ventrik::elegir_nivel(pantalla.seguridad, ventrik::Nivel::reforzado);
+  const ventrik::Seguridad antes = pantalla.seguridad;
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  tocar(ImVec2(1183, 511));
+  pantalla.ver_opciones = true;
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  for (const float y : {880.0f, 920.0f, 960.0f, 1000.0f}) {
+    tocar(ImVec2(351, y));
+  }
+  tocar(ImVec2(560, 607));
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  CHECK_FALSE(hay_ventana_emergente());
+  CHECK(pantalla.seguridad.nivel == antes.nivel);
+  CHECK(pantalla.seguridad.opciones == antes.opciones);
+
+  pantalla.paso = ui::Paso::revisar;
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  for (const float y : {601.0f, 647.0f, 693.0f}) {
+    tocar(ImVec2(338, y));
+  }
+  for (const auto paso : {ui::Paso::conexion, ui::Paso::capacidad, ui::Paso::chat, ui::Paso::pantallas}) {
+    pantalla.paso = paso;
+    for (float y = 185; y < 380; y += 23) {
+      for (float x = 320; x < 1260; x += 71) {
+        tocar(ImVec2(x, y));
+      }
+    }
+    CHECK(pantalla.paso == paso);
+  }
+}
+
+TEST_CASE("En Hostear, Iniciar servidor pide crear con lo escrito y borra las contraseñas") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1280, 1300));
+  auto pantalla = asistente_es();
+  const auto tocar = [&](ImVec2 donde) { return tocar_hostear(sin_pantalla, pantalla, donde); };
+  const auto escribir_en_campo = [&](ImVec2 donde, std::string texto) {
+    tocar(donde);
+    sin_pantalla.apretar(ImGuiKey_A, true);
+    hostear(sin_pantalla, pantalla, donde);
+    hostear(sin_pantalla, pantalla, donde);
+    sin_pantalla.teclear(std::move(texto));
+    for (int i = 0; i < 3; ++i) {
+      hostear(sin_pantalla, pantalla, donde);
+    }
+  };
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  escribir_en_campo(ImVec2(550, 247), "Casa de Tano");
+  escribir_en_campo(ImVec2(1000, 247), "secreta1");
+  CHECK(std::string(pantalla.nombre.data()) == "Casa de Tano");
+  tocar(ImVec2(150, 272));
+  tocar(ImVec2(670, 260));
+  escribir_en_campo(ImVec2(550, 424), "arranque1");
+  escribir_en_campo(ImVec2(1015, 424), "arranque1");
+  tocar(ImVec2(150, 431));
+  REQUIRE(pantalla.paso == ui::Paso::revisar);
+  std::optional<ui::Creacion> creacion;
+  for (auto& pedido : tocar(ImVec2(1188, 850))) {
+    if (pedido.crear) {
+      creacion = std::move(pedido.crear);
+    }
+  }
+  REQUIRE(creacion);
+  CHECK(creacion->nombre == "Casa de Tano");
+  CHECK(std::string(ventrik::cifrado::texto_de(creacion->contrasena)) == "secreta1");
+  CHECK(std::string(ventrik::cifrado::texto_de(creacion->arranque)) == "arranque1");
+  CHECK(creacion->seguridad.nivel == ventrik::Nivel::reforzado);
+  for (const ui::Campo* campo : {&pantalla.contrasena, &pantalla.arranque, &pantalla.repetir}) {
+    CHECK(std::all_of(campo->begin(), campo->end(), [](char c) { return c == '\0'; }));
+  }
+
+  const auto sin_crear = [&](ui::Paso donde_queda) {
+    pantalla.paso = ui::Paso::revisar;
+    pantalla.error.clear();
+    hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+    const auto pedidos = tocar(ImVec2(1188, 850));
+    CHECK(std::none_of(pedidos.begin(), pedidos.end(), [](const ui::PedidoHostear& pedido) { return pedido.crear.has_value(); }));
+    CHECK(pantalla.paso == donde_queda);
+    CHECK_FALSE(pantalla.error.empty());
+  };
+  ui::poner(pantalla.arranque, "arranque1");
+  ui::poner(pantalla.repetir, "otra cosa");
+  sin_crear(ui::Paso::seguridad);
+  ui::poner(pantalla.arranque, "corta");
+  ui::poner(pantalla.repetir, "corta");
+  sin_crear(ui::Paso::seguridad);
+  ui::poner(pantalla.nombre, " Casa");
+  sin_crear(ui::Paso::nombre);
+  ui::poner(pantalla.nombre, "Casa");
+  ventrik::elegir_nivel(pantalla.seguridad, ventrik::Nivel::basico);
+  pantalla.paso = ui::Paso::revisar;
+  pantalla.error.clear();
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  creacion.reset();
+  for (auto& pedido : tocar(ImVec2(1188, 850))) {
+    if (pedido.crear) {
+      creacion = std::move(pedido.crear);
+    }
+  }
+  REQUIRE(creacion);
+  CHECK(creacion->arranque.size() == 0);
+  CHECK(creacion->contrasena.size() == 0);
+}
+
+TEST_CASE("En la configuración del servidor, el nombre, la contraseña y el nivel salen en el pedido al cambiarlos") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1280, 1300));
+  auto pantalla = configuracion_llena(true);
+  std::vector<ui::PedidoHostear> pedidos;
+  const auto cuadro = [&](ImVec2 donde = ImVec2(5, 5), bool clic = false) {
+    pedidos.push_back(hostear(sin_pantalla, pantalla, donde, clic));
+  };
+  const auto tocar = [&](ImVec2 donde) {
+    pedidos.clear();
+    for (const bool clic : {false, true, false}) {
+      cuadro(donde, clic);
+    }
+  };
+  const auto hay = [&](auto&& condicion) { return std::any_of(pedidos.begin(), pedidos.end(), condicion); };
+  const auto escribir_nombre = [&](std::string texto) {
+    const ImVec2 nombre(550, 221);
+    tocar(nombre);
+    sin_pantalla.apretar(ImGuiKey_A, true);
+    cuadro(nombre);
+    cuadro(nombre);
+    sin_pantalla.teclear(std::move(texto));
+    for (int i = 0; i < 3; ++i) {
+      cuadro(nombre);
+    }
+    sin_pantalla.apretar(ImGuiKey_Enter);
+    cuadro(nombre);
+    cuadro(nombre);
+  };
+  cuadro();
+  escribir_nombre("Nuevo nombre");
+  CHECK(hay([](const ui::PedidoHostear& pedido) { return pedido.nombre == std::optional<std::string>("Nuevo nombre"); }));
+  CHECK(pantalla.error.empty());
+  pedidos.clear();
+  escribir_nombre(" mal");
+  CHECK_FALSE(hay([](const ui::PedidoHostear& pedido) { return pedido.nombre.has_value(); }));
+  CHECK_FALSE(pantalla.error.empty());
+
+  tocar(ImVec2(940, 221));
+  sin_pantalla.teclear("nueva123");
+  for (int i = 0; i < 3; ++i) {
+    cuadro(ImVec2(940, 221));
+  }
+  tocar(ImVec2(1172, 221));
+  const auto con_contrasena = std::find_if(pedidos.begin(), pedidos.end(),
+                                           [](const ui::PedidoHostear& pedido) { return pedido.contrasena.has_value(); });
+  REQUIRE(con_contrasena != pedidos.end());
+  CHECK(std::string(ventrik::cifrado::texto_de(*con_contrasena->contrasena)) == "nueva123");
+  CHECK(pantalla.contrasena[0] == '\0');
+
+  pantalla.paso = ui::Paso::seguridad;
+  cuadro();
+  tocar(ImVec2(900, 233));
+  CHECK(hay([](const ui::PedidoHostear& pedido) {
+    return pedido.seguridad && pedido.seguridad->nivel == ventrik::Nivel::maximo;
+  }));
+  tocar(ImVec2(900, 233));
+  CHECK_FALSE(hay([](const ui::PedidoHostear& pedido) { return pedido.seguridad.has_value(); }));
+  tocar(ImVec2(920, 388));
+  CHECK(hay([](const ui::PedidoHostear& pedido) { return pedido.exportar; }));
+  tocar(ImVec2(1072, 388));
+  CHECK(hay([](const ui::PedidoHostear& pedido) { return pedido.importar; }));
+  tocar(ImVec2(1183, 388));
+  CHECK(hay([](const ui::PedidoHostear& pedido) { return pedido.cambiar_clave; }));
+  tocar(ImVec2(1193, 609));
+  CHECK(hay([](const ui::PedidoHostear& pedido) { return pedido.sacar_admin == std::optional<std::size_t>(1); }));
+
+  pantalla = configuracion_llena(false);
+  pantalla.paso = ui::Paso::seguridad;
+  cuadro();
+  for (const float x : {920.0f, 1072.0f, 1183.0f}) {
+    tocar(ImVec2(x, 388));
+    CHECK(todos_vacios(pedidos));
+  }
+}
+
+TEST_CASE("En Inicio, Hostear un servidor pide el asistente y la tarjeta de Mi servidor pide iniciar, detener y configurar") {
+  SinPantalla sin_pantalla;
+  ui::PantallaInicio pantalla;
+  pantalla.mis_servidores = {{"Mi servidor", 7700, false}, {"Otro mío", 7701, true}};
+  const Guardados guardados{};
+  recorrer(sin_pantalla, pantalla, guardados);
+  const auto tocar = [&](ImVec2 donde) {
+    ui::Pedido elegido;
+    for (const bool clic : {false, true, false}) {
+      const ui::Pedido pedido = sin_pantalla.cuadro(pantalla, guardados, donde, clic);
+      if (pedido.accion != ui::Accion::ninguna) {
+        elegido = pedido;
+      }
+    }
+    return std::make_pair(elegido.accion, elegido.cual);
+  };
+  CHECK(tocar(ImVec2(860, 129)).first == ui::Accion::hostear);
+  CHECK(tocar(ImVec2(150, 350)) == std::make_pair(ui::Accion::iniciar_mio, std::size_t{0}));
+  CHECK(tocar(ImVec2(410, 350)) == std::make_pair(ui::Accion::configurar_mio, std::size_t{0}));
+  CHECK(tocar(ImVec2(600, 350)) == std::make_pair(ui::Accion::iniciar_mio, std::size_t{1}));
+  CHECK(tocar(ImVec2(786, 350)) == std::make_pair(ui::Accion::detener_mio, std::size_t{1}));
+  CHECK(tocar(ImVec2(862, 350)) == std::make_pair(ui::Accion::configurar_mio, std::size_t{1}));
+  ui::poner(pantalla.buscar, "otro");
+  sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  CHECK(tocar(ImVec2(410, 350)) == std::make_pair(ui::Accion::configurar_mio, std::size_t{1}));
+}
+
+TEST_CASE("El ▾ del servidor abre la configuración solo para el dueño") {
+  for (const bool dueno : {true, false}) {
+    SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+    auto sala = sala_llena(dueno, 4, 3, 5);
+    auto pantalla = pantalla_servidor();
+    bool configurar = false;
+    const auto tocar = [&](ImVec2 donde) {
+      for (const bool clic : {false, true, false}) {
+        configurar = sin_pantalla.cuadro(pantalla, sala, donde, clic).configurar || configurar;
+      }
+    };
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+    tocar(ImVec2(150, 20));
+    REQUIRE(hay_ventana_emergente());
+    tocar(ImVec2(100, 192));
+    CHECK(configurar == dueno);
+  }
 }

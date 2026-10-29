@@ -43,6 +43,7 @@
 #include "client/vigia.h"
 #include "client/ui/ajustes.h"
 #include "client/ui/aviso_ventana.h"
+#include "client/ui/hostear.h"
 #include "client/ui/inicio.h"
 #include "client/ui/servidor.h"
 #include "client/ui/ventana.h"
@@ -91,19 +92,9 @@ struct TrabajoDeCopia {
   std::atomic<bool> listo{false};
 };
 
-cifrado::Secreto copiar(gsl::span<const std::uint8_t> original) {
-  cifrado::Secreto copia(original.size());
-  std::copy(original.begin(), original.end(), copia.bytes().begin());
-  return copia;
-}
-
-cifrado::Secreto secreto_de(std::string_view escrita) {
-  return copiar(gsl::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(escrita.data()), escrita.size()));
-}
-
-std::string_view texto_de(const cifrado::Secreto& secreto) {
-  return std::string_view(reinterpret_cast<const char*>(secreto.bytes().data()), secreto.size());
-}
+using cifrado::copiar;
+using cifrado::secreto_de;
+using cifrado::texto_de;
 
 template <typename... Valores>
 void anotar(std::ostream& salida, const Valores&... valores) {
@@ -240,7 +231,7 @@ class Programa {
   void aplicar_idioma() {
     const std::string codigo = cliente::ajuste_texto(guardados_, cliente::Ajuste::idioma);
     const Idioma idioma = codigo.empty() ? idioma_de_windows() : elegir_idioma(codigo);
-    pantalla_.idioma = servidor_.idioma = ajustes_.idioma = idioma;
+    pantalla_.idioma = servidor_.idioma = ajustes_.idioma = hostear_.idioma = idioma;
     avisos_.idioma(idioma);
     ventana_.bandeja(cliente::ajuste_o(guardados_, cliente::Ajuste::al_cerrar, 0) == 0,
                      cliente::ajuste_o(guardados_, cliente::Ajuste::al_minimizar, 0) == 1,
@@ -455,6 +446,12 @@ class Programa {
       aplicar_limpieza();
     }
     sin_guardar_ = true;
+  }
+
+  void abrir_hostear(PantallaHostear pantalla) {
+    ui::borrar_contrasenas(hostear_);
+    hostear_ = std::move(pantalla);
+    en_hostear_ = true;
   }
 
   void cuadro_de_bloqueo() {
@@ -739,6 +736,8 @@ class Programa {
       servidor_.eligiendo_tecla = false;
     }
     cerrar_ajustes();
+    ui::borrar_contrasenas(hostear_);
+    en_hostear_ = false;
     cambiar_bloqueo(true);
   }
 
@@ -1149,6 +1148,10 @@ class Programa {
       cuadro_de_ajustes();
       return;
     }
+    if (en_hostear_) {
+      en_hostear_ = !dibujar_hostear(hostear_).cerrar;
+      return;
+    }
     if (sala_) {
       PedidoServidor pedido = dibujar_servidor(servidor_, *sala_);
       ordenar(std::move(pedido.ordenes));
@@ -1206,6 +1209,9 @@ class Programa {
       if (pedido.ajustes) {
         abrir_ajustes();
       }
+      if (pedido.configurar) {
+        abrir_hostear(configuracion(servidor_.idioma, servidor_.nombre_servidor, false));
+      }
       return;
     }
     Pedido pedido = dibujar_inicio(pantalla_, guardados_);
@@ -1241,6 +1247,14 @@ class Programa {
       case Accion::desconectar:
         desconectar();
         break;
+      case Accion::hostear:
+        abrir_hostear(asistente(pantalla_.idioma));
+        break;
+      case Accion::configurar_mio:
+        abrir_hostear(configuracion(pantalla_.idioma, pantalla_.mis_servidores[pedido.cual].nombre, true));
+        break;
+      case Accion::iniciar_mio:
+      case Accion::detener_mio:
       case Accion::ninguna:
         break;
     }
@@ -1718,6 +1732,8 @@ class Programa {
   std::shared_ptr<TrabajoDeCopia> copia_;
   std::thread hilo_de_copia_;
   bool en_ajustes_ = false;
+  PantallaHostear hostear_;
+  bool en_hostear_ = false;
   bool mostrar_minimizada_ = true;
   std::unique_ptr<cliente::PruebaDeAudio> prueba_;
   std::optional<cliente::Teclas> eligiendo_desde_;

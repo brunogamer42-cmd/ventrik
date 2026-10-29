@@ -204,6 +204,20 @@ std::optional<int> desplegable(const char* id, ImVec2 donde, float ancho, const 
   return nueva;
 }
 
+std::optional<int> desplegable(const char* id, ImVec2 donde, float ancho, Idioma idioma,
+                               std::initializer_list<Clave> claves, int elegida) {
+  std::vector<std::string> opciones;
+  for (const Clave clave : claves) {
+    opciones.emplace_back(texto(idioma, clave));
+  }
+  return desplegable(id, donde, ancho, opciones, elegida);
+}
+
+void poner(Campo& campo, std::string_view texto) {
+  campo.fill('\0');
+  std::copy_n(texto.begin(), std::min(texto.size(), campo.size() - 1), campo.begin());
+}
+
 void cerrar_ventana_emergente() {
   ImGui::CloseCurrentPopup();
   ImGui::GetCurrentWindow()->Hidden = true;
@@ -350,6 +364,18 @@ void triangulos(ImDrawList& dibujo, ImVec2 desde, ImVec2 hasta) {
   dibujo.AddTriangleFilled(hasta, ImVec2(hasta.x - lado, hasta.y), ImVec2(hasta.x, hasta.y - lado), color);
 }
 
+void punteado(ImDrawList& dibujo, ImVec2 desde, ImVec2 hasta, ImU32 color) {
+  const float paso = px(4);
+  for (float x = desde.x; x < hasta.x; x += paso) {
+    dibujo.AddRectFilled(ImVec2(x, desde.y), ImVec2(std::min(x + px(2), hasta.x), desde.y + 1), color);
+    dibujo.AddRectFilled(ImVec2(x, hasta.y - 1), ImVec2(std::min(x + px(2), hasta.x), hasta.y), color);
+  }
+  for (float y = desde.y; y < hasta.y; y += paso) {
+    dibujo.AddRectFilled(ImVec2(desde.x, y), ImVec2(desde.x + 1, std::min(y + px(2), hasta.y)), color);
+    dibujo.AddRectFilled(ImVec2(hasta.x - 1, y), ImVec2(hasta.x, std::min(y + px(2), hasta.y)), color);
+  }
+}
+
 void panel(ImVec2 desde, ImVec2 hasta) {
   ImDrawList& dibujo = lienzo();
   dibujo.AddRectFilled(desde, hasta, tono(color::panel));
@@ -456,6 +482,34 @@ bool boton(const char* id, std::string_view texto, Estilo estilo, ImVec2 tamano,
   }
   escribir(ImVec2(x + con_icono, desde.y + (tamano.y - medida_texto.y) / 2), texto, color_texto, letra);
   return apretado;
+}
+
+bool barra_con_volver(std::string_view volver, std::string_view titulo, std::string_view junto,
+                      std::string_view derecha) {
+  ImDrawList& dibujo = lienzo();
+  const float ancho_pantalla = ImGui::GetIO().DisplaySize.x;
+  const float alto = px(54);
+  dibujo.AddRectFilled(ImVec2(0, 0), ImVec2(ancho_pantalla, alto), tono(color::panel));
+  dibujo.AddRectFilled(ImVec2(0, alto), ImVec2(ancho_pantalla, alto + 1), tono(color::borde_oscuro));
+  triangulos(dibujo, ImVec2(0, 0), ImVec2(ancho_pantalla, alto));
+  const float ancho = ancho_boton(volver, Estilo::contorneado, Icono::flecha_izquierda);
+  ImGui::SetCursorScreenPos(ImVec2(px(16), (alto - px(32)) / 2));
+  const bool tocado = boton("##volver", volver, Estilo::contorneado, ImVec2(ancho, px(32)), Icono::flecha_izquierda);
+  const float fin = escribir_en(px(32) + ancho, alto / 2, titulo, color::texto, Letra::titulo, medida::letra_servidor);
+  escribir_en(fin + px(16), alto / 2, junto, color::apagado, Letra::normal, medida::letra_chica);
+  escribir_en(ancho_pantalla - px(16) - medir(derecha, Letra::normal, medida::letra_chica).x, alto / 2, derecha,
+              color::apagado, Letra::normal, medida::letra_chica);
+  return tocado;
+}
+
+bool boton_a_la_izquierda(const char* id, std::string_view texto, Estilo estilo, float& derecha, float y, float alto,
+                          Icono icono) {
+  const float ancho = ancho_boton(texto, estilo, icono);
+  derecha -= ancho;
+  ImGui::SetCursorScreenPos(ImVec2(derecha, y));
+  const bool tocado = boton(id, texto, estilo, ImVec2(ancho, px(alto)), icono);
+  derecha -= px(12);
+  return tocado;
 }
 
 bool campo(const char* id, std::string_view pista, gsl::span<char> texto, ImVec2 tamano,

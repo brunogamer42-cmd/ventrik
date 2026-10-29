@@ -160,9 +160,10 @@ EleccionDeServidor menu_servidor(Idioma idioma, const AvisosDelServidor& avisos,
   ImGui::Separator();
   const std::string solo = rol != protocolo::Rol::ninguno ? pronto : s(idioma, Clave::avisos_admins);
   ImGui::MenuItem(s(idioma, Clave::avisos_bots).c_str(), solo.c_str(), false, false);
-  ImGui::MenuItem(s(idioma, Clave::avisos_configuracion).c_str(), solo.c_str(), false, false);
-  eleccion.liberar_nombre =
-      conectado && rol == protocolo::Rol::dueno && ImGui::MenuItem(s(idioma, Clave::avisos_liberar_nombre).c_str());
+  const bool dueno = rol == protocolo::Rol::dueno;
+  eleccion.configurar =
+      ImGui::MenuItem(s(idioma, Clave::avisos_configuracion).c_str(), dueno ? nullptr : solo.c_str(), false, dueno);
+  eleccion.liberar_nombre = conectado && dueno && ImGui::MenuItem(s(idioma, Clave::avisos_liberar_nombre).c_str());
   if (conectado) {
     ImGui::Separator();
     eleccion.desconectar = ImGui::MenuItem(s(idioma, Clave::inicio_desconectar).c_str());

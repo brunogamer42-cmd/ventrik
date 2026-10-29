@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <algorithm>
 #include <cstdint>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -39,5 +41,19 @@ class Secreto {
 
   std::vector<std::uint8_t> datos_;
 };
+
+inline Secreto copiar(gsl::span<const std::uint8_t> original) {
+  Secreto copia(original.size());
+  std::copy(original.begin(), original.end(), copia.bytes().begin());
+  return copia;
+}
+
+inline Secreto secreto_de(std::string_view escrita) {
+  return copiar(gsl::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(escrita.data()), escrita.size()));
+}
+
+inline std::string_view texto_de(const Secreto& secreto) {
+  return std::string_view(reinterpret_cast<const char*>(secreto.bytes().data()), secreto.size());
+}
 
 }  // namespace ventrik::cifrado

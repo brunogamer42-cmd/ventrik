@@ -17,6 +17,7 @@ struct EleccionDeServidor {
   bool marcar_todo = false;
   bool desconectar = false;
   bool liberar_nombre = false;
+  bool configurar = false;
 };
 
 struct EleccionDeAvisos {

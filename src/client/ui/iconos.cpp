@@ -98,6 +98,13 @@ void dibujar_icono(ImDrawList& dibujo, Icono icono, ImVec2 centro, float lado, I
     case Icono::flecha_izquierda:
       trazo({ImVec2(2, -4.5f), ImVec2(-2.5f, 0), ImVec2(2, 4.5f)}, false);
       break;
+    case Icono::atras:
+    case Icono::adelante: {
+      const float lado_flecha = icono == Icono::adelante ? 1.0f : -1.0f;
+      dibujo.AddLine(p(-5 * lado_flecha, 0), p(5 * lado_flecha, 0), color, grosor);
+      trazo({ImVec2(1 * lado_flecha, -4), ImVec2(5 * lado_flecha, 0), ImVec2(1 * lado_flecha, 4)}, false);
+      break;
+    }
     case Icono::reproducir:
       dibujo.AddTriangleFilled(p(-2.5f, -4.5f), p(4, 0), p(-2.5f, 4.5f), color);
       break;
