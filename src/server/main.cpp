@@ -233,6 +233,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
   std::optional<bool> cifrar_historial;
   std::optional<ventrik::SegundoPaso> segundo_paso;
   std::string quitar_segundo_paso;
+  std::string permitir_segundo_paso;
   std::string nombre;
   std::string liberar;
   std::wstring exportar;
@@ -293,6 +294,10 @@ int wmain(int cantidad, wchar_t** argumentos) {
       quitar_segundo_paso = ventrik::a_utf8(argumentos[++i]);
       continue;
     }
+    if (opcion == L"--permitir-segundo-paso" && hay_valor) {
+      permitir_segundo_paso = ventrik::a_utf8(argumentos[++i]);
+      continue;
+    }
     if (opcion == L"--puerto" && hay_valor && leer_puerto(argumentos[i + 1], puerto)) {
       ++i;
       continue;
@@ -319,6 +324,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
     escribir_linea(texto(ventrik::Clave::servidor_uso_cambiar_clave));
     escribir_linea(texto(ventrik::Clave::servidor_uso_segundo_paso));
     escribir_linea(texto(ventrik::Clave::servidor_uso_quitar_segundo_paso));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_permitir_segundo_paso));
     return 2;
   }
   if (carpeta.empty()) {
@@ -532,6 +538,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
   opciones.cifrar_historial = cifrar_historial;
   opciones.segundo_paso = segundo_paso;
   opciones.quitar_segundo_paso = quitar_segundo_paso;
+  opciones.permitir_segundo_paso = permitir_segundo_paso;
   opciones.nombre_general = texto(ventrik::Clave::canal_general);
   opciones.nombre_servidor = nombre;
   opciones.nombre_de_fabrica = texto(ventrik::Clave::servidor_nombre_de_fabrica);
@@ -596,6 +603,12 @@ int wmain(int cantidad, wchar_t** argumentos) {
                        ? ventrik::con_datos(texto(ventrik::Clave::servidor_sin_segundo_paso_que_quitar), {quitar_segundo_paso})
                        : ventrik::con_datos(texto(ventrik::Clave::servidor_segundo_paso_quitado_a),
                                             {servidor.segundo_paso_quitado()}));
+  }
+  if (!permitir_segundo_paso.empty()) {
+    escribir_linea(servidor.segundo_paso_permitido().empty()
+                       ? ventrik::con_datos(texto(ventrik::Clave::servidor_sin_identidad_que_permitir), {permitir_segundo_paso})
+                       : ventrik::con_datos(texto(ventrik::Clave::servidor_segundo_paso_permitido_a),
+                                            {servidor.segundo_paso_permitido()}));
   }
   if (servidor.tiene_dueno()) {
     DeleteFileW(archivo_codigo.c_str());

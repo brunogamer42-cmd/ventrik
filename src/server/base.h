@@ -99,7 +99,7 @@ class Base {
   bool guardar_usuario(const UsuarioGuardado& usuario);
   bool borrar_usuarios(const std::vector<ClaveDeUsuario>& claves);
   bool liberar_nombre(const std::string& nombre);
-  bool anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std::uint64_t ahora_ms);
+  bool anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std::uint64_t ahora_ms, bool es_nuevo = false);
   std::optional<bool> conoce_equipo(const ClaveDeUsuario& clave, const Equipo& equipo);
   bool anotar(const protocolo::AvisoDeSeguridad& aviso);
   std::vector<protocolo::AvisoDeSeguridad> registro(std::size_t maximo);
@@ -107,7 +107,8 @@ class Base {
                      const protocolo::AvisoDeSeguridad& aviso);
   AvisosPendientes avisos_para(const ClaveDeUsuario& clave, const Equipo& equipo);
   bool entregados(const ClaveDeUsuario& clave, const Equipo& equipo, std::int64_t hasta);
-  std::optional<bool> avisa_de(const ClaveDeUsuario& clave, const Equipo& equipo);
+  std::optional<bool> es_de_confianza(const ClaveDeUsuario& clave, const Equipo& equipo);
+  bool confiar_equipos(const ClaveDeUsuario& clave);
   std::optional<std::vector<SegundoPasoGuardado>> segundos_pasos();
   bool guardar_segundo_paso(const SegundoPasoGuardado& guardado);
   bool quitar_segundo_paso(const ClaveDeUsuario& clave);
@@ -148,6 +149,7 @@ class Base {
   };
 
   bool es_su_hilo() const;
+  bool limpiar_equipos_nuevos(const ClaveDeUsuario& clave);
   sqlite3_stmt* preparada(Sentencia cual);
   bool correr(Sentencia cual);
 

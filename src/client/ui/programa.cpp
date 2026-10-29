@@ -1071,7 +1071,7 @@ class Programa {
     }
     bool entraron_o_salieron = false;
     if (sesion_) {
-      for (const cliente::Novedad& novedad : sesion_->esperar_novedades(0ms)) {
+      for (cliente::Novedad& novedad : sesion_->esperar_novedades(0ms)) {
         cambio = true;
         if (const auto* intento = std::get_if<cliente::IntentoDeConexion>(&novedad)) {
           conectado(*intento);
@@ -1111,6 +1111,9 @@ class Programa {
           } else if (rechazo != nullptr && rechazo->pedido == protocolo::TipoMensaje::destinos_de_susurro) {
             susurros_enviados_.fill(protocolo::DestinosDeSusurro{1, kSinSaber, {}});
           }
+        }
+        if (auto* oferta = std::get_if<protocolo::ConfigurarSegundoPaso>(&novedad)) {
+          mbedtls_platform_zeroize(oferta->secreto.data(), oferta->secreto.size());
         }
       }
     }
@@ -1448,6 +1451,7 @@ class Programa {
     }
     if (bloqueado_) {
       quien.contrasena.reset();
+      quien.segundo_paso.reset();
       al_desbloquear_ = [this, direccion, huella, quien, desde_formulario] {
         entrar(direccion, huella, quien, desde_formulario);
       };

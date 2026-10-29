@@ -73,7 +73,9 @@ const char kEsquema[] =
     " quien TEXT NOT NULL, detalle TEXT NOT NULL);"
     "CREATE INDEX IF NOT EXISTS seguridad_por_tipo ON seguridad(tipo, id);"
     "CREATE TABLE IF NOT EXISTS segundo_paso(clave BLOB PRIMARY KEY, sellado BLOB NOT NULL, paso INTEGER NOT NULL,"
-    " fallas INTEGER NOT NULL, desde INTEGER NOT NULL) WITHOUT ROWID;";
+    " fallas INTEGER NOT NULL, desde INTEGER NOT NULL) WITHOUT ROWID;"
+    "CREATE TABLE IF NOT EXISTS equipos_nuevos(clave BLOB NOT NULL, equipo BLOB NOT NULL, PRIMARY KEY(clave, equipo))"
+    " WITHOUT ROWID;";
 
 const char kParaEsteEquipo[] =
     "clave = ?1 AND (salvo IS NULL OR (salvo <> ?2 AND EXISTS (SELECT 1 FROM equipos"
@@ -82,7 +84,9 @@ const char kParaEsteEquipo[] =
 const char kHuerfanos[] =
     "DELETE FROM equipos WHERE clave NOT IN (SELECT clave FROM usuarios);"
     "DELETE FROM avisos WHERE clave NOT IN (SELECT clave FROM usuarios);"
-    "DELETE FROM segundo_paso WHERE clave NOT IN (SELECT clave FROM usuarios);";
+    "DELETE FROM segundo_paso WHERE clave NOT IN (SELECT clave FROM usuarios);"
+    "DELETE FROM equipos_nuevos WHERE NOT EXISTS (SELECT 1 FROM equipos WHERE equipos.clave = equipos_nuevos.clave"
+    " AND equipos.equipo = equipos_nuevos.equipo);";
 
 const char kMigrarDe1[] =
     "BEGIN;"
@@ -712,7 +716,7 @@ bool Base::borrar_usuarios(const std::vector<ClaveDeUsuario>& claves) {
     avisos.bytes(1, clave);
     segundo.bytes(1, clave);
     bien = usuario.paso() == SQLITE_DONE && equipos.paso() == SQLITE_DONE && avisos.paso() == SQLITE_DONE &&
-           segundo.paso() == SQLITE_DONE && bien;
+           segundo.paso() == SQLITE_DONE && limpiar_equipos_nuevos(clave) && bien;
   }
   return bien;
 }
@@ -726,7 +730,7 @@ bool Base::liberar_nombre(const std::string& nombre) {
   return consulta.paso() == SQLITE_DONE && ejecutar(base_, kHuerfanos);
 }
 
-bool Base::anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std::uint64_t ahora) {
+bool Base::anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std::uint64_t ahora, bool es_nuevo) {
   if (!es_su_hilo() || ahora > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
     return false;
   }
@@ -741,7 +745,37 @@ bool Base::anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std:
   sobrantes.bytes(1, clave)
       .entero(2, static_cast<std::int64_t>(kMaximoEquiposPorUsuario))
       .entero(3, static_cast<std::int64_t>(kMsPorDia));
-  return nuevo.paso() == SQLITE_DONE && sobrantes.paso() == SQLITE_DONE;
+  Consulta marca(base_, "INSERT OR IGNORE INTO equipos_nuevos(clave, equipo) VALUES (?1, ?2)");
+  marca.bytes(1, clave).bytes(2, equipo);
+  return nuevo.paso() == SQLITE_DONE && sobrantes.paso() == SQLITE_DONE && (!es_nuevo || marca.paso() == SQLITE_DONE) &&
+         limpiar_equipos_nuevos(clave);
+}
+
+bool Base::limpiar_equipos_nuevos(const ClaveDeUsuario& clave) {
+  Consulta viejos(base_,
+                  "DELETE FROM equipos_nuevos WHERE clave = ?1 AND equipo NOT IN (SELECT equipo FROM equipos WHERE clave = ?1)");
+  viejos.bytes(1, clave);
+  return viejos.paso() == SQLITE_DONE;
+}
+
+std::optional<bool> Base::es_de_confianza(const ClaveDeUsuario& clave, const Equipo& equipo) {
+  if (!es_su_hilo()) {
+    return std::nullopt;
+  }
+  Consulta consulta(base_,
+                    "SELECT EXISTS (SELECT 1 FROM equipos WHERE clave = ?1 AND equipo = ?2) AND NOT EXISTS"
+                    " (SELECT 1 FROM equipos_nuevos WHERE clave = ?1 AND equipo = ?2)");
+  consulta.bytes(1, clave).bytes(2, equipo);
+  return consulta.paso() == SQLITE_ROW ? std::optional<bool>(consulta.columna_entero(0) == 1) : std::nullopt;
+}
+
+bool Base::confiar_equipos(const ClaveDeUsuario& clave) {
+  if (!es_su_hilo()) {
+    return false;
+  }
+  Consulta consulta(base_, "DELETE FROM equipos_nuevos WHERE clave = ?1");
+  consulta.bytes(1, clave);
+  return consulta.paso() == SQLITE_DONE;
 }
 
 std::optional<bool> Base::conoce_equipo(const ClaveDeUsuario& clave, const Equipo& equipo) {
@@ -828,15 +862,6 @@ bool Base::entregados(const ClaveDeUsuario& clave, const Equipo& equipo, std::in
   Consulta borrados(base_, (std::string("DELETE FROM avisos WHERE ") + kParaEsteEquipo + " AND id <= ?3").c_str());
   borrados.bytes(1, clave).bytes(2, equipo).entero(3, hasta);
   return borrados.paso() == SQLITE_DONE;
-}
-
-std::optional<bool> Base::avisa_de(const ClaveDeUsuario& clave, const Equipo& equipo) {
-  if (!es_su_hilo()) {
-    return std::nullopt;
-  }
-  Consulta consulta(base_, "SELECT EXISTS (SELECT 1 FROM avisos WHERE clave = ?1 AND salvo = ?2)");
-  consulta.bytes(1, clave).bytes(2, equipo);
-  return consulta.paso() == SQLITE_ROW ? std::optional<bool>(consulta.columna_entero(0) == 1) : std::nullopt;
 }
 
 std::optional<std::vector<SegundoPasoGuardado>> Base::segundos_pasos() {

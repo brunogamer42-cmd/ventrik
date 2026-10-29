@@ -201,7 +201,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       const auto pendientes = base->avisos_para(usuario.clave, equipo);
       avisos_validos(pendientes.lista, ventrik::servidor::kMaximoAvisosPorUsuario);
       base->entregados(usuario.clave, equipo, pendientes.hasta);
-      base->avisa_de(usuario.clave, equipo);
+      base->es_de_confianza(usuario.clave, equipo);
     }
   }
   if (const auto segundos = base->segundos_pasos()) {
@@ -221,7 +221,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   nuevo.nombre = "Ana";
   nuevo.visto_ms = 1;
   base->guardar_usuario(nuevo);
-  base->anotar_equipo(nuevo.clave, {}, 1);
+  base->anotar_equipo(nuevo.clave, {}, 1, true);
+  base->es_de_confianza(nuevo.clave, {});
+  base->confiar_equipos(nuevo.clave);
   base->anotar({ventrik::protocolo::Seguridad::canal_borrado, 1, "Ana", "Juegos"});
   base->guardar_aviso(nuevo.clave, std::nullopt, {ventrik::protocolo::Seguridad::canal_borrado, 1, "Ana", "Juegos"});
   avisos_validos(base->avisos_para(nuevo.clave, {}).lista, ventrik::servidor::kMaximoAvisosPorUsuario);

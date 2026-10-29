@@ -64,6 +64,7 @@ struct Opciones {
   std::optional<SegundoPaso> segundo_paso;
   std::optional<Seguridad> seguridad;
   std::string quitar_segundo_paso;
+  std::string permitir_segundo_paso;
   std::string liberar_nombre;
   std::string nombre_servidor;
   std::string nombre_de_fabrica = "Ventrik";
@@ -126,6 +127,7 @@ class Servidor {
   bool historial_cifrado() const { return historial_cifrado_; }
   void clave_del_segundo_paso(cifrado::Secreto clave) { clave_segundo_paso_ = std::move(clave); }
   const std::string& segundo_paso_quitado() const { return segundo_paso_quitado_; }
+  const std::string& segundo_paso_permitido() const { return segundo_paso_permitido_; }
   const Seguridad& seguridad() const { return seguridad_; }
 
   void correr(const std::atomic<bool>& seguir);
@@ -236,6 +238,7 @@ class Servidor {
   bool historial_cifrado_ = false;
   cifrado::Secreto clave_segundo_paso_;
   std::string segundo_paso_quitado_;
+  std::string segundo_paso_permitido_;
   Seguridad seguridad_;
   std::uint64_t proxima_marca_ = 0;
   std::map<std::uint32_t, Espera> esperas_por_ip_;

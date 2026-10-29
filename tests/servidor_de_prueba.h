@@ -5,6 +5,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -50,8 +51,10 @@ class ServidorDePrueba {
  public:
   using Evento = ventrik::servidor::Evento;
 
-  explicit ServidorDePrueba(ventrik::servidor::Opciones opciones = {})
-      : identidad_(identidad_nueva()) {
+  explicit ServidorDePrueba(ventrik::servidor::Opciones opciones = {}) : ServidorDePrueba(std::move(opciones), nullptr) {}
+  ServidorDePrueba(ventrik::servidor::Opciones opciones, ventrik::cifrado::IdentidadServidor* externa)
+      : propia_(externa != nullptr ? std::nullopt : std::optional<ventrik::cifrado::IdentidadServidor>(identidad_nueva())),
+        identidad_(externa != nullptr ? *externa : *propia_) {
     opciones.escuchar = ventrik::red::Direccion{kLocal, 0};
     opciones.nombre_general = "General";
     servidor_ = std::make_unique<ventrik::servidor::Servidor>(
@@ -78,7 +81,8 @@ class ServidorDePrueba {
   int cuantos(Evento evento) const { return eventos_[static_cast<std::size_t>(evento)].load(); }
 
  private:
-  ventrik::cifrado::IdentidadServidor identidad_;
+  std::optional<ventrik::cifrado::IdentidadServidor> propia_;
+  ventrik::cifrado::IdentidadServidor& identidad_;
   std::array<std::atomic<int>, 48> eventos_{};
   std::atomic<bool> seguir_{true};
   std::unique_ptr<ventrik::servidor::Servidor> servidor_;

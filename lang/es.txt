@@ -865,3 +865,6 @@ segundo_paso_seis_cifras = El código tiene 6 cifras.
 segundo_paso_titulo_entrar = Segundo paso
 segundo_paso_pedir = Escribí el código de 6 cifras que muestra tu app (Google Authenticator, Aegis…) para este servidor.
 segundo_paso_cuenta = {1} en {2}
+servidor_uso_permitir_segundo_paso = Con --permitir-segundo-paso <identidad corta> esa identidad puede activar el segundo paso desde cualquiera de los equipos con que ya entró (por ejemplo, si pasó su identidad a una PC nueva). Usalo solo si estás seguro de que esos equipos son suyos.
+servidor_segundo_paso_permitido_a = {1} va a poder activar el segundo paso la próxima vez que entre desde uno de sus equipos.
+servidor_sin_identidad_que_permitir = No hay ninguna identidad {1}. No se cambió nada.

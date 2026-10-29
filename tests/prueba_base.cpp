@@ -1096,7 +1096,7 @@ TEST_CASE("La configuración de seguridad se guarda entera y una dañada no se l
   borrar_base(archivo);
 }
 
-TEST_CASE("Se sabe si una identidad tiene un aviso pendiente de equipo nuevo para un equipo") {
+TEST_CASE("Un equipo que llegó como nuevo no es de confianza hasta que se lo permita, y se va con la identidad") {
   auto base = base_en_memoria();
   UsuarioGuardado ana;
   ana.clave.fill(4);
@@ -1107,12 +1107,25 @@ TEST_CASE("Se sabe si una identidad tiene un aviso pendiente de equipo nuevo par
   casa.fill(1);
   Equipo otro{};
   otro.fill(2);
-  CHECK(base->avisa_de(ana.clave, otro) == false);
-  REQUIRE(base->guardar_aviso(ana.clave, otro, {ventrik::protocolo::Seguridad::equipo_nuevo, 2000, "Ana", ""}));
-  CHECK(base->avisa_de(ana.clave, otro) == true);
-  CHECK(base->avisa_de(ana.clave, casa) == false);
+  CHECK(base->es_de_confianza(ana.clave, casa) == false);
+  REQUIRE(base->anotar_equipo(ana.clave, casa, 1000));
+  REQUIRE(base->anotar_equipo(ana.clave, otro, 2000, true));
+  REQUIRE(base->anotar_equipo(ana.clave, otro, 3000));
+  CHECK(base->es_de_confianza(ana.clave, casa) == true);
+  CHECK(base->es_de_confianza(ana.clave, otro) == false);
+  for (std::uint8_t cual = 10; cual < 10 + kMaximoEquiposPorUsuario; ++cual) {
+    Equipo relleno{};
+    relleno.fill(cual);
+    REQUIRE(base->anotar_equipo(ana.clave, relleno, 4000 + cual * kDia, true));
+  }
+  CHECK(base->es_de_confianza(ana.clave, otro) == false);
+  REQUIRE(base->anotar_equipo(ana.clave, otro, 90 * kDia));
+  REQUIRE(base->confiar_equipos(ana.clave));
+  CHECK(base->es_de_confianza(ana.clave, otro) == true);
+  REQUIRE(base->borrar_usuarios({ana.clave}));
+  REQUIRE(base->guardar_usuario(ana));
+  CHECK(base->es_de_confianza(ana.clave, otro) == false);
 }
-
 TEST_CASE("Pedir el estado en que ya está el historial no lo convierte otra vez") {
   const std::wstring archivo = archivo_temporal();
   borrar_base(archivo);
