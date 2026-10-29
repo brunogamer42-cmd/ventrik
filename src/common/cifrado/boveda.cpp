@@ -73,6 +73,15 @@ std::optional<std::vector<std::uint8_t>> Boveda::armar_archivo(std::optional<std
   return std::move(escritor).soltar();
 }
 
+bool pide_contrasena_de_arranque(gsl::span<const std::uint8_t> archivo) {
+  protocolo::Lector lector(archivo);
+  const auto marca = lector.leer_bytes(kMarcaBoveda.size());
+  const std::uint8_t version = lector.leer_u8();
+  const std::uint8_t capa = lector.leer_u8();
+  return lector.ok() && std::equal(marca.begin(), marca.end(), bytes_de(kMarcaBoveda).begin()) &&
+         version == kVersionBoveda && capa == kCapaContrasena;
+}
+
 BovedaAbierta abrir_boveda(gsl::span<const std::uint8_t> archivo, std::optional<std::string_view> contrasena) {
   protocolo::Lector lector(archivo);
   const auto marca = lector.leer_bytes(kMarcaBoveda.size());

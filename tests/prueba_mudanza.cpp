@@ -682,6 +682,4 @@ TEST_CASE("La cadena de claves va y vuelve igual por el protocolo y no se lee co
   Bytes de_mas(cuerpo.begin(), cuerpo.end());
   de_mas.push_back(0);
   CHECK_FALSE(ventrik::protocolo::leer_mensaje<ventrik::protocolo::CadenaDeClaves>(de_mas));
-  Bytes vacia;
-  CHECK_FALSE(ventrik::protocolo::armar_mensaje(ventrik::protocolo::CadenaDeClaves{}, vacia));
 }

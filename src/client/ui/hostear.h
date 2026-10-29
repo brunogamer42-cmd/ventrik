@@ -27,6 +27,25 @@ struct EntradaDelRegistro {
   std::string que;
 };
 
+enum class PideContrasena : std::uint8_t { ninguna, arranque, exportar, importar, cambiar_clave };
+
+struct DialogoDeServidor {
+  PideContrasena cual = PideContrasena::ninguna;
+  bool abrir = false;
+  bool con_arranque = false;
+  bool andando = false;
+  std::string error;
+  Campo contrasena{};
+  Campo repetir{};
+  Campo arranque{};
+};
+
+struct Contrasenas {
+  PideContrasena cual = PideContrasena::ninguna;
+  cifrado::Secreto contrasena;
+  cifrado::Secreto arranque;
+};
+
 struct PantallaHostear {
   Idioma idioma{};
   bool configurando = false;
@@ -50,6 +69,9 @@ struct PantallaHostear {
   std::string error;
   std::vector<AdminDelServidor> admins;
   std::vector<EntradaDelRegistro> registro;
+  bool ocupado = false;
+  bool cargando = false;
+  DialogoDeServidor dialogo;
 };
 
 struct Creacion {
@@ -69,11 +91,15 @@ struct PedidoHostear {
   bool importar = false;
   bool cambiar_clave = false;
   std::optional<std::size_t> sacar_admin;
+  std::optional<Contrasenas> contrasenas;
 };
 
 PantallaHostear asistente(Idioma idioma);
 PantallaHostear configuracion(Idioma idioma, std::string_view nombre, bool en_esta_pc);
 void borrar_contrasenas(PantallaHostear& pantalla);
+void borrar_contrasenas(DialogoDeServidor& dialogo);
+void pedir_contrasenas(DialogoDeServidor& dialogo, PideContrasena cual, bool con_arranque, bool andando = false);
+std::optional<Contrasenas> dibujar_dialogo(Idioma idioma, DialogoDeServidor& dialogo);
 PedidoHostear dibujar_hostear(PantallaHostear& pantalla);
 
 }

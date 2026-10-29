@@ -122,7 +122,7 @@ Mudanza revisar_base_importada(const std::wstring& archivo, const std::string& n
   const auto base = Base::abrir(archivo, nombre_general, std::move(clave_historial));
   const std::string contrasena = base ? base->texto_guardado("contrasena") : std::string();
   const bool bien = base && !base->canales().empty() && base->usuarios(ahora_ms()) &&
-                    (contrasena.empty() || leer_contrasena(contrasena));
+                    (contrasena.empty() || (leer_contrasena(contrasena) && base->guardar_texto("rehacer_contrasena", "1")));
   return bien ? Mudanza::hecha : Mudanza::base_danada;
 }
 

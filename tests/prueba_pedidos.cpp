@@ -234,7 +234,8 @@ TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{1, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 0}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 11}));
-  CHECK_FALSE(leer_mensaje<Negado>(Bytes{28, 0, 1}));
+  CHECK_FALSE(leer_mensaje<Negado>(Bytes{32, 0, 1}));
+  CHECK_FALSE(leer_mensaje<Negado>(Bytes{53, 0, 1}));
   CHECK_FALSE(leer_mensaje<Presentado>(Bytes{1, 0, 0, 0, 2, 0, 0, 0, 0}));
   CHECK_FALSE(leer_mensaje<Historial>(Bytes{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1}));
 }

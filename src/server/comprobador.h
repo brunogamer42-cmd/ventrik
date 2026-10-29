@@ -7,6 +7,7 @@
 #include <deque>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -22,6 +23,10 @@ struct Comprobacion {
   std::uint32_t ip = 0;
   ClaveDeUsuario clave{};
   Comprobado resultado = Comprobado::fallo;
+  bool cambio = false;
+  bool rehacer = false;
+  std::optional<std::string> hash;
+  std::uint64_t version = 0;
 };
 
 class Comprobador {
@@ -31,7 +36,7 @@ class Comprobador {
   Comprobador(const Comprobador&) = delete;
   Comprobador& operator=(const Comprobador&) = delete;
 
-  void arrancar();
+  bool arrancar();
   bool pedir(const Comprobacion& quien, const ContrasenaGuardada& guardada, cifrado::Secreto contrasena);
   std::vector<Comprobacion> tomar();
 

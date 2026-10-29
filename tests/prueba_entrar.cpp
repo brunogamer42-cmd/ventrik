@@ -58,6 +58,9 @@ class Manual {
     const auto leida = leer_bienvenida(bienvenida->cuerpo);
     REQUIRE(leida);
     protocolo_ = leida->protocolo;
+    const auto cadena = leer();
+    REQUIRE(cadena);
+    REQUIRE(cadena->tipo == static_cast<std::uint16_t>(TipoMensaje::cadena_de_claves));
     REQUIRE(tls_->valor_para_identidad(valor_));
     huella_ = servidor.huella().bytes();
   }

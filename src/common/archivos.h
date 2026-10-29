@@ -30,4 +30,6 @@ bool crear_carpetas(const std::wstring& ruta);
 
 std::wstring carpeta_de_datos(const std::wstring& nombre);
 
+std::wstring ruta_completa(const std::wstring& ruta);
+
 }

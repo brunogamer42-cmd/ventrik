@@ -246,6 +246,10 @@ bool Sesion::procesar(const protocolo::Marco& marco) {
       return publicar_si(protocolo::ConfigSeguridad{});
     case TipoMensaje::estado_segundo_paso:
       return publicar_si(protocolo::EstadoSegundoPaso{});
+    case TipoMensaje::nombre_servidor:
+      return publicar_si(protocolo::NombreServidor{});
+    case TipoMensaje::registro_de_seguridad:
+      return publicar_si(protocolo::RegistroDeSeguridad{});
     case TipoMensaje::desplazado:
       desplazada_ = protocolo::leer_mensaje<protocolo::Desplazado>(marco.cuerpo).has_value();
       return false;
@@ -332,8 +336,11 @@ void Sesion::correr() {
   }
 
   for (;;) {
-    for (const Orden& orden : tomar_ordenes()) {
+    for (Orden& orden : tomar_ordenes()) {
       std::visit([&salida](const auto& mensaje) { agregar(salida, mensaje); }, orden);
+      if (auto* cambio = std::get_if<protocolo::CambiarContrasenaServidor>(&orden); cambio && !cambio->contrasena.empty()) {
+        mbedtls_platform_zeroize(&cambio->contrasena[0], cambio->contrasena.size());
+      }
     }
     cambiar_voz();
     {

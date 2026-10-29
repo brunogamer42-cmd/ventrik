@@ -171,4 +171,12 @@ std::wstring carpeta_de_datos(const std::wstring& nombre) {
   return std::wstring(carpeta) + L"\\Ventrik\\" + nombre;
 }
 
+std::wstring ruta_completa(const std::wstring& ruta) {
+  const DWORD necesario = GetFullPathNameW(ruta.c_str(), 0, nullptr, nullptr);
+  std::vector<wchar_t> completa(necesario);
+  const DWORD largo =
+      necesario == 0 ? 0 : GetFullPathNameW(ruta.c_str(), necesario, completa.data(), nullptr);
+  return largo == 0 || largo >= necesario ? ruta : std::wstring(completa.data(), largo);
+}
+
 }

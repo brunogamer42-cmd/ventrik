@@ -6,7 +6,7 @@
 #include "common/cifrado/inicio.h"
 #include "common/cifrado/secreto.h"
 #include "common/protocol/bytes.h"
-#include "common/utf.h"
+#include "common/protocol/hostear.h"
 
 extern "C" {
 #include <mbedtls/constant_time.h>
@@ -23,9 +23,7 @@ constexpr std::size_t kBytes = 1 + 4 + 1 + cifrado::kBytesSal + cifrado::kBytesC
 std::optional<std::string> guardar_contrasena(std::string_view contrasena, std::optional<cifrado::Argon2> fijos) {
   ContrasenaGuardada guardada;
   cifrado::Secreto resumen(cifrado::kBytesClaveSimetrica);
-  if (contrasena.empty() || contrasena.size() > protocolo::kMaximoBytesContrasena || !es_utf8_valido(contrasena) ||
-      std::any_of(contrasena.begin(), contrasena.end(),
-                  [](char letra) { return static_cast<unsigned char>(letra) < 0x20 || letra == 0x7F; }) ||
+  if (contrasena.empty() || !protocolo::es_contrasena_valida(contrasena) ||
       cifrado::aleatorio(nullptr, guardada.sal.data(), guardada.sal.size()) != 0) {
     return std::nullopt;
   }

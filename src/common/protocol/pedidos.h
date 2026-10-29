@@ -383,6 +383,45 @@ struct CadenaDeClaves {
   cifrado::Cadena cadena;
 };
 
+constexpr std::size_t kMaximoFilasDelRegistro = 100;
+constexpr std::size_t kMaximoAdminsEnRegistro = 100;
+
+struct CambiarNombreServidor {
+  static constexpr TipoMensaje kTipo = TipoMensaje::cambiar_nombre_servidor;
+  std::string nombre;
+};
+
+struct CambiarContrasenaServidor {
+  static constexpr TipoMensaje kTipo = TipoMensaje::cambiar_contrasena_servidor;
+  std::string contrasena;
+};
+
+struct PedirRegistro {
+  static constexpr TipoMensaje kTipo = TipoMensaje::pedir_registro;
+};
+
+struct SacarAdminGuardado {
+  static constexpr TipoMensaje kTipo = TipoMensaje::sacar_admin_guardado;
+  std::string nombre;
+};
+
+struct NombreServidor {
+  static constexpr TipoMensaje kTipo = TipoMensaje::nombre_servidor;
+  std::string nombre;
+};
+
+struct AdminGuardado {
+  std::string nombre;
+  std::array<std::uint8_t, kBytesClavePublica> clave{};
+};
+
+struct RegistroDeSeguridad {
+  static constexpr TipoMensaje kTipo = TipoMensaje::registro_de_seguridad;
+  bool con_contrasena = false;
+  std::vector<AdminGuardado> admins;
+  std::vector<AvisoDeSeguridad> entradas;
+};
+
 struct Ping {
   static constexpr TipoMensaje kTipo = TipoMensaje::ping;
   std::uint64_t marca = 0;
@@ -465,6 +504,12 @@ VENTRIK_MENSAJE(ConfigurarSegundoPaso)
 VENTRIK_MENSAJE(PedirConfigSeguridad)
 VENTRIK_MENSAJE(CambiarConfigSeguridad)
 VENTRIK_MENSAJE(ConfigSeguridad)
+VENTRIK_MENSAJE(CambiarNombreServidor)
+VENTRIK_MENSAJE(CambiarContrasenaServidor)
+VENTRIK_MENSAJE(PedirRegistro)
+VENTRIK_MENSAJE(SacarAdminGuardado)
+VENTRIK_MENSAJE(NombreServidor)
+VENTRIK_MENSAJE(RegistroDeSeguridad)
 VENTRIK_MENSAJE(Ping)
 VENTRIK_MENSAJE(Pong)
 VENTRIK_MENSAJE(ClaveVoz)

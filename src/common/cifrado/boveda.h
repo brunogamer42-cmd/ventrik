@@ -41,5 +41,6 @@ struct BovedaAbierta {
 };
 
 BovedaAbierta abrir_boveda(gsl::span<const std::uint8_t> archivo, std::optional<std::string_view> contrasena);
+bool pide_contrasena_de_arranque(gsl::span<const std::uint8_t> archivo);
 
 }
