@@ -133,6 +133,7 @@ add_library(ventrik_comun STATIC
   src/common/cifrado/inicio.cpp
   src/common/cifrado/sobre.cpp
   src/common/cifrado/tls.cpp
+  src/common/cifrado/totp.cpp
   src/common/proceso.cpp
   src/common/protocol/bytes.cpp
   src/common/protocol/marcos.cpp
@@ -203,8 +204,8 @@ target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus minia
 add_library(ventrik_interfaz STATIC
   src/client/ui/aviso_ventana.cpp src/client/ui/aviso_windows.cpp src/client/ui/dibujante.cpp src/client/ui/iconos.cpp src/client/ui/inicio.cpp
   src/client/ui/ajustes.cpp src/client/ui/menu_avisos.cpp src/client/ui/piezas.cpp
-  src/client/ui/programa.cpp src/client/ui/servidor.cpp src/client/ui/ventana.cpp)
-target_link_libraries(ventrik_interfaz PUBLIC ventrik_cliente_base imgui d3d9 user32 gdi32)
+  src/client/ui/programa.cpp src/client/ui/qr.cpp src/client/ui/servidor.cpp src/client/ui/ventana.cpp)
+target_link_libraries(ventrik_interfaz PUBLIC ventrik_cliente_base imgui qrcodegen d3d9 user32 gdi32)
 
 add_executable(ventrik WIN32 src/client/main.cpp src/client/ventrik.rc)
 target_link_libraries(ventrik PRIVATE ventrik_interfaz)
@@ -248,6 +249,7 @@ add_executable(ventrik_pruebas
   tests/prueba_proceso.cpp
   tests/prueba_proteccion.cpp
   tests/prueba_protocolo.cpp
+  tests/prueba_qr.cpp
   tests/prueba_red.cpp
   tests/prueba_registro.cpp
   tests/prueba_rnnoise.cpp
@@ -259,6 +261,7 @@ add_executable(ventrik_pruebas
   tests/prueba_sqlite.cpp
   tests/prueba_stb_image.cpp
   tests/prueba_texto.cpp
+  tests/prueba_totp.cpp
   tests/prueba_arranque.cpp
   tests/prueba_limpieza.cpp
   tests/prueba_voz_servidor.cpp
@@ -269,5 +272,5 @@ add_executable(ventrik_pruebas
 target_link_libraries(ventrik_pruebas PRIVATE
   ventrik_servidor_base ventrik_interfaz doctest
   argon2 gsl imgui imgui_null libwebp mbedtls miniaudio miniupnpc opus
-  rnnoise speexdsp sqlite stb_image miniz)
+  rnnoise speexdsp sqlite stb_image miniz qrcodegen)
 add_test(NAME pruebas COMMAND ventrik_pruebas)

@@ -1,13 +1,18 @@
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <string>
 #include <string_view>
 
+#include <gsl/gsl>
+
 #include "client/avisos.h"
+#include "common/cifrado/base32.h"
 #include "common/cifrado/codigo_dueno.h"
 #include "common/cifrado/huella.h"
+#include "common/cifrado/totp.h"
 #include "common/red/red.h"
 #include "common/texto.h"
 #include "server/contrasena.h"
@@ -20,10 +25,72 @@ void exigir(bool condicion) {
   }
 }
 
+std::string sin_porcentajes(std::string_view texto) {
+  constexpr std::string_view kHexadecimal = "0123456789ABCDEF";
+  std::string resultado;
+  for (std::size_t i = 0; i < texto.size(); ++i) {
+    if (texto[i] != '%') {
+      resultado.push_back(texto[i]);
+      continue;
+    }
+    exigir(i + 2 < texto.size());
+    const std::size_t alto = kHexadecimal.find(texto[i + 1]);
+    const std::size_t bajo = kHexadecimal.find(texto[i + 2]);
+    exigir(alto != std::string_view::npos && bajo != std::string_view::npos);
+    resultado.push_back(static_cast<char>(alto * 16 + bajo));
+    i += 2;
+  }
+  return resultado;
+}
+
+void probar_totp(const std::uint8_t* datos, std::string_view texto) {
+  using namespace ventrik::cifrado;
+  if (const auto codigo = leer_codigo_totp(texto)) {
+    exigir(*codigo < kTopeCodigoTotp);
+    std::string cifras(texto);
+    cifras.erase(std::remove(cifras.begin(), cifras.end(), ' '), cifras.end());
+    exigir(cifras == std::to_string(*codigo + kTopeCodigoTotp).substr(1));
+    exigir(leer_codigo_totp(cifras) == codigo);
+  }
+
+  if (texto.size() < kBytesSecretoTotp) {
+    return;
+  }
+  const gsl::span<const std::uint8_t> secreto(datos, kBytesSecretoTotp);
+  const std::string_view nombre = texto.substr(kBytesSecretoTotp);
+  const std::string uri = texto_otpauth(nombre, secreto);
+  constexpr std::string_view kInicio = "otpauth://totp/Ventrik:";
+  constexpr std::string_view kSecreto = "?secret=";
+  constexpr std::string_view kFinal = "&issuer=Ventrik&digits=6&period=30";
+  exigir(uri.compare(0, kInicio.size(), kInicio) == 0);
+  exigir(std::all_of(uri.begin(), uri.end(), [](char letra) { return letra > ' ' && letra < 0x7F; }));
+  const std::size_t pregunta = uri.find('?');
+  exigir(sin_porcentajes(std::string_view(uri).substr(kInicio.size(), pregunta - kInicio.size())) == nombre);
+  exigir(uri.compare(pregunta, kSecreto.size(), kSecreto) == 0);
+  const std::size_t desde = pregunta + kSecreto.size();
+  const std::size_t hasta = uri.find('&', desde);
+  exigir(hasta != std::string::npos && uri.compare(hasta, std::string::npos, kFinal) == 0);
+  std::array<std::uint8_t, kBytesSecretoTotp> leido{};
+  exigir(de_base32(std::string_view(uri).substr(desde, hasta - desde), leido));
+  exigir(std::equal(leido.begin(), leido.end(), secreto.begin()));
+
+  std::uint64_t segundos = 0;
+  for (const std::uint8_t byte : secreto.first(8)) {
+    segundos = segundos << 8 | byte;
+  }
+  const std::uint64_t paso = segundos / kSegundosPasoTotp;
+  const auto codigo = codigo_totp(secreto, paso);
+  exigir(codigo && *codigo < kTopeCodigoTotp);
+  const auto aceptado = verificar_totp(secreto, *codigo, segundos);
+  exigir(aceptado && (*aceptado == paso || *aceptado == paso + 1));
+  exigir(!verificar_totp(secreto, *codigo, segundos, paso + 1));
+}
+
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t largo) {
   const std::string_view texto(reinterpret_cast<const char*>(datos), largo);
+  probar_totp(datos, texto);
 
   if (const auto huella = ventrik::cifrado::leer_huella(texto)) {
     const std::string escrita = huella->a_texto();

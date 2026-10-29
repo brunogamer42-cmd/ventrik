@@ -21,13 +21,13 @@ int valor_de_letra(char letra) {
 
 }
 
-std::string a_base32(gsl::span<const std::uint8_t> bytes) {
+std::string a_base32(gsl::span<const std::uint8_t> bytes, bool con_guiones) {
   std::string texto;
   std::uint32_t acumulado = 0;
   int bits = 0;
   std::size_t letras = 0;
   const auto agregar = [&](std::uint32_t valor) {
-    if (letras > 0 && letras % kGrupo == 0) {
+    if (con_guiones && letras > 0 && letras % kGrupo == 0) {
       texto.push_back('-');
     }
     texto.push_back(kAlfabeto[valor & 31]);

@@ -16,6 +16,7 @@ TEST_CASE("base32 escribe como el RFC 4648, de a 4 letras") {
   CHECK(a_base32(kFoobar) == "MZXW-6YTB-OI");
   CHECK(a_base32(gsl::span<const std::uint8_t>(kFoobar).first(1)) == "MY");
   CHECK(a_base32(gsl::span<const std::uint8_t>()) == "");
+  CHECK(a_base32(kFoobar, false) == "MZXW6YTBOI");
 }
 
 TEST_CASE("base32 lee con o sin guiones o espacios y en minúsculas") {

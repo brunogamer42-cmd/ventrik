@@ -192,6 +192,11 @@ target_include_directories(jsmn PUBLIC jsmn)
 target_compile_definitions(jsmn PUBLIC JSMN_STRICT)
 target_link_libraries(jsmn PRIVATE ventrik_opciones_terceros)
 
+# --- qrcodegen: el código QR para activar el segundo paso (TOTP) ---
+add_library(qrcodegen STATIC qrcodegen/qrcodegen.c)
+target_include_directories(qrcodegen PUBLIC qrcodegen)
+target_link_libraries(qrcodegen PRIVATE ventrik_opciones_terceros)
+
 # --- libwebp: WebP del modo Visual (con animaciones y codificador) ---
 file(GLOB LIBWEBP_FUENTES CONFIGURE_DEPENDS
   libwebp/src/dec/*.c libwebp/src/demux/*.c libwebp/src/dsp/*.c
