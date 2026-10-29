@@ -229,7 +229,7 @@ Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Ajustes-*.png, una p
   - Acerca de, separado.
 
   Tocar una sección la muestra sola, a todo el ancho. Los cambios se guardan solos, como antes ("Los cambios se guardan solos", junto al título).
-- **Secciones en desarrollo:** llevan "PRONTO" en el menú. Adentro solo tienen el título, "EN DESARROLLO" y "Llega en la etapa N", sin controles de mentira (decisión del dueño, 2026-10-27). Son Apariencia (10), Red (6), Descargas (5), Prestar (13), Seguridad (4), Amigos (14), Copias (14) y Acerca de (11).
+- **Secciones en desarrollo:** llevan "PRONTO" en el menú. Adentro solo tienen el título, "EN DESARROLLO" y "Llega en la etapa N", sin controles de mentira (decisión del dueño, 2026-10-27). Son Apariencia (10), Red (6), Descargas (5), Prestar (13), Amigos (14), Copias (14) y Acerca de (11). Seguridad dejó de serlo en la etapa 4: tiene la copia de la identidad, la contraseña maestra, el bloqueo automático y las llaves de seguridad (estas últimas, solo en la versión moderna).
 - **Lo que hay desde el paso 3.5:**
   - **General:**
     - **la bandeja:** "Al cerrar la ventana" viene en "Seguir en la bandeja", como en la captura. El ícono junto al reloj aparece cuando la ventana se esconde y se va cuando vuelve. "Salir", del menú del ícono, cierra Ventrik de verdad;
@@ -345,7 +345,7 @@ Hostear un servidor es un asistente de 7 pasos y una pantalla final. Capturas: d
 1. **Nombre y acceso.**
 2. **Conexión:** puerto, placa de red, IPs, UPnP, probar desde internet y relay (ver "Red y puertos al hostear").
 3. **Capacidad y voz:** subida, voces a la vez, máximo de usuarios, tablas de cuántos entran y calidad.
-4. **Seguridad:** el nivel, con las opciones sueltas plegadas en "Qué incluye y cada opción por separado", y la identidad del servidor.
+4. **Seguridad:** el nivel, con las opciones sueltas plegadas en "Qué incluye y cada opción por separado", y la identidad del servidor (huella, Exportar, Importar y Cambiar la clave). La clave del servidor se crea al iniciarlo, no en este paso: por eso Exportar y Cambiar la clave van apagados en el asistente hasta que el servidor existe, y se usan desde "Configuración del servidor". Importar sirve para mudar un servidor a esta PC.
 5. **Chat y archivos.**
 6. **Pantallas y varias PCs:** opcional y en desarrollo (ver "Compartir pantalla"). "Varias PCs", un servidor sostenido entre varias PCs, todavía no está en este documento.
 7. **Revisar e iniciar:** un resumen con "Cambiar" en cada paso, las opciones al iniciar y un aviso si no se exportó la identidad del servidor.
@@ -355,7 +355,9 @@ Después de iniciar, **Invitar gente** muestra el estado del servidor y las invi
 - **La lista de pasos va a la izquierda,** siempre visible, con el valor elegido debajo de cada uno. Se puede saltar a cualquier paso.
 - **Abajo:** Atrás · "Dejar el resto como recomendado y revisar" · "Siguiente: <paso>". Nada se aplica hasta "Iniciar servidor".
 - **"Probar desde internet" funciona antes de iniciar:** abre el puerto un momento.
-- **Con el servidor ya creado,** "Configuración del servidor" muestra los mismos pasos como pestañas, sin Siguiente, y cada cambio se guarda solo.
+- **Con el servidor ya creado,** "Configuración del servidor" muestra los mismos pasos como pestañas, sin Siguiente, y cada cambio se guarda solo. El nombre, la contraseña, el nivel y las opciones cambian en vivo; la lista de admins (también los desconectados) y el registro de seguridad están en Seguridad.
+- **"Iniciar servidor"** crea la carpeta del servidor en `%APPDATA%\Ventrik\Servidores\<nombre>`, corre `ventrik_servidor.exe --crear` (el programa le pasa por un caño, nunca por la línea de comandos, el nombre, el nivel, la clave pública del dueño y las contraseñas), lo arranca sin ventana y entra como dueño, sin código de dueño. Queda en Inicio como "Mi servidor", con Iniciar y entrar, Detener y Configurar.
+- **El servidor sigue andando al cerrar Ventrik,** igual que uno abierto por consola, y se detiene con **Detener**.
 
 ## Voz
 
@@ -705,7 +707,7 @@ El mínimo del programa es TLS 1.3 o DTLS 1.2, con AES-GCM o ChaCha20. Sin ese m
 - **Formato de los medios, dentro de DTLS:** `u16 tipo` y el cuerpo. Los paquetes de medios llevan el tipo de flujo (1 = voz; el 2 queda reservado para compartir pantalla) y el número de flujo (la voz va en el 0). El servidor reenvía según el tipo, descarta los tipos y flujos que no conoce sin cortar la sesión, y manda primero la voz. El programa manda `MedioSubida` (tipo, flujo, número de paquete de 16 bits, tiempo en milisegundos del reloj de audio del que habla, de 16 bits y con vuelta, nivel del paquete de 0 a 127 en dB sobre −127 dBov, y hasta 400 bytes de Opus); el servidor reenvía `MedioBajada` (quién habla, que lo pone el servidor, y el mismo medio) a los demás del mismo canal. `Ping` y `Pong` cada 5 segundos (cada 15 en ahorro: ventana minimizada, juego en pantalla completa o PC bloqueada) mantienen abierto el camino (NAT) y miden la conexión.
 - **Límites conocidos de la regla de la IP:** casas con dos salidas a internet, algunos CGNAT y servidores con varias placas de red pueden quedarse sin voz. Se revisan con el relay (etapa 6).
 
-La invitación lleva la huella del servidor. Si al conectar no coincide, el programa avisa y no se conecta; conviene pasar la huella por otro medio, como WhatsApp o en persona.
+La invitación lleva la huella del servidor. Si al conectar no coincide, el programa avisa y no se conecta: termina el saludo cifrado, pero lo único que manda es el `Hola`, nunca su identidad ni nada suyo, y no reintenta solo. La excepción es un cambio de clave planeado, que el servidor firma con la vieja (ver "Identidad del servidor: respaldo y mudanza"). Conviene pasar la huella por otro medio, como WhatsApp o en persona.
 
 La huella es el SHA-256 de la clave pública del servidor, no de su certificado: el certificado se puede rehacer sin que cambie. Se escribe con 52 letras y números en grupos de 4 (base32, que no usa 0, 1, 8 ni 9 para que no se confundan con O, I, B o g), por ejemplo `CTBC-P44I-2FC4-...`.
 
@@ -775,15 +777,15 @@ Lo más seguro es guardar la menor cantidad posible de secretos: la contraseña 
 | --- | --- | --- | --- |
 | DPAPI de Windows | Cifra la identidad y las contraseñas guardadas con tu sesión de Windows | Otro usuario de la PC, o alguien que se lleve el disco | XP a 11 |
 | Contraseña maestra (opcional) | Argon2id convierte tu contraseña en una clave de cifrado AES-256. Cada intento cuesta memoria y tiempo, con valores ajustados a cada equipo | Robo del archivo, aunque tengan tu sesión de Windows | XP a 11 |
-| Llave de seguridad o Windows Hello | La clave de identidad vive dentro de la llave y nunca sale. Para entrar hay que tocarla, o poner el PIN o la huella | Programas que copian archivos: no hay nada que copiar | Windows 10 (versión 1903 en adelante) y 11 |
+| Llave de seguridad o Windows Hello | Tu identidad firma un permiso para cada llave y se borra de la PC: queda solo en la copia de recuperación. Para entrar hay que tocar la llave, o poner el PIN o la huella | Programas que copian archivos: en la PC ya no queda la clave de identidad, y copiar `llaves.dat` no sirve sin la llave | Windows 10 (versión 1903 en adelante) y 11, solo en la versión moderna |
 
-Ningún cifrado frena a un programa malicioso que ya controla tu sesión mientras Ventrik está abierto: puede usar lo mismo que usa el programa. Con una llave de seguridad, al menos no puede llevarse tu identidad a otra PC.
+Ningún cifrado frena a un programa malicioso que ya controla tu sesión mientras Ventrik está abierto: puede usar lo mismo que usa el programa. Con una llave de seguridad, al menos no puede llevarse tu identidad a otra PC: ya no está en esta, y cada entrada pide tocar la llave.
 
 **XP y 7:** Windows incluye la función para usar llaves de seguridad ([WebAuthn](https://learn.microsoft.com/en-us/windows/security/identity-protection/hello-for-business/webauthn-apis)) recién desde Windows 10, versión 1903. En XP y 7 no existe; hablar con la llave directo por USB es posible, pero sin bibliotecas probadas para esos sistemas, así que no está en el plan. En Windows 10 y 11 el programa usa la función de Windows, porque desde la 1903 el acceso directo a la llave [pide permisos de administrador](https://github.com/tavrez/openssh-sk-winhello).
 
-- **Administradores:** el servidor puede exigirles un segundo paso. En Windows 10 y 11, la llave de seguridad. En cualquier sistema, XP incluido, un código de 6 dígitos de una app como Google Authenticator o Aegis (TOTP).
+- **Segundo paso:** el servidor puede pedirlo a nadie, a los administradores o a todos (ver "Niveles por servidor"). En Windows 10 y 11, con la llave de seguridad, si pidió PIN o huella. En cualquier sistema, XP incluido, con un código de 6 dígitos de una app como Google Authenticator o Aegis (TOTP). Cómo funciona cada uno, en los apartados de abajo.
 - **Firma de la llave:** el servidor la verifica con Mbed TLS (ECDSA P-256), sin bibliotecas extra.
-- **Respaldo:** DPAPI está atado a tu instalación de Windows; si reinstalás, la identidad se pierde. Por eso el programa permite exportarla a un archivo cifrado con contraseña. Con llaves, conviene registrar dos (una de repuesto) o guardar un código de recuperación.
+- **Respaldo:** DPAPI está atado a tu instalación de Windows; si reinstalás, la identidad se pierde. Por eso el programa permite exportarla a un archivo cifrado con contraseña. Con llaves, el programa obliga a guardar esa copia de recuperación antes de borrar la identidad de la PC, y deja sumar hasta 4 llaves (conviene una de repuesto).
 
 **Cómo es la identidad (etapa 4, paso 4.1):**
 
@@ -816,15 +818,54 @@ Ningún cifrado frena a un programa malicioso que ya controla tu sesión mientra
 - **Cada contraseña equivocada hace esperar el doble:** 1, 2, 4… segundos, hasta 5 minutos, por IP y por identidad. Mientras dura la espera, otro intento se rechaza con los segundos que faltan (sin decir que la contraseña esté mal, porque no se revisó), sin calcular nada. Cortar la conexión mientras se calcula no esquiva nada: la falla se anota igual. Cada falla cuenta también para el bloqueo por IP de 5 minutos. Un acierto borra la espera.
 - **En el programa:** "Contraseña del servidor (solo la primera vez, si pide)" en "Entrar con invitación". Si se entra desde la tarjeta de un servidor que la pide, el formulario se llena solo con sus datos y el cursor va a la contraseña, con el cartel que explica qué pasó. La contraseña se borra del campo y de la memoria apenas se manda.
 
+**Segundo paso (etapa 4, paso 4.7, protocolo 8):**
+
+- **Qué es:** un código de 6 cifras que cambia cada 30 segundos (TOTP, RFC 6238), de una app como Google Authenticator o Aegis. El secreto (20 bytes) se muestra una vez, como QR y como clave en letras, y el servidor lo guarda sellado con AES-256-GCM, con una clave que sale de su bóveda.
+- **A quién se le pide:** al nivel que elige el dueño: nadie, los admins (el dueño incluido) o todos. Con "nadie" no se pide, aunque la persona lo haya activado.
+- **Cuándo se ofrece el QR:** a una identidad nueva, o a un equipo que el servidor ya conocía y que no entró como "equipo nuevo". Un equipo que entró como nuevo queda marcado para siempre y necesita que el dueño lo permita (clic derecho en la persona, o `--permitir-segundo-paso` por consola). Así un ladrón con tu identidad en otra PC no puede activar su propio celular.
+- **Al entrar:** el código va dentro de la presentación firmada. Se revisa después de la firma (nadie gasta los intentos de otro) y antes de reemplazar una sesión abierta. El último paso aceptado se guarda: el mismo código no sirve dos veces.
+- **Códigos equivocados:** suman a la espera de la contraseña (por IP y por identidad) y al bloqueo por IP. A los 10 en un día, la identidad queda bloqueada hasta que el dueño le quite el segundo paso (desde el ▾ del servidor, o con `--quitar-segundo-paso` por consola). El bloqueo se anota en el registro y avisa al dueño y a esa identidad.
+- **Mientras el servidor lo pide y no está hecho en la sesión,** no hay permisos de admin ni de dueño (se entra como uno más), y la sesión no recibe ni borra los avisos pendientes de esa identidad.
+- **El dueño no puede pedirse** un segundo paso que no podría activar desde ese equipo.
+
+**Llaves de seguridad y Windows Hello (etapa 4, paso 4.11):**
+
+La llave no guarda tu identidad: firma cada entrada. La identidad queda solo en la copia de recuperación.
+
+- **Agregar una llave** (Ajustes → Seguridad; solo la versión moderna con Windows 10, versión 1903 o posterior; si no, la fila va apagada con la explicación):
+  1. Windows crea en la llave, o en Windows Hello, un par de claves propio: solo ES256 y sin atestación.
+  2. Tu identidad firma un **permiso** para esa llave: una etiqueta propia, la identidad, la llave y una generación.
+  3. Se puede sumar una llave de repuesto (hasta 4 en total) antes de borrar la identidad, porque su permiso lo firma la identidad.
+  4. El programa obliga a guardar la copia de recuperación `.vkid`.
+  5. Recién entonces borra la identidad de la PC, con ceros, y también las copias apartadas de la misma identidad. Queda `llaves.dat`, cifrado con DPAPI, con la identidad pública, la generación, las llaves y sus permisos. Si se cancela en cualquier punto, no cambia nada.
+- **Entrar:** el programa manda la llave pública, el permiso y la firma de la llave sobre un desafío que arma cada lado: el SHA-256 del protocolo, la huella del servidor, un valor de esa conexión TLS, la presentación sin firma y la llave pública. El servidor no lee JSON: rearma el texto que espera, exige 37 bytes justos de datos y verifica con Mbed TLS (ECDSA P-256). Mira primero el permiso y la firma, y recién después la generación, así nadie puede averiguar desde afuera si una identidad está registrada.
+- **Contador:** vale la regla de WebAuthn. Un 0 vale mientras lo guardado sea 0; si ya subió, un valor menor o igual es una posible llave clonada: se rechaza, se anota en el registro y se avisa al dueño y a esa identidad.
+- **Segundo paso:** una llave cuenta como segundo paso solo si pidió PIN o huella, porque con la identidad borrada de la PC una llave sin PIN sería un único factor. Una llave o una generación nueva no cuenta hasta confirmarla: con el código TOTP en esa entrada, desde un equipo de confianza o con el permiso del dueño.
+- **Generación:** son los minutos desde el 1 de enero de 2026, tomados al agregar llaves o al importar la copia de recuperación (la mayor entre la de la copia más 1 y la que ya había). El servidor rechaza las llaves de una generación menor a la que vio y no acepta una más de 2 días adelante de su reloj. Así, importar la copia en cualquier PC anula las llaves viejas en cada servidor, y lo último que se hace gana siempre. Exige que el reloj del servidor esté bien, igual que el TOTP.
+- **Más tiempo para presentarse:** poner un PIN tarda, así que con llave el servidor da 180 segundos en vez de 10, con un tope de 32 esperando a la vez, 8 de IP que nunca entraron bien y una por IP.
+- **Límites:** no hay llaves en XP ni en Windows anteriores a 10 (1903). RS256 no está soportado: Windows Hello en Windows 10 puede crear solo claves RS256, y si la llave no ofrece ES256 el programa lo dice y pide probar con otra.
+
+### Bóveda e historial cifrado del servidor
+
+- **Bóveda (`boveda.dat`):** 32 bytes al azar, siempre dentro de DPAPI (atada a la cuenta de Windows de quien hostea) y, si el dueño lo elige, además dentro de un sobre con una **contraseña de arranque** (Argon2id y AES-256-GCM) que el servidor pide cada vez que arranca. De esos 32 bytes salen, con HKDF-SHA256 y una etiqueta distinta por uso, las claves de la clave del servidor, del historial y del segundo paso: una no deja ver las otras.
+- **Por qué DPAPI por fuera:** sin la cuenta de Windows ni siquiera se puede empezar a adivinar la contraseña de arranque. Con la cuenta, cada intento cuesta un Argon2 de cerca de 1 segundo.
+- **Lo que no cubre:** poner la contraseña de arranque no cambia los 32 bytes. Una copia vieja de `boveda.dat` sin contraseña (en un respaldo de la carpeta, una copia de sombra de Windows o restos en el disco) todavía abre la clave del servidor y el historial en esa cuenta de Windows. Cambiar la bóveda de verdad queda para un paso aparte. Si se pierde la contraseña de arranque, el servidor solo se recupera con su respaldo.
+- **Historial cifrado:** cada mensaje se guarda sellado con AES-256-GCM, con un nonce al azar de 96 bits. El canal, el número, la hora y el autor van como datos asociados, así un mensaje no se puede mover de lugar.
+  - **Qué queda en claro:** el canal, el número, la hora, el autor y el largo del mensaje. Solo el texto va cifrado.
+  - **Prender y apagar:** al prenderlo se cifran los mensajes viejos y se limpia la base (`VACUUM` con `secure_delete`). Apagarlo no borra nada: los mensajes vuelven a guardarse como texto.
+  - **Restos en el disco:** los sectores libres, un SSD o una copia vieja pueden conservar mensajes en claro de antes de prender el cifrado. Conviene prenderlo desde que se crea el servidor, antes del primer mensaje.
+  - **Contra qué protege:** el robo de la PC o del disco del host. No protege del servidor prendido, que descifra para reenviar.
+  - **Costo:** guardar un mensaje pasó de 8 a 12 microsegundos en la PC de trabajo. En la netbook, que con este compilador no tiene AES por hardware, falta medirlo.
+
 ### Identidad del servidor: respaldo y mudanza
 
 La clave del servidor es su identidad: de ella sale la huella que llevan las invitaciones completas y la firma con la que se anota en la lista pública. Si se pierde, el servidor arranca con una clave nueva, pero las invitaciones dejan de servir y los usuarios ven el aviso de que la huella cambió, el mismo que verían ante un servidor falso.
 
-La clave está en la carpeta de datos del servidor (`%APPDATA%\Ventrik\Servidor`). Si el archivo existe pero está dañado, el servidor no arranca, en lugar de crear otra clave y cambiar la huella sin avisar.
+La clave no está suelta en la carpeta de datos del servidor (`%APPDATA%\Ventrik\Servidor`): queda guardada en una **bóveda** (ver "Bóveda e historial cifrado del servidor"). `clave_servidor.dat` la tiene cifrada con AES-256-GCM, con una clave que sale de la bóveda. Un servidor viejo con `clave_servidor.der` la convierte solo, una vez, y pisa el archivo viejo con ceros antes de borrarlo. Si falta un archivo o está dañado, el servidor no arranca y dice cuál, en lugar de crear otra clave y cambiar la huella sin avisar: una clave nueva se crea solo en una carpeta sin rastros de un servidor anterior.
 
-- **Respaldo:** el panel de hosteo exporta la identidad del servidor (su clave, la clave del historial cifrado, la configuración y la base de datos) a un archivo cifrado con contraseña, y recuerda hacerlo al crear el servidor.
-- **Mudanza:** en la PC nueva se importa ese archivo y el servidor conserva la huella, las invitaciones, los roles y los baneos.
-- **Cambio de clave planeado:** el servidor anuncia la clave nueva firmada con la vieja, y los programas que ya lo conocían la aceptan solos. Si la clave fue robada, eso no alcanza, porque el ladrón también puede firmar: hay que avisar por otro medio y repartir invitaciones nuevas.
+- **Respaldo** (`--exportar`, o Exportar en la configuración del servidor): un archivo `.vkservidor` cifrado con una contraseña de 8 letras o más (Argon2id y AES-256-GCM). Lleva la clave del servidor, su bóveda, la cadena de claves y una copia de la base de datos, que tiene la configuración, los usuarios y los roles. Anda con el servidor prendido. Se hace en la PC del servidor: la clave privada nunca viaja por la red, ni siquiera al dueño. El asistente avisa si todavía no se exportó; no se puede al crear el servidor, porque la clave se crea al iniciarlo (ver "Hostear: asistente por pasos").
+- **Mudanza** (`--importar`, o Importar): en la PC nueva se importa ese archivo en una carpeta vacía, sin pisar nunca un servidor que ya existe, y el servidor conserva la huella, las invitaciones, los roles y los baneos. La base que llega se revisa como si viniera de un desconocido, y la bóveda queda protegida con el DPAPI de la PC nueva, sin contraseña de arranque. Si el servidor tenía contraseña, el primer acierto rehace su hash con los valores de la PC nueva.
+- **Cambio de clave planeado** (`--cambiar-clave`): el servidor hace una clave nueva firmada con la vieja, guarda una cadena de hasta 8 cambios y se la manda a cada programa que se conecta. Un programa que ya conocía el servidor y ve una huella distinta sigue la cadena desde la huella que tiene guardada. Si llega hasta la clave de esa conexión, la acepta solo y avisa "Este servidor cambió su clave". Nunca vuelve atrás: recuerda las huellas que ya quedaron atrás. La clave vieja se borra con ceros. Si la clave fue robada, eso no alcanza, porque el ladrón también puede firmar: hay que avisar por otro medio y repartir invitaciones nuevas. Los respaldos hechos antes todavía tienen la clave vieja: conviene hacer uno nuevo.
 - **Si se pierde todo:** la huella vieja no se puede recuperar. El dueño avisa por otro medio y reparte invitaciones nuevas.
 
 ### Calidad del código y actualizaciones
@@ -931,8 +972,30 @@ Cada capa nueva tiene que cubrir una amenaza que ninguna otra cubre. Las que rep
 | --- | --- |
 | Básico (predeterminado) | TLS con huella, contraseñas con Argon2id, límites, procesos aparte y todo lo que el programa hace solo |
 | Reforzado | Lo anterior, más historial cifrado, antivirus incorporado, aprobación de usuarios nuevos, segundo paso para administradores y avisos de acciones de administrador |
-| Máximo | Lo anterior, más llave de seguridad o código TOTP para todos, invitaciones de un solo uso, sin historial guardado y rechazo de comprimidos con contraseña. En XP, solo funciona detrás del relay |
+| Máximo | Lo anterior, más llave de seguridad o código TOTP para todos, invitaciones de un solo uso, sin historial guardado, rechazo de comprimidos con contraseña y voz con paquetes de tamaño fijo. En XP, solo funciona detrás del relay |
 | Personalizado | Cada opción por separado. Si el dueño cambia una opción de otro nivel, el servidor pasa solo a Personalizado |
+
+Cada nivel es un conjunto de 13 opciones, y cambiar una de otro nivel pasa solo a Personalizado. El algoritmo es automático y las claves de la voz se renuevan cada hora en los tres. Así quedan las demás; las que llegan en otra etapa se guardan y no hacen nada hasta entonces:
+
+| Opción | Básico | Reforzado | Máximo | Etapa |
+| --- | --- | --- | --- | --- |
+| Usuarios nuevos con aprobación | no | sí | sí | 9 |
+| Segundo paso al entrar | nadie | admins | todos | 4 |
+| Versión mínima del programa | cualquiera | la última con arreglos | la última con arreglos | 4 |
+| Historial cifrado | no | sí | sí | 4 |
+| No guardar el historial | no | no | sí | 4 |
+| Reconocer equipos para los baneos | no | sí | sí | 9 |
+| Avisos de acciones de admins | no | sí | sí | 4 |
+| Voz de tamaño fijo | no | no | sí | 4 |
+| Antivirus | no | sí | sí | 5 |
+| Rechazar comprimidos con contraseña | no | no | sí | 5 |
+| Invitaciones de un solo uso | no | no | sí | 6 |
+
+**Segundo paso para todos (Máximo):** sin él no se lee, no se escribe y no hay voz.
+
+- Mientras la sesión no lo haya hecho, todo pedido (salvo el segundo paso y el ping) recibe "falta el segundo paso". No llega chat, historial, novedades ni avisos, se sale de la voz y no se recibe nada de la sala: ni la lista de personas y canales, ni las entradas y salidas de los demás.
+- Se puede activar con el QR (el código TOTP), con una llave de seguridad con PIN o huella, o con el permiso del dueño, que deja activar el QR desde un equipo nuevo o confirma una llave nueva. Al activarlo, la sesión recibe todo, sin volver a entrar.
+- Quien entra sin el segundo paso ve qué le falta: activar el QR, pedirle permiso al dueño o volver a entrar con el código.
 
 Cada usuario puede sumar por su cuenta la contraseña maestra, la llave de seguridad y el bloqueo automático, desde Ajustes. El bloqueo automático viene en Nunca y necesita la contraseña maestra: sin elegirlo, con la PC bloqueada Ventrik sigue transmitiendo, como Discord. Bloqueado, seguís conectado y escuchando pero no transmitís, y los avisos llegan sin el texto.
 
@@ -999,7 +1062,7 @@ Las invitaciones funcionan como en Discord: un enlace con vencimiento y cantidad
 
 Un baneo bloquea la identidad del usuario y la huella de su equipo; bloquear la IP es opcional.
 
-- **Identidad:** cada usuario tiene una clave que se genera en su PC o que, en Windows 10 y 11, vive dentro de una llave de seguridad (ver "Contraseñas, identidad y llaves de seguridad"). No hay registro central.
+- **Identidad:** cada usuario tiene una clave que se genera en su PC. En Windows 10 y 11 se le pueden sumar llaves de seguridad que firman por ella; entonces la clave sale de la PC y queda solo en la copia de recuperación (ver "Contraseñas, identidad y llaves de seguridad"). No hay registro central.
 - **Huella del equipo:** se arma con cinco piezas que la PC ya tiene: el identificador de la instalación de Windows, la serie del disco del sistema, la de la placa madre o BIOS, el procesador y las placas de red físicas. El programa no escribe nada en la PC para esto.
 - **Nunca se mandan los valores reales:** cada pieza se mezcla con una clave propia de cada servidor en un código irreversible. Cada servidor ve códigos distintos para la misma PC, así nadie puede seguir a una persona entre servidores.
 - **Coincidencia parcial:** si coinciden 3 de las 5 piezas, es la misma PC. Así cambiar un disco o una placa de red no rompe el reconocimiento.
@@ -1147,7 +1210,7 @@ Inicio suma arriba las pestañas "Servidores | Amigos", con la cantidad de solic
   - Se exige una contraseña larga.
   - Se avisa que, si se pierde, la copia no se puede abrir.
   - El archivo de identidad de siempre sigue existiendo.
-  - Si la identidad vive en una llave de seguridad, nunca sale de la llave y la copia no la puede llevar: se recupera con la llave o con la de repuesto (ver "Contraseñas, identidad y llaves de seguridad").
+  - Con llaves de seguridad, la identidad ya no está en la PC: queda solo en la copia de recuperación `.vkid` que se exige al agregar la primera llave. La copia de Drive no la tiene para llevar, y se recupera con esa copia de recuperación (ver "Contraseñas, identidad y llaves de seguridad").
 - **Permiso en Drive:** solo `drive.file`, con una carpeta visible "Ventrik" que el usuario puede ver y borrar. Para Google es un permiso "no sensible", así que alcanza con la verificación básica de la app.
 - **Iniciar sesión en Google** (Recuperar-1.png):
   - se usa el flujo para dispositivos con entrada limitada, que admite `drive.file`: el usuario entra a la dirección que da Google (hoy google.com/device) desde el celular o desde otra PC, y escribe el código;
