@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-29, con la etapa 4 completa en código. Faltan la prueba a mano final del dueño y la revisión de toda la etapa, que está en curso.
+Última actualización: 2026-10-29, con la etapa 4 completa en código y revisada. Falta la prueba a mano final del dueño.
 
 ## Dónde estamos
 
@@ -940,22 +940,29 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - tiene que aparecer "Listo: tu identidad quedó en tu llave…", y la fila de la contraseña maestra y "Exportar copia" quedan apagadas;
     - cerrar Ventrik, abrirlo y entrar al servidor de prueba: Windows pide tocar la llave y se entra como siempre. El servidor de prueba tiene que estar actualizado;
     - en la HP, Ajustes → Seguridad muestra la fila apagada con "Necesita Windows 10 (1903) o posterior".
-- **Etapa 4: completa en código (2026-10-29).** Los pasos 4.1 a 4.11 están hechos y juntados en `main`. Falta el cierre (4.12):
-  - **La prueba a mano final del dueño,** en la PC y en la HP con XP. Junta las de todos los pasos desde el 4.5:
-    1. reiniciar `build\servidor_de_prueba` con el .exe nuevo (cambió el protocolo y la clave pasa a `clave_servidor.dat`) y actualizar `build\para_xp` en la HP;
-    2. la del plan: exportar la identidad, borrarla, importarla y volver a entrar (sigue siendo dueño, con su nombre y sin que pida contraseña); y mudar un servidor de prueba de la PC a la HP, con Exportar en Configuración e Importar en el asistente de la HP: la PC entra sin aviso de huella;
-    3. el 4.5: la HP como admin borra un canal y al dueño le llega el aviso (con el servidor en Reforzado, porque en Básico ese aviso va apagado);
-    4. el 4.6, el 4.9, el 4.10 y el 4.11: los pasos que dice cada entrada de arriba;
-    5. el 4.7 y el 4.8 necesitan el celular con Google Authenticator o Aegis:
-       - arrancar el servidor de prueba con `--segundo-paso admins` y entrar como dueño desde la PC: se entra sin permisos y aparece el QR. Escanearlo, poner el código y ver que vuelve el rol;
-       - salir y volver a entrar: pide el código, y uno equivocado muestra la espera;
-       - desde la PC, nombrar admin a la HP: la HP ve el QR y lo activa con el celular;
-       - desde el ▾ del servidor, "Quitar el segundo paso…" a la HP: pierde el admin y vuelve a ver el QR;
-       - abrir "Configuración del servidor", elegir Reforzado y después Básico: la consola tiene que decir "Cambió la configuración de seguridad";
-       - prender "Voz de tamaño fijo" y hablar entre la PC y la HP: tiene que seguir sonando bien;
-    6. contarle al dueño lo que decidió Claude: el servidor de Hostear sigue andando al cerrar Ventrik (se para con Detener).
-  - **Revisión de toda la etapa:** se está arreglando. Un subagente revisó la etapa entera y encontró 13 puntos, que otro agente está arreglando. Este bloque se completa con lo que encontró y lo que se arregló cuando termine.
-  - **`check.ps1` completo y el fuzzing de 10 minutos** de lo que lee datos de afuera. Los agentes corrieron las pruebas de las dos versiones (la última vez, 620 de 620 en la moderna y 619 de 619 en la clásica) y entre 30 y 90 s de fuzzing en 64 bits, pero no `check.ps1` ni el fuzzing de 32 bits.
+- **Etapa 4: completa en código y revisada (2026-10-29).** Los pasos 4.1 a 4.11 están hechos y juntados en `main`, con `check.ps1` en TODO OK y el fuzzing de 10 minutos sin fallas. Falta solo la prueba a mano final del dueño (4.12); después, el push.
+  - **Revisión de toda la etapa** (un subagente que no escribió el código, sobre 483d6e6..7d8b98c, mirando cómo encajan las piezas hechas en paralelo): nada grave, 3 medias y 10 bajas. Todo arreglado en d3d3ee5, con una prueba que falla sin cada arreglo y una segunda revisión de los arreglos:
+    - **equipo.dat que no abre** mandaba 32 ceros, y un ladrón con la identidad podía copiar ese "equipo" y recibir el QR. Ahora se aparta como `equipo-viejo-N.dat` y se crea otro (un error pasajero no lo aparta); sin secreto de equipo no se presenta (`sin_equipo`). El servidor trata siempre como nuevo un equipo con todos los bytes iguales.
+    - **Modo "todos":** la sesión sin segundo paso veía personas y canales. Ahora su `Presentado` lleva solo General (contador 0) y a ella misma, y `difundir` la saltea (`Conexion::ve_la_sala`). Al activar le llegan `CanalCreado` y `UsuarioEntro` de todo; si vuelve a quedar restringida, `UsuarioSalio` y `CanalBorrado`. Lo leído de antes se guarda y se aplica cuando llega la sala.
+    - **Código de equipo después de cambiar la clave:** cambiaba (Mi servidor confirmaba la huella de publico.dat sin seguir la cadena) y el dueño quedaba como "equipo nuevo". Ahora la huella original se guarda sin tope en programa.dat versión 9 (la migración toma la que ya usaba la 8, así que no cambia ningún código), y Mi servidor entra con la huella guardada y sigue la cadena. Con más de 8 cambios desde la última visita la cadena se corta: por la tarjeta da "huella distinta"; si la tarjeta tiene la original, el código no cambia.
+    - **TOTP repetido:** el código del último paso aceptado se rechaza con `codigo_usado` (motivo 16) y la espera, sin contar como falla.
+    - **Cola de la base llena:** la falla, la espera y el bloqueo se anotan en memoria antes de encolar; un código malo que no entra en la cola bloquea. Un código bueno con la cola llena solo se rechaza (si bloqueara, llenar la cola dejaría afuera a cualquiera).
+    - **Importar desde Hostear:** campo opcional "Contraseña de arranque" (por el caño, mínimo 8), y en la pantalla del servidor se muestra cómo quedó la bóveda y que llaves, segundos pasos y admins quedaron como el día del respaldo.
+    - **Generación anulada:** ya no se borra con la identidad (tope 10.000 sueltas; se van las más bajas, y no las deja quien entró una sola vez, para que un atacante no desplace las de las víctimas). El servidor las tiene en un mapa en memoria porque la revisión de la llave es sincrónica: normalmente vacío, peor caso cerca de 1 MB.
+    - **Cambios de configuración seguidos:** cada pedido lleva versión y solo la respuesta del último aplica; una configuración que no se guardó no se aplica.
+    - **Sacar un admin guardado** vuelve a revisar su segundo paso y avisa su rol.
+    - **Secretos en memoria:** una sola función `cifrado::borrar`; se pisan `salida` al crecer y compactar, los cuerpos de `Presentarse` y `CambiarContrasenaServidor` y lo leído; el `Ensamblador` reserva el cuerpo entero; `ConfigurarSegundoPaso` borra su secreto al destruirse.
+    - **Candado:** el servidor toma `servidor.lock` (oculto, sin compartir, se borra al cerrar), que vale entre sesiones de Windows; `--cambiar-clave` toma `cambio_de_clave.lock` (se puede cambiar con el servidor andando, pero no dos cambios a la vez, motivo `otro_cambio`). El evento para detener sigue en `Local\`: solo lo usa el programa de la misma sesión.
+    - **Nombre del dueño:** ya no sale del usuario de Windows; si no hay nombre en Ventrik, "Dueño" (lang).
+    - **Reloj adelantado:** `llave_anulada` pide revisar la fecha y la hora; al agregar una llave avisa si la PC va más de 2 días adelante de la última hora que dio un servidor (sale del chat en vivo y se olvida al cerrar).
+    - De paso: botón "Copiar" junto a la huella en Hostear y en Configuración (apagado en el asistente hasta que exista), `servidor_uso` con todas las opciones, y los textos de la llave dicen lo que pasa de verdad (la identidad se borra de la PC y queda en la copia).
+    - **Límites que quedan:** un usuario borrado que vuelve una sola vez pierde su generación guardada; con una clave vieja filtrada se puede armar un servidor falso y ver el código de equipo de quien entra por primera vez (solo sirve junto con la identidad robada); si la sesión se cierra justo antes de recibir la sala, lo leído puede pisarse; no hay prueba directa del borrado de `salida`.
+  - **Fuzzing de 10 minutos**, dos veces (antes y después de los arreglos, 32 corridas a la vez):
+    - antes: todo sin fallas;
+    - después: fuzz_guardados cortó en 64 y 32 bits con un programa.dat versión 8. No era la lectura sino la regla del fuzzer, que todavía tomaba la 8 como la actual y exigía que volviera igual (ahora se pasa sola a la 9). Se corrigió la regla, el caso quedó como semilla (`fuzz/semillas/guardados/version_8_a_9.bin`) y fuzz_guardados corrió 10 minutos más solo;
+    - las dos veces fuzz_voz de 32 bits no llegó a tiempo: con todos a la vez solo repasa su corpus (4.494 casos). Corrido solo terminó en 884 s sin fallas. Achicarlo con `-merge=1` no anduvo (el proceso interno no arranca, probablemente por los espacios de la carpeta): queda en Pendientes.
+  - **La prueba a mano final del dueño** (PC y HP): la lista que se le pasó junta la del plan (identidad exportada, borrada e importada; servidor mudado a la HP) con las de los pasos 4.5 a 4.11. Antes se reinicia `build\servidor_de_prueba` con el .exe nuevo (la clave pasa a la bóveda y la base a la versión 7).
+  - **Decidido por Claude, a contarle al dueño:** el servidor de Hostear sigue andando al cerrar Ventrik (se para con Detener).
 
 ## Ramas y repositorio
 
@@ -1343,7 +1350,8 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 
 - **De la etapa 4 (2026-10-29):**
   - **Contraseña de arranque con los mismos 32 bytes:** poner o cambiar la contraseña reescribe la bóveda sin cambiar su contenido. Una copia vieja de `boveda.dat` sin contraseña (un respaldo de la carpeta, una copia de sombra de Windows, restos en el disco) todavía abre la clave y el historial en esta cuenta de Windows. Hoy solo hay un aviso en la consola. Lo seguro es una bóveda nueva y volver a sellar la clave y el historial, en un paso aparte. El candado por carpeta que hacía falta para hacerlo con el servidor prendido existe desde el 4.10;
-  - **cambiar la contraseña de arranque desde "Configuración del servidor":** hoy solo se hace por consola, con `--contrasena-arranque`. En el asistente, el campo aparece cuando el nivel cifra el historial;
+  - **cambiar la contraseña de arranque desde "Configuración del servidor":** hoy solo se hace por consola, con `--contrasena-arranque`. En el asistente, el campo aparece cuando el nivel cifra el historial. Al importar desde Hostear ya se puede poner;
+  - **corpus de fuzz_voz:** creció tanto (3.603 casos en 64 bits) que en la corrida larga de 32 bits, con todos a la vez, solo alcanza a repasarlo. `-merge=1` no anduvo en esta carpeta; probar desde una ruta sin espacios o que fuzzing.ps1 no le sume el corpus del otro tamaño a fuzz_voz;
   - **historial con filas inválidas:** las filas que no se pueden leer (o abrir, si están selladas) cuentan en el `LIMIT` de la consulta, así que una página puede traer menos mensajes de los pedidos y `hay_mas` quedar en falso;
   - **código del segundo paso gastado:** un código bueno se gasta aunque después la entrada se rechace por nombre en uso o por base llena;
   - **registro `config_cambiada`:** va sin detalle. Habría que anotar el nivel en un formato que no dependa del idioma del servidor;
