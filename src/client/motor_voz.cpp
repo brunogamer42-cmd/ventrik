@@ -187,6 +187,10 @@ void MotorVoz::procesar(gsl::span<const std::int16_t> entrada,
     std::fill(salida.begin(), salida.end(), std::int16_t{0});
     return;
   }
+  const bool fija = puente_.voz_fija.load(std::memory_order_relaxed);
+  if (std::exchange(tamano_fijo_, fija) != fija) {
+    opus_encoder_ctl(codificador_.get(), OPUS_SET_VBR(fija ? 0 : 1));
+  }
   const std::uint8_t susurro = susurro_;
   if (std::exchange(flujo_capturado_, susurro) != susurro) {
     capturadas_ = limpias_ = 0;

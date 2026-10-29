@@ -518,8 +518,10 @@ class Programa {
     pantalla.xp = aca && !desde_windows(6, 0);
     pantalla.limitado = aca && servidor_limitado();
     carpeta_config_ = aca ? mio->carpeta : std::wstring();
+    pantalla.cargando = true;
     abrir_hostear(std::move(pantalla));
-    ordenar({protocolo::PedirRegistro{}});
+    config_recibida_ = false;
+    ordenar({protocolo::PedirConfigSeguridad{}, protocolo::PedirRegistro{}});
   }
 
   void refrescar_mios() {
@@ -807,6 +809,10 @@ class Programa {
         guardando_contrasena_ = true;
         avisar_hostear(Clave::hostear_guardando, false);
       }
+    }
+    if (pedido.seguridad && en_vivo && config_recibida_) {
+      hostear_.error.clear();
+      ordenar({protocolo::CambiarConfigSeguridad{*pedido.seguridad}});
     }
     if (pedido.sacar_admin && en_vivo && *pedido.sacar_admin < hostear_.admins.size()) {
       ordenar({protocolo::SacarAdminGuardado{hostear_.admins[*pedido.sacar_admin].nombre}});
@@ -1481,7 +1487,7 @@ class Programa {
     }
     bool entraron_o_salieron = false;
     if (sesion_) {
-      for (const cliente::Novedad& novedad : sesion_->esperar_novedades(0ms)) {
+      for (cliente::Novedad& novedad : sesion_->esperar_novedades(0ms)) {
         cambio = true;
         if (const auto* intento = std::get_if<cliente::IntentoDeConexion>(&novedad)) {
           conectado(*intento);
@@ -1522,6 +1528,9 @@ class Programa {
           } else if (rechazo != nullptr && rechazo->pedido == protocolo::TipoMensaje::destinos_de_susurro) {
             susurros_enviados_.fill(protocolo::DestinosDeSusurro{1, kSinSaber, {}});
           }
+        }
+        if (auto* oferta = std::get_if<protocolo::ConfigurarSegundoPaso>(&novedad)) {
+          mbedtls_platform_zeroize(oferta->secreto.data(), oferta->secreto.size());
         }
       }
     }
@@ -1666,6 +1675,13 @@ class Programa {
       case Accion::hostear:
         abrir_asistente();
         break;
+      case Accion::segundo_paso: {
+        cliente::Presentacion quien{pendiente_.nombre, std::nullopt};
+        quien.segundo_paso = pedido.codigo;
+        entrar(pendiente_.direccion, cifrado::Huella(pendiente_.huella), std::move(quien),
+               pantalla_.intento.desde_formulario);
+        break;
+      }
       case Accion::iniciar_mio:
       case Accion::configurar_mio:
         if (pedido.cual < mios_.size()) {
@@ -1741,14 +1757,24 @@ class Programa {
         sonar(cliente::sonido_de_mensaje(*mensaje, sala_->tu_id(), pendiente_.nombre, a_la_vista, servidor_.avisos,
                                          cliente::ahora_ms()));
       }
+    } else if (const auto* oferta = std::get_if<protocolo::ConfigurarSegundoPaso>(&novedad)) {
+      mostrar_segundo_paso(servidor_,
+                           con_datos(texto(pantalla_.idioma, Clave::segundo_paso_cuenta),
+                                     {pendiente_.nombre, servidor_.nombre_servidor}),
+                           oferta->secreto);
     } else if (const auto* aviso = std::get_if<protocolo::AvisoDeSeguridad>(&novedad)) {
+      if (aviso->tipo == protocolo::Seguridad::segundo_paso_configurado) {
+        olvidar_segundo_paso(servidor_);
+      }
       auto& lista = servidor_.seguridad;
       if (lista.size() >= kTopeAvisosDeSeguridad) {
         lista.erase(lista.begin());
       }
       lista.push_back(cliente::explicar(pantalla_.idioma, *aviso));
       avisos_.seguridad(lista.back());
-      alerta_ = alerta_ || aviso->tipo != protocolo::Seguridad::nombre_liberado;
+      alerta_ = alerta_ || (aviso->tipo != protocolo::Seguridad::nombre_liberado &&
+                            aviso->tipo != protocolo::Seguridad::segundo_paso_quitado &&
+                            aviso->tipo != protocolo::Seguridad::segundo_paso_configurado);
     } else if (const auto* nuevos = std::get_if<protocolo::MensajesNuevos>(&novedad)) {
       for (const auto& contador : nuevos->canales) {
         const auto* canal = sala_->canal(contador.canal);
@@ -1761,6 +1787,23 @@ class Programa {
     } else if (const auto* negado = std::get_if<protocolo::Negado>(&novedad);
                negado != nullptr && negado->pedido == protocolo::TipoMensaje::pedir_historial) {
       avisos_.negado();
+    } else if (negado != nullptr && negado->pedido == protocolo::TipoMensaje::segundo_paso &&
+               servidor_.dialogo == Dialogo::segundo_paso) {
+      servidor_.error_dialogo = cliente::explicar(pantalla_.idioma, negado->motivo);
+    } else if (negado != nullptr && (negado->pedido == protocolo::TipoMensaje::pedir_config_seguridad ||
+                                     negado->pedido == protocolo::TipoMensaje::cambiar_config_seguridad)) {
+      hostear_.error = cliente::explicar(pantalla_.idioma, negado->motivo);
+      if (negado->pedido == protocolo::TipoMensaje::cambiar_config_seguridad) {
+        config_recibida_ = false;
+        hostear_.cargando = true;
+        ordenar({protocolo::PedirConfigSeguridad{}});
+      }
+    } else if (const auto* config = std::get_if<protocolo::ConfigSeguridad>(&novedad);
+               config != nullptr && en_hostear_ && hostear_.configurando) {
+      hostear_.seguridad = config->seguridad;
+      hostear_.xp = config->xp;
+      hostear_.cargando = false;
+      config_recibida_ = true;
     }
   }
 
@@ -1853,12 +1896,14 @@ class Programa {
     }
     if (bloqueado_) {
       quien.contrasena.reset();
+      quien.segundo_paso.reset();
       al_desbloquear_ = [this, direccion, huella, quien, desde_formulario] {
         entrar(direccion, huella, quien, desde_formulario);
       };
       return;
     }
     cerrar();
+    intento_con_codigo_ = quien.segundo_paso.has_value();
     quien.identidad = identidad_;
     quien.equipo = equipo_;
     canal_del_aviso_ = 0;
@@ -1878,6 +1923,22 @@ class Programa {
   }
 
   void conectado(const cliente::IntentoDeConexion& intento) {
+    if (intento.estado == cliente::EstadoConexion::falta_segundo_paso ||
+        intento.estado == cliente::EstadoConexion::segundo_paso_incorrecto ||
+        (intento.estado == cliente::EstadoConexion::esperar && intento_con_codigo_)) {
+      const bool desde_formulario = pantalla_.intento.desde_formulario;
+      std::wstring configurar = std::move(configurar_al_entrar_);
+      desconectar();
+      configurar_al_entrar_ = std::move(configurar);
+      pantalla_.intento.desde_formulario = desde_formulario;
+      pantalla_.pedir_segundo_paso = true;
+      pantalla_.error_segundo_paso =
+          intento.estado == cliente::EstadoConexion::falta_segundo_paso ? std::string()
+          : intento.estado == cliente::EstadoConexion::esperar
+              ? con_datos(texto(pantalla_.idioma, Clave::conectar_esperar_segundo_paso), {std::to_string(intento.espera)})
+              : cliente::explicar(pantalla_.idioma, intento);
+      return;
+    }
     if (intento.estado != cliente::EstadoConexion::conectado || !intento.presentado) {
       configurar_al_entrar_.clear();
       if (intento.estado == cliente::EstadoConexion::falta_contrasena ||
@@ -2201,6 +2262,8 @@ class Programa {
   std::uint32_t cuadros_ = 0;
   bool poca_memoria_ = false;
   bool ahorrando_ = false;
+  bool intento_con_codigo_ = false;
+  bool config_recibida_ = false;
   bool midiendo_ = false;
   std::ofstream registro_;
   std::shared_ptr<cliente::PuenteVoz> puente_;

@@ -81,8 +81,9 @@ void probar_totp(const std::uint8_t* datos, std::string_view texto) {
   const std::uint64_t paso = segundos / kSegundosPasoTotp;
   const auto codigo = codigo_totp(secreto, paso);
   exigir(codigo && *codigo < kTopeCodigoTotp);
-  const auto aceptado = verificar_totp(secreto, *codigo, segundos);
-  exigir(aceptado && (*aceptado == paso || *aceptado == paso + 1));
+  const auto aceptado = verificar_totp(secreto, *codigo, segundos, 0);
+  exigir(!aceptado || *aceptado > 0);
+  exigir(paso == 0 || (aceptado && (*aceptado == paso || *aceptado == paso + 1)));
   exigir(!verificar_totp(secreto, *codigo, segundos, paso + 1));
 }
 

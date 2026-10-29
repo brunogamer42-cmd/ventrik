@@ -8,12 +8,12 @@
 #include <gsl/gsl>
 
 #include "common/archivos.h"
-#include "common/cifrado/base32.h"
 #include "common/cifrado/boveda.h"
 #include "common/cifrado/identidad.h"
 #include "server/contrasena.h"
 #include "server/mudanza.h"
 #include "server/respaldo.h"
+#include "server/servidor.h"
 
 namespace ventrik::servidor {
 namespace {
@@ -36,11 +36,7 @@ bool vacia(const std::wstring& carpeta) {
 }
 
 bool guardar_seguridad(Base& base, const Seguridad& seguridad) {
-  std::vector<std::uint8_t> bytes{static_cast<std::uint8_t>(seguridad.nivel)};
-  bytes.insert(bytes.end(), seguridad.opciones.valores.begin(), seguridad.opciones.valores.end());
-  return es_valida(seguridad) && base.guardar_texto("seguridad", cifrado::a_base32(bytes, false)) &&
-         (seguridad.opciones[Opcion::historial_cifrado] == 0 || base.cifrar_historial(true)) &&
-         (seguridad.opciones[Opcion::sin_historial] == 0 || base.cambiar_retencion(Retencion::no_guardar));
+  return base.guardar_seguridad(seguridad) && aplicar_en_la_base(base, seguridad);
 }
 
 Creado crear_servidor(const std::wstring& carpeta, const protocolo::ServidorNuevo& nuevo,

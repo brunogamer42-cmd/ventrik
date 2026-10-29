@@ -37,7 +37,7 @@ TEST_CASE("TOTP da los códigos de los vectores oficiales del RFC 6238 con SHA1"
   for (const auto& vector : vectores) {
     CAPTURE(vector.segundos);
     CHECK(codigo(vector.segundos / kSegundosPasoTotp) == vector.codigo);
-    CHECK(verificar_totp(secreto_rfc(), vector.codigo, vector.segundos) == vector.segundos / kSegundosPasoTotp);
+    CHECK(verificar_totp(secreto_rfc(), vector.codigo, vector.segundos, 0) == vector.segundos / kSegundosPasoTotp);
   }
 }
 
@@ -45,13 +45,13 @@ TEST_CASE("TOTP acepta un paso antes y uno después, pero no dos") {
   for (const std::uint64_t paso : {kPaso - 2, kPaso - 1, kPaso + 1, kPaso + 2}) {
     CHECK(codigo(paso) != codigo(kPaso));
   }
-  CHECK(verificar_totp(secreto_rfc(), codigo(kPaso), kAhora) == kPaso);
-  CHECK(verificar_totp(secreto_rfc(), codigo(kPaso - 1), kAhora) == kPaso - 1);
-  CHECK(verificar_totp(secreto_rfc(), codigo(kPaso + 1), kAhora) == kPaso + 1);
-  CHECK_FALSE(verificar_totp(secreto_rfc(), codigo(kPaso - 2), kAhora));
-  CHECK_FALSE(verificar_totp(secreto_rfc(), codigo(kPaso + 2), kAhora));
-  CHECK(verificar_totp(secreto_rfc(), codigo(0), 0) == 0u);
-  CHECK(verificar_totp(secreto_rfc(), codigo(1), 0) == 1u);
+  CHECK(verificar_totp(secreto_rfc(), codigo(kPaso), kAhora, 0) == kPaso);
+  CHECK(verificar_totp(secreto_rfc(), codigo(kPaso - 1), kAhora, 0) == kPaso - 1);
+  CHECK(verificar_totp(secreto_rfc(), codigo(kPaso + 1), kAhora, 0) == kPaso + 1);
+  CHECK_FALSE(verificar_totp(secreto_rfc(), codigo(kPaso - 2), kAhora, 0));
+  CHECK_FALSE(verificar_totp(secreto_rfc(), codigo(kPaso + 2), kAhora, 0));
+  CHECK_FALSE(verificar_totp(secreto_rfc(), codigo(0), 0, 0));
+  CHECK(verificar_totp(secreto_rfc(), codigo(1), 0, 0) == 1u);
 }
 
 TEST_CASE("TOTP no acepta otra vez un código ya usado ni uno más viejo") {
@@ -64,11 +64,11 @@ TEST_CASE("TOTP no acepta otra vez un código ya usado ni uno más viejo") {
 }
 
 TEST_CASE("TOTP rechaza códigos imposibles y secretos de otro largo") {
-  CHECK_FALSE(verificar_totp(secreto_rfc(), codigo(kPaso) + kTopeCodigoTotp, kAhora));
-  CHECK_FALSE(verificar_totp(secreto_rfc(), std::numeric_limits<std::uint32_t>::max(), kAhora));
+  CHECK_FALSE(verificar_totp(secreto_rfc(), codigo(kPaso) + kTopeCodigoTotp, kAhora, 0));
+  CHECK_FALSE(verificar_totp(secreto_rfc(), std::numeric_limits<std::uint32_t>::max(), kAhora, 0));
   CHECK_FALSE(codigo_totp(secreto_rfc().first(19), kPaso));
   CHECK_FALSE(codigo_totp(gsl::span<const std::uint8_t>(), kPaso));
-  CHECK_FALSE(verificar_totp(secreto_rfc().first(19), codigo(kPaso), kAhora));
+  CHECK_FALSE(verificar_totp(secreto_rfc().first(19), codigo(kPaso), kAhora, 0));
   CHECK(codigos_totp_iguales(123456, 123456));
   CHECK_FALSE(codigos_totp_iguales(123456, 123457));
 }

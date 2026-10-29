@@ -94,6 +94,14 @@ bool windows_es_compatible() {
 #endif
 }
 
+bool es_windows_xp() {
+  OSVERSIONINFOEXW pedido = {};
+  pedido.dwOSVersionInfoSize = sizeof(pedido);
+  pedido.dwMajorVersion = 6;
+  return VerifyVersionInfoW(&pedido, VER_MAJORVERSION,
+                            VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL)) == FALSE;
+}
+
 void proteger_el_monton() {
   HeapSetInformation(nullptr, HeapEnableTerminationOnCorruption, nullptr, 0);
   ULONG baja_fragmentacion = 2;

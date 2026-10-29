@@ -70,6 +70,7 @@ struct PantallaHostear {
   std::vector<AdminDelServidor> admins;
   std::vector<EntradaDelRegistro> registro;
   bool ocupado = false;
+  bool cargando = false;
   DialogoDeServidor dialogo;
 };
 

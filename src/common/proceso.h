@@ -16,6 +16,8 @@ CargaDeDll endurecer_carga_de_dll();
 
 bool windows_es_compatible();
 
+bool es_windows_xp();
+
 void proteger_el_monton();
 
 bool queda_poca_memoria();

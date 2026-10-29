@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -62,6 +63,11 @@ struct Opciones {
   bool quitar_dueno = false;
   std::optional<std::string> poner_contrasena;
   std::optional<bool> cifrar_historial;
+  std::optional<SegundoPaso> segundo_paso;
+  std::optional<Seguridad> seguridad;
+  std::string quitar_segundo_paso;
+  std::string permitir_segundo_paso;
+  bool en_xp = false;
   std::string liberar_nombre;
   std::string nombre_servidor;
   std::string nombre_de_fabrica = "Ventrik";
@@ -98,10 +104,18 @@ enum class Evento {
   canal_borrado,
   nombre_liberado,
   equipo_nuevo,
+  segundo_paso_incorrecto,
+  segundo_paso_bloqueado,
+  segundo_paso_configurado,
+  segundo_paso_quitado,
+  config_cambiada,
+  maximo_en_xp,
   contrasena_rehecha,
 };
 
 using Avisar = std::function<void(Evento, const red::Direccion&, const std::string&)>;
+
+bool aplicar_en_la_base(Base& base, const Seguridad& seguridad);
 
 class Servidor {
  public:
@@ -119,6 +133,11 @@ class Servidor {
   bool pide_contrasena() const { return contrasena_.has_value(); }
   void clave_del_historial(cifrado::Secreto clave) { clave_historial_ = std::move(clave); }
   bool historial_cifrado() const { return historial_cifrado_; }
+  void clave_del_segundo_paso(cifrado::Secreto clave) { clave_segundo_paso_ = std::move(clave); }
+  const std::string& segundo_paso_quitado() const { return segundo_paso_quitado_; }
+  const std::string& segundo_paso_permitido() const { return segundo_paso_permitido_; }
+  const Seguridad& seguridad() const { return seguridad_; }
+  bool maximo_en_xp() const { return opciones_.en_xp && seguridad_.nivel == Nivel::maximo; }
 
   void correr(const std::atomic<bool>& seguir);
 
@@ -130,6 +149,7 @@ class Servidor {
   };
   struct Registrado {
     UsuarioGuardado guardado;
+    std::optional<SegundoPasoGuardado> segundo_paso;
     std::wstring comparable;
     std::chrono::steady_clock::time_point desde_reemplazos{};
     int reemplazos = 0;
@@ -153,6 +173,18 @@ class Servidor {
   void borrar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void nombrar_admin(Conexion& conexion, const protocolo::Marco& marco);
   void liberar_nombre(Conexion& conexion, const protocolo::Marco& marco);
+  void segundo_paso(Conexion& conexion, const protocolo::Marco& marco);
+  void quitar_segundo_paso(Conexion& conexion, const protocolo::Marco& marco);
+  void pedir_config_seguridad(Conexion& conexion, const protocolo::Marco& marco);
+  void cambiar_config_seguridad(Conexion& conexion, const protocolo::Marco& marco);
+  void aplicar_seguridad(const Seguridad& nueva);
+  void renovar(const std::vector<std::uint32_t>& ids);
+  bool pide_segundo_paso(const UsuarioGuardado& usuario, bool reclama = false) const;
+  bool comprobar_segundo_paso(Conexion& conexion, Registrado& yo, const protocolo::Presentarse& presentacion);
+  void revisar_segundo_paso(Conexion& conexion);
+  void ofrecer_segundo_paso(Conexion& conexion);
+  bool guardar_segundo_paso(const SegundoPasoGuardado& guardado);
+  std::vector<Registrado>::iterator registrado_de(const ClaveDeUsuario& clave);
   void cambiar_nombre_servidor(Conexion& conexion, const protocolo::Marco& marco);
   void cambiar_contrasena_servidor(Conexion& conexion, const protocolo::Marco& marco);
   void sacar_admin_guardado(Conexion& conexion, const protocolo::Marco& marco);
@@ -201,8 +233,9 @@ class Servidor {
   cifrado::IdentidadServidor& identidad_;
   Opciones opciones_;
   Avisar avisar_;
-  std::unique_ptr<cifrado::ConfigTls> config_;
+  std::array<std::unique_ptr<cifrado::ConfigTls>, 3> configs_;
   std::vector<std::uint8_t> marco_cadena_;
+  VersionPrograma programa_minimo_fijo_;
   red::Socket escucha_;
   red::Socket udp_;
   red::Despertador despertador_;
@@ -223,6 +256,10 @@ class Servidor {
   std::optional<ContrasenaGuardada> contrasena_;
   cifrado::Secreto clave_historial_;
   bool historial_cifrado_ = false;
+  cifrado::Secreto clave_segundo_paso_;
+  std::string segundo_paso_quitado_;
+  std::string segundo_paso_permitido_;
+  Seguridad seguridad_;
   bool rehacer_contrasena_ = false;
   std::uint64_t version_contrasena_ = 0;
   std::uint64_t proxima_marca_ = 0;

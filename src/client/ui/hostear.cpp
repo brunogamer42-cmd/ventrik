@@ -227,7 +227,9 @@ class Dibujo {
       return con_datos(t(con_contrasena() ? Clave::hostear_abajo_con : Clave::hostear_abajo_sin),
                        {pantalla_.nombre.data()});
     }
-    return std::string(t(paso == Paso::seguridad ? kNombreDeNivel[nivel()] : datos(paso).abajo));
+    return std::string(t(paso != Paso::seguridad ? datos(paso).abajo
+                         : pantalla_.cargando    ? Clave::hostear_cargando
+                                                 : kNombreDeNivel[nivel()]));
   }
 
   void lista() {
@@ -418,9 +420,13 @@ class Dibujo {
 
   float seguridad(float x, float y, float ancho) {
     y = seccion(x, y, ancho, t(Clave::hostear_nivel), false, [&](float cx, float cy, float interior) {
-      cy = niveles(cx, cy - px(2), interior);
-      cy = que_incluye(cx, cy + px(15), interior);
-      if (pantalla_.seguridad.nivel == Nivel::maximo && pantalla_.xp) {
+      if (pantalla_.cargando) {
+        cy = nota(ImVec2(cx, cy), interior, t(Clave::hostear_cargando));
+      } else {
+        cy = niveles(cx, cy - px(2), interior);
+        cy = que_incluye(cx, cy + px(15), interior);
+      }
+      if (!pantalla_.cargando && pantalla_.seguridad.nivel == Nivel::maximo && pantalla_.xp) {
         cy = nota(ImVec2(cx, cy + px(12)), interior, t(Clave::hostear_xp_relay), color::amarillo);
       }
       if (!pantalla_.configurando && valor(Opcion::historial_cifrado) != 0) {

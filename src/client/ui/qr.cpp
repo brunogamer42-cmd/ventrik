@@ -3,13 +3,20 @@
 #include <cstdint>
 #include <string>
 
+#include <gsl/gsl>
+#include <mbedtls/platform_util.h>
 #include <qrcodegen.h>
 
 namespace ventrik::ui {
 std::optional<Qr> armar_qr(std::string_view texto) {
-  const std::string terminado(texto);
+  std::string terminado(texto);
   std::vector<std::uint8_t> temporal(qrcodegen_BUFFER_LEN_MAX);
   std::vector<std::uint8_t> modulos(qrcodegen_BUFFER_LEN_MAX);
+  const auto borrar = gsl::finally([&] {
+    mbedtls_platform_zeroize(&terminado[0], terminado.size());
+    mbedtls_platform_zeroize(temporal.data(), temporal.size());
+    mbedtls_platform_zeroize(modulos.data(), modulos.size());
+  });
   if (terminado.find('\0') != std::string::npos ||
       !qrcodegen_encodeText(terminado.c_str(), temporal.data(), modulos.data(), qrcodegen_Ecc_MEDIUM,
                             qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, false)) {

@@ -177,8 +177,10 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
                   Silenciar, SilenciarPersonas, DestinosDeSusurro,
                   EnviarChat, MensajeChat, PedirHistorial, Historial, CrearCanal, CambiarCanal,
                   MirarCanal, MensajesNuevos, BorrarCanal, Negado, Desplazado, NombrarAdmin, UsuarioRol, LiberarNombre,
-                  AvisoDeSeguridad, CadenaDeClaves, CambiarNombreServidor, CambiarContrasenaServidor, PedirRegistro,
-                  SacarAdminGuardado, NombreServidor, RegistroDeSeguridad, Ping, Pong, ClaveVoz, MedioSubida,
+                  AvisoDeSeguridad, CadenaDeClaves, SegundoPaso, QuitarSegundoPaso, ConfigurarSegundoPaso,
+                  PedirConfigSeguridad, CambiarConfigSeguridad, ConfigSeguridad, CambiarNombreServidor,
+                  CambiarContrasenaServidor, PedirRegistro, SacarAdminGuardado, NombreServidor, RegistroDeSeguridad,
+                  Ping, Pong, ClaveVoz, MedioSubida,
                   MedioBajada>(marco.cuerpo);
   if (marco.tipo == static_cast<std::uint16_t>(TipoMensaje::cadena_de_claves)) {
     if (const auto cadena = leer_mensaje<CadenaDeClaves>(marco.cuerpo)) {

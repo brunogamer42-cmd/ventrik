@@ -14,12 +14,12 @@ extern "C" {
 namespace ventrik::cifrado {
 namespace {
 std::optional<std::uint64_t> verificar_despues_de(gsl::span<const std::uint8_t> secreto, std::uint32_t codigo,
-                                                  std::uint64_t segundos_unix, std::optional<std::uint64_t> ultimo) {
+                                                  std::uint64_t segundos_unix, std::uint64_t ultimo) {
   const std::uint64_t paso = segundos_unix / kSegundosPasoTotp;
   std::optional<std::uint64_t> aceptado;
   for (std::uint64_t candidato = paso == 0 ? 0 : paso - 1; candidato <= paso + 1; ++candidato) {
     const auto esperado = codigo_totp(secreto, candidato);
-    if (esperado && codigos_totp_iguales(*esperado, codigo) && (!ultimo || candidato > *ultimo)) {
+    if (esperado && codigos_totp_iguales(*esperado, codigo) && candidato > ultimo) {
       aceptado = candidato;
     }
   }
@@ -57,11 +57,6 @@ std::optional<std::uint32_t> codigo_totp(gsl::span<const std::uint8_t> secreto, 
 
 bool codigos_totp_iguales(std::uint32_t a, std::uint32_t b) {
   return mbedtls_ct_memcmp(&a, &b, sizeof a) == 0;
-}
-
-std::optional<std::uint64_t> verificar_totp(gsl::span<const std::uint8_t> secreto, std::uint32_t codigo,
-                                            std::uint64_t segundos_unix) {
-  return verificar_despues_de(secreto, codigo, segundos_unix, std::nullopt);
 }
 
 std::optional<std::uint64_t> verificar_totp(gsl::span<const std::uint8_t> secreto, std::uint32_t codigo,

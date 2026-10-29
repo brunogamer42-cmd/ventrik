@@ -14,6 +14,8 @@
 #include <vector>
 
 #include "common/cifrado/secreto.h"
+#include "common/cifrado/sobre.h"
+#include "common/niveles.h"
 #include "common/protocol/pedidos.h"
 #include "common/red/red.h"
 
@@ -42,6 +44,18 @@ struct UsuarioGuardado {
   std::uint64_t creado_ms = 0;
   std::uint64_t visto_ms = 0;
   std::uint32_t entradas = 0;
+};
+
+constexpr std::size_t kBytesSegundoPasoSellado =
+    cifrado::kBytesNonce + protocolo::kBytesSecretoSegundoPaso + cifrado::kBytesEtiqueta;
+constexpr std::uint32_t kFallasDeSegundoPaso = 10;
+
+struct SegundoPasoGuardado {
+  ClaveDeUsuario clave{};
+  std::vector<std::uint8_t> sellado;
+  std::uint64_t paso = 0;
+  std::uint32_t fallas = 0;
+  std::uint64_t desde_ms = 0;
 };
 
 struct AvisosPendientes {
@@ -85,7 +99,7 @@ class Base {
   bool guardar_usuario(const UsuarioGuardado& usuario);
   bool borrar_usuarios(const std::vector<ClaveDeUsuario>& claves);
   bool liberar_nombre(const std::string& nombre);
-  bool anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std::uint64_t ahora_ms);
+  bool anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std::uint64_t ahora_ms, bool es_nuevo = false);
   std::optional<bool> conoce_equipo(const ClaveDeUsuario& clave, const Equipo& equipo);
   bool anotar(const protocolo::AvisoDeSeguridad& aviso);
   std::vector<protocolo::AvisoDeSeguridad> registro(std::size_t maximo);
@@ -93,6 +107,13 @@ class Base {
                      const protocolo::AvisoDeSeguridad& aviso);
   AvisosPendientes avisos_para(const ClaveDeUsuario& clave, const Equipo& equipo);
   bool entregados(const ClaveDeUsuario& clave, const Equipo& equipo, std::int64_t hasta);
+  std::optional<bool> es_de_confianza(const ClaveDeUsuario& clave, const Equipo& equipo);
+  bool confiar_equipos(const ClaveDeUsuario& clave);
+  std::optional<std::vector<SegundoPasoGuardado>> segundos_pasos();
+  bool guardar_segundo_paso(const SegundoPasoGuardado& guardado);
+  bool quitar_segundo_paso(const ClaveDeUsuario& clave);
+  bool leer_seguridad(std::optional<ventrik::Seguridad>& leida);
+  bool guardar_seguridad(const ventrik::Seguridad& seguridad);
   bool quitar_dueno();
   std::string texto_guardado(const std::string& clave);
   bool guardar_texto(const std::string& clave, const std::string& valor);
@@ -128,6 +149,7 @@ class Base {
   };
 
   bool es_su_hilo() const;
+  bool limpiar_equipos_nuevos(const ClaveDeUsuario& clave);
   sqlite3_stmt* preparada(Sentencia cual);
   bool correr(Sentencia cual);
 
@@ -149,7 +171,7 @@ class ServicioBase {
 
   bool arrancar(std::wstring archivo, std::string nombre_general, const red::Despertador& despertador,
                 cifrado::Secreto clave_historial = {});
-  bool pedir(Trabajo trabajo);
+  bool pedir(Trabajo trabajo, bool sola = false);
   void atender_respuestas();
 
  private:
@@ -159,7 +181,7 @@ class ServicioBase {
   std::mutex candado_;
   std::condition_variable hay_pedidos_;
   std::condition_variable abierta_;
-  std::deque<Trabajo> pedidos_;
+  std::deque<std::pair<Trabajo, bool>> pedidos_;
   std::deque<std::function<void()>> respuestas_;
   std::optional<bool> pudo_abrir_;
   bool terminar_ = false;

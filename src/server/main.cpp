@@ -15,6 +15,7 @@
 #include "common/cifrado/codigo_dueno.h"
 #include "common/cifrado/identidad.h"
 #include "common/cifrado/inicio.h"
+#include "common/cifrado/totp.h"
 #include "common/proceso.h"
 #include "common/protocol/hostear.h"
 #include "common/red/red.h"
@@ -125,6 +126,12 @@ ventrik::Clave clave_de(ventrik::servidor::Evento evento) {
     case Evento::canal_borrado: return Clave::servidor_canal_borrado;
     case Evento::nombre_liberado: return Clave::servidor_nombre_liberado;
     case Evento::equipo_nuevo: return Clave::servidor_equipo_nuevo;
+    case Evento::segundo_paso_incorrecto: return Clave::servidor_segundo_paso_incorrecto;
+    case Evento::segundo_paso_bloqueado: return Clave::servidor_segundo_paso_bloqueado;
+    case Evento::segundo_paso_configurado: return Clave::servidor_segundo_paso_configurado;
+    case Evento::segundo_paso_quitado: return Clave::servidor_segundo_paso_quitado;
+    case Evento::config_cambiada: return Clave::servidor_config_cambiada;
+    case Evento::maximo_en_xp: return Clave::servidor_maximo_xp;
     case Evento::contrasena_rehecha: return Clave::servidor_contrasena_rehecha;
   }
   return Clave::servidor_conectada;
@@ -290,6 +297,9 @@ int wmain(int cantidad, wchar_t** argumentos) {
   bool crear = false;
   bool sin_consola = false;
   std::optional<bool> cifrar_historial;
+  std::optional<ventrik::SegundoPaso> segundo_paso;
+  std::string quitar_segundo_paso;
+  std::string permitir_segundo_paso;
   std::string nombre;
   std::string liberar;
   std::wstring exportar;
@@ -347,6 +357,21 @@ int wmain(int cantidad, wchar_t** argumentos) {
       ++i;
       continue;
     }
+    if (opcion == L"--segundo-paso" && (valor == L"nadie" || valor == L"admins" || valor == L"todos")) {
+      segundo_paso = valor == L"nadie"    ? ventrik::SegundoPaso::nadie
+                     : valor == L"admins" ? ventrik::SegundoPaso::admins
+                                           : ventrik::SegundoPaso::todos;
+      ++i;
+      continue;
+    }
+    if (opcion == L"--quitar-segundo-paso" && hay_valor) {
+      quitar_segundo_paso = ventrik::a_utf8(argumentos[++i]);
+      continue;
+    }
+    if (opcion == L"--permitir-segundo-paso" && hay_valor) {
+      permitir_segundo_paso = ventrik::a_utf8(argumentos[++i]);
+      continue;
+    }
     if (opcion == L"--puerto" && hay_valor && leer_puerto(argumentos[i + 1], puerto)) {
       ++i;
       continue;
@@ -371,6 +396,9 @@ int wmain(int cantidad, wchar_t** argumentos) {
     escribir_linea(texto(ventrik::Clave::servidor_uso_exportar));
     escribir_linea(texto(ventrik::Clave::servidor_uso_importar));
     escribir_linea(texto(ventrik::Clave::servidor_uso_cambiar_clave));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_segundo_paso));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_quitar_segundo_paso));
+    escribir_linea(texto(ventrik::Clave::servidor_uso_permitir_segundo_paso));
     escribir_linea(texto(ventrik::Clave::servidor_uso_crear));
     return salir(SalidaServidor::uso);
   }
@@ -606,8 +634,9 @@ int wmain(int cantidad, wchar_t** argumentos) {
   }
   escribir_linea("");
   auto clave_historial = cargada.boveda->derivar(ventrik::cifrado::kEtiquetaHistorial);
+  auto clave_segundo_paso = cargada.boveda->derivar(ventrik::cifrado::kEtiquetaTotp);
   cargada.boveda.reset();
-  if (!clave_historial) {
+  if (!clave_historial || !clave_segundo_paso) {
     escribir_linea(texto(ventrik::Clave::servidor_error_cifrado));
     return 1;
   }
@@ -631,6 +660,10 @@ int wmain(int cantidad, wchar_t** argumentos) {
   opciones.archivo_base = archivo_base;
   opciones.archivo_publico = carpeta + ventrik::protocolo::kArchivoPublico;
   opciones.cifrar_historial = cifrar_historial;
+  opciones.segundo_paso = segundo_paso;
+  opciones.quitar_segundo_paso = quitar_segundo_paso;
+  opciones.permitir_segundo_paso = permitir_segundo_paso;
+  opciones.en_xp = ventrik::es_windows_xp();
   opciones.nombre_general = texto(ventrik::Clave::canal_general);
   opciones.nombre_servidor = nombre;
   opciones.nombre_de_fabrica = texto(ventrik::Clave::servidor_nombre_de_fabrica);
@@ -665,7 +698,8 @@ int wmain(int cantidad, wchar_t** argumentos) {
     if (evento == ventrik::servidor::Evento::dueno_reclamado) {
       DeleteFileW(archivo_codigo.c_str());
     }
-    if (evento == ventrik::servidor::Evento::error_base || evento == ventrik::servidor::Evento::contrasena_rehecha) {
+    if (evento == ventrik::servidor::Evento::error_base || evento == ventrik::servidor::Evento::maximo_en_xp ||
+        evento == ventrik::servidor::Evento::contrasena_rehecha) {
       registro.agregar(texto(clave_de(evento)));
       return;
     }
@@ -675,6 +709,7 @@ int wmain(int cantidad, wchar_t** argumentos) {
   };
   ventrik::servidor::Servidor servidor(*cargada.identidad, opciones, avisar);
   servidor.clave_del_historial(std::move(*clave_historial));
+  servidor.clave_del_segundo_paso(std::move(*clave_segundo_paso));
   if (!servidor.escuchar()) {
     escribir_linea(servidor.base_abierta()
                        ? texto(ventrik::Clave::servidor_error_puerto) + " " + std::to_string(puerto)
@@ -692,6 +727,25 @@ int wmain(int cantidad, wchar_t** argumentos) {
                                                   : ventrik::Clave::servidor_sin_contrasena));
   escribir_linea(texto(servidor.historial_cifrado() ? ventrik::Clave::servidor_historial_cifrado
                                                     : ventrik::Clave::servidor_historial_sin_cifrar));
+  constexpr ventrik::Clave kSegundoPaso[] = {ventrik::Clave::servidor_segundo_paso_nadie,
+                                             ventrik::Clave::servidor_segundo_paso_admins,
+                                             ventrik::Clave::servidor_segundo_paso_todos};
+  escribir_linea(texto(kSegundoPaso[servidor.seguridad().opciones[ventrik::Opcion::segundo_paso] % 3]));
+  if (servidor.maximo_en_xp()) {
+    escribir_linea(texto(ventrik::Clave::servidor_maximo_xp));
+  }
+  if (!quitar_segundo_paso.empty()) {
+    escribir_linea(servidor.segundo_paso_quitado().empty()
+                       ? ventrik::con_datos(texto(ventrik::Clave::servidor_sin_segundo_paso_que_quitar), {quitar_segundo_paso})
+                       : ventrik::con_datos(texto(ventrik::Clave::servidor_segundo_paso_quitado_a),
+                                            {servidor.segundo_paso_quitado()}));
+  }
+  if (!permitir_segundo_paso.empty()) {
+    escribir_linea(servidor.segundo_paso_permitido().empty()
+                       ? ventrik::con_datos(texto(ventrik::Clave::servidor_sin_identidad_que_permitir), {permitir_segundo_paso})
+                       : ventrik::con_datos(texto(ventrik::Clave::servidor_segundo_paso_permitido_a),
+                                            {servidor.segundo_paso_permitido()}));
+  }
   if (servidor.tiene_dueno()) {
     DeleteFileW(archivo_codigo.c_str());
   } else {

@@ -57,7 +57,7 @@ Presentarse presentarse(std::optional<std::array<std::uint8_t, 16>> codigo = {})
 Bytes cola_de_presentarse() {
   Bytes cola(kBytesClavePublica, 4);
   cola.insert(cola.end(), kBytesEquipo, 5);
-  cola.insert(cola.end(), {0, 0, 3, 1, 2, 3});
+  cola.insert(cola.end(), {0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 3, 1, 2, 3});
   return cola;
 }
 }
@@ -78,7 +78,7 @@ TEST_CASE("Los pedidos nuevos tienen bytes fijos") {
   Bytes con_contrasena_bytes = {3, 0, 'A', 'n', 'a', 0};
   con_contrasena_bytes.insert(con_contrasena_bytes.end(), kBytesClavePublica, 4);
   con_contrasena_bytes.insert(con_contrasena_bytes.end(), kBytesEquipo, 5);
-  con_contrasena_bytes.insert(con_contrasena_bytes.end(), {3, 0, 'a', 'b', 'c', 3, 1, 2, 3});
+  con_contrasena_bytes.insert(con_contrasena_bytes.end(), {3, 0, 'a', 'b', 'c', 0xFF, 0xFF, 0xFF, 0xFF, 3, 1, 2, 3});
   CHECK(en_bytes(con_contrasena) == con_contrasena_bytes);
   CHECK(en_bytes(PresentacionRechazada{MotivoPresentacion::contrasena_incorrecta, 0x0102}) == Bytes{8, 2, 1});
   CHECK(en_bytes(Desplazado{}).empty());
@@ -151,7 +151,7 @@ TEST_CASE("Los mensajes de admins y de seguridad vuelven iguales, y con un rol o
   CHECK_FALSE(se_escribe(AvisoDeSeguridad{static_cast<Seguridad>(0), 1, "", ""}));
   CHECK_FALSE(se_escribe(AvisoDeSeguridad{Seguridad::canal_borrado, 1, " Tano", ""}));
   Bytes malo = en_bytes(AvisoDeSeguridad{Seguridad::canal_borrado, 1, "Tano", "partidas"});
-  for (const int tipo : {0, 8, 255}) {
+  for (const int tipo : {0, 11, 255}) {
     malo[0] = static_cast<std::uint8_t>(tipo);
     CHECK_FALSE(leer_mensaje<AvisoDeSeguridad>(malo));
   }
@@ -212,7 +212,7 @@ TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con byte
 TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Presentarse>(Bytes{3, 0, 'A', 'n', 'a', 5, 1, 2, 3, 4, 5}));
   CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{0, 0, 0}));
-  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{11, 0, 0}));
+  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{14, 0, 0}));
   Bytes sin_firma = {3, 0, 'A', 'n', 'a', 0};
   sin_firma.insert(sin_firma.end(), kBytesClavePublica + kBytesEquipo, 1);
   Bytes contrasena_larga = sin_firma;
@@ -220,7 +220,7 @@ TEST_CASE("Valores que no existen no se aceptan") {
   contrasena_larga.insert(contrasena_larga.end(), kMaximoBytesContrasena + 1, 'a');
   contrasena_larga.insert(contrasena_larga.end(), {3, 1, 2, 3});
   CHECK_FALSE(leer_mensaje<Presentarse>(contrasena_larga));
-  sin_firma.insert(sin_firma.end(), {0, 0});
+  sin_firma.insert(sin_firma.end(), {0, 0, 0xFF, 0xFF, 0xFF, 0xFF});
   Bytes firma_larga = sin_firma;
   sin_firma.push_back(0);
   CHECK_FALSE(leer_mensaje<Presentarse>(sin_firma));
@@ -232,11 +232,78 @@ TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{30, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{1, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 0}));
-  CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 9}));
+  CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 10}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{32, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{53, 0, 1}));
   CHECK_FALSE(leer_mensaje<Presentado>(Bytes{1, 0, 0, 0, 2, 0, 0, 0, 0}));
   CHECK_FALSE(leer_mensaje<Historial>(Bytes{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1}));
+}
+
+TEST_CASE("El segundo paso: el código va firmado dentro de Presentarse, tiene 6 cifras y sus mensajes vuelven iguales") {
+  Presentarse con_codigo = presentarse();
+  con_codigo.segundo_paso = 123456;
+  Bytes esperado = {3, 0, 'A', 'n', 'a', 0};
+  esperado.insert(esperado.end(), kBytesClavePublica, 4);
+  esperado.insert(esperado.end(), kBytesEquipo, 5);
+  esperado.insert(esperado.end(), {0, 0, 0x40, 0xE2, 0x01, 0x00, 3, 1, 2, 3});
+  CHECK(en_bytes(con_codigo) == esperado);
+  ida_y_vuelta(con_codigo);
+  con_codigo.segundo_paso = 0;
+  ida_y_vuelta(con_codigo);
+  const std::array<std::uint8_t, 32> nada{};
+  CHECK(lo_que_se_firma(con_codigo, 8, nada, nada) != lo_que_se_firma(presentarse(), 8, nada, nada));
+  con_codigo.segundo_paso = kTopeCodigoSegundoPaso;
+  CHECK_FALSE(se_escribe(con_codigo));
+  esperado[esperado.size() - 8] = 0x40;
+  esperado[esperado.size() - 7] = 0x42;
+  esperado[esperado.size() - 6] = 0x0F;
+  CHECK_FALSE(leer_mensaje<Presentarse>(esperado));
+  CHECK(en_bytes(SegundoPaso{123456}) == Bytes{0x40, 0xE2, 0x01, 0x00});
+  ida_y_vuelta(SegundoPaso{0});
+  ida_y_vuelta(SegundoPaso{999999});
+  CHECK_FALSE(se_escribe(SegundoPaso{kTopeCodigoSegundoPaso}));
+  CHECK_FALSE(leer_mensaje<SegundoPaso>(Bytes{0x40, 0x42, 0x0F, 0x00}));
+  ida_y_vuelta(QuitarSegundoPaso{"Tano"});
+  CHECK_FALSE(se_escribe(QuitarSegundoPaso{""}));
+  ConfigurarSegundoPaso oferta;
+  oferta.secreto.fill(9);
+  CHECK(en_bytes(oferta) == Bytes(kBytesSecretoSegundoPaso, 9));
+  ida_y_vuelta(oferta);
+  ida_y_vuelta(Negado{TipoMensaje::segundo_paso, MotivoNegado::codigo_incorrecto});
+  ida_y_vuelta(Negado{TipoMensaje::quitar_segundo_paso, MotivoNegado::no_existe});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::falta_segundo_paso});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::segundo_paso_incorrecto, 4});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::segundo_paso_bloqueado});
+  ida_y_vuelta(AvisoDeSeguridad{Seguridad::segundo_paso_configurado, 5, "Tano", ""});
+  ida_y_vuelta(AvisoDeSeguridad{Seguridad::segundo_paso_quitado, 5, "Ana", "Tano"});
+}
+
+TEST_CASE("La configuración de seguridad viaja con el nivel y cada opción, y una que no es válida no se lee") {
+  ventrik::Seguridad seguridad;
+  ventrik::elegir_nivel(seguridad, ventrik::Nivel::maximo);
+  Bytes esperado = {2};
+  esperado.insert(esperado.end(), seguridad.opciones.valores.begin(), seguridad.opciones.valores.end());
+  CHECK(en_bytes(CambiarConfigSeguridad{seguridad}) == esperado);
+  ida_y_vuelta(CambiarConfigSeguridad{seguridad});
+  ida_y_vuelta(ConfigSeguridad{seguridad, true});
+  esperado.push_back(1);
+  CHECK(en_bytes(ConfigSeguridad{seguridad, true}) == esperado);
+  REQUIRE(ventrik::cambiar_opcion(seguridad, ventrik::Opcion::algoritmo, 2));
+  ida_y_vuelta(CambiarConfigSeguridad{seguridad});
+  CHECK(en_bytes(PedirConfigSeguridad{}).empty());
+  ida_y_vuelta(Negado{TipoMensaje::cambiar_config_seguridad, MotivoNegado::sin_permiso});
+  ida_y_vuelta(AvisoDeSeguridad{Seguridad::config_cambiada, 5, "Tano", ""});
+  ventrik::Seguridad mala = seguridad;
+  mala.nivel = ventrik::Nivel::basico;
+  CHECK_FALSE(se_escribe(CambiarConfigSeguridad{mala}));
+  Bytes mal_nivel = en_bytes(CambiarConfigSeguridad{seguridad});
+  mal_nivel[0] = 0;
+  CHECK_FALSE(leer_mensaje<CambiarConfigSeguridad>(mal_nivel));
+  mal_nivel[0] = 4;
+  CHECK_FALSE(leer_mensaje<CambiarConfigSeguridad>(mal_nivel));
+  Bytes mal_valor = en_bytes(CambiarConfigSeguridad{seguridad});
+  mal_valor[1] = 3;
+  CHECK_FALSE(leer_mensaje<CambiarConfigSeguridad>(mal_valor));
 }
 
 TEST_CASE("El pedido de historial tiene un sentido conocido y de 1 a 256 mensajes") {
@@ -341,7 +408,15 @@ TEST_CASE("Un canal es de voz sin marca o de texto con o sin ella; nada más se 
 TEST_CASE("Los paquetes de medios llevan el tipo y el número de flujo, con bytes fijos") {
   ClaveVoz clave;
   clave.identidad.fill(1);
-  CHECK(en_bytes(clave) == Bytes(16, 1));
+  Bytes clave_bytes(16, 1);
+  clave_bytes.push_back(0);
+  CHECK(en_bytes(clave) == clave_bytes);
+  clave.voz_fija = true;
+  clave_bytes.back() = 1;
+  CHECK(en_bytes(clave) == clave_bytes);
+  ida_y_vuelta(clave);
+  clave_bytes.back() = 2;
+  CHECK_FALSE(leer_mensaje<ClaveVoz>(clave_bytes));
   CHECK(en_bytes(MedioSubida{{TipoFlujo::voz, 0, 0x0102, {9, 8, 7}, 0x0304, 90}}) ==
         Bytes{1, 0, 2, 1, 4, 3, 90, 3, 0, 9, 8, 7});
   CHECK(en_bytes(MedioBajada{5, {TipoFlujo::voz, 0, 0x0102, {9}}}) == Bytes{5, 0, 0, 0, 1, 0, 2, 1, 0, 0, 0, 1, 0, 9});

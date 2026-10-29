@@ -236,6 +236,7 @@ add_executable(ventrik_pruebas
   tests/prueba_cadena.cpp
   tests/prueba_combinaciones.cpp
   tests/prueba_conexion.cpp
+  tests/prueba_config_seguridad.cpp
   tests/prueba_contrasena.cpp
   tests/prueba_dtls.cpp
   tests/prueba_entrar.cpp

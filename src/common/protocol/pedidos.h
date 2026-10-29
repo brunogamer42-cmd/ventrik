@@ -10,6 +10,7 @@
 #include <gsl/gsl>
 
 #include "common/cifrado/cadena.h"
+#include "common/niveles.h"
 #include "common/protocol/bytes.h"
 #include "common/protocol/marcos.h"
 #include "common/protocol/mensajes.h"
@@ -35,6 +36,9 @@ constexpr std::size_t kLugaresDeSusurro = 4;
 constexpr std::size_t kMaximoPersonasEnSusurro = 8;
 constexpr std::size_t kMaximoCuerpoCadena =
     1 + cifrado::kMaximoEslabones * (2 * cifrado::kBytesClavePublica + 4 + 1 + cifrado::kMaximoFirma);
+constexpr std::size_t kBytesSecretoSegundoPaso = 20;
+constexpr std::uint32_t kTopeCodigoSegundoPaso = 1000000;
+constexpr std::uint32_t kSinCodigo = 0xFFFFFFFFu;
 
 constexpr bool es_silencio_valido(std::uint8_t silencio) {
   return silencio == 0 || silencio == kSilencioMicrofono || silencio == (kSilencioMicrofono | kSilencioAudio);
@@ -47,6 +51,7 @@ struct Presentarse {
   std::array<std::uint8_t, kBytesClavePublica> clave{};
   std::array<std::uint8_t, kBytesEquipo> equipo{};
   std::string contrasena;
+  std::optional<std::uint32_t> segundo_paso;
   std::vector<std::uint8_t> firma;
 };
 
@@ -96,6 +101,9 @@ enum class MotivoPresentacion : std::uint8_t {
   contrasena_incorrecta = 8,
   ocupado = 9,
   esperar = 10,
+  falta_segundo_paso = 11,
+  segundo_paso_incorrecto = 12,
+  segundo_paso_bloqueado = 13,
 };
 
 struct PresentacionRechazada {
@@ -251,6 +259,7 @@ enum class MotivoNegado : std::uint8_t {
   nombre_en_uso = 6,
   tipo_de_canal = 7,
   nombre_libre = 8,
+  codigo_incorrecto = 9,
 };
 
 struct Negado {
@@ -288,6 +297,41 @@ enum class Seguridad : std::uint8_t {
   canal_borrado = 5,
   nombre_liberado = 6,
   ip_bloqueada = 7,
+  segundo_paso_configurado = 8,
+  segundo_paso_quitado = 9,
+  config_cambiada = 10,
+};
+
+constexpr Seguridad kUltimaSeguridad = Seguridad::config_cambiada;
+
+struct SegundoPaso {
+  static constexpr TipoMensaje kTipo = TipoMensaje::segundo_paso;
+  std::uint32_t codigo = 0;
+};
+
+struct QuitarSegundoPaso {
+  static constexpr TipoMensaje kTipo = TipoMensaje::quitar_segundo_paso;
+  std::string nombre;
+};
+
+struct ConfigurarSegundoPaso {
+  static constexpr TipoMensaje kTipo = TipoMensaje::configurar_segundo_paso;
+  std::array<std::uint8_t, kBytesSecretoSegundoPaso> secreto{};
+};
+
+struct PedirConfigSeguridad {
+  static constexpr TipoMensaje kTipo = TipoMensaje::pedir_config_seguridad;
+};
+
+struct CambiarConfigSeguridad {
+  static constexpr TipoMensaje kTipo = TipoMensaje::cambiar_config_seguridad;
+  ventrik::Seguridad seguridad;
+};
+
+struct ConfigSeguridad {
+  static constexpr TipoMensaje kTipo = TipoMensaje::config_seguridad;
+  ventrik::Seguridad seguridad;
+  bool xp = false;
 };
 
 struct AvisoDeSeguridad {
@@ -355,6 +399,7 @@ struct Pong {
 struct ClaveVoz {
   static constexpr TipoMensaje kTipo = TipoMensaje::clave_voz;
   std::array<std::uint8_t, 16> identidad{};
+  bool voz_fija = false;
 };
 
 enum class TipoFlujo : std::uint8_t { voz = 1 };
@@ -415,6 +460,12 @@ VENTRIK_MENSAJE(UsuarioRol)
 VENTRIK_MENSAJE(LiberarNombre)
 VENTRIK_MENSAJE(AvisoDeSeguridad)
 VENTRIK_MENSAJE(CadenaDeClaves)
+VENTRIK_MENSAJE(SegundoPaso)
+VENTRIK_MENSAJE(QuitarSegundoPaso)
+VENTRIK_MENSAJE(ConfigurarSegundoPaso)
+VENTRIK_MENSAJE(PedirConfigSeguridad)
+VENTRIK_MENSAJE(CambiarConfigSeguridad)
+VENTRIK_MENSAJE(ConfigSeguridad)
 VENTRIK_MENSAJE(CambiarNombreServidor)
 VENTRIK_MENSAJE(CambiarContrasenaServidor)
 VENTRIK_MENSAJE(PedirRegistro)

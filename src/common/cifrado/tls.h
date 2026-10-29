@@ -14,6 +14,7 @@
 
 #include "common/cifrado/huella.h"
 #include "common/cifrado/identidad.h"
+#include "common/niveles.h"
 #include "common/red/red.h"
 
 namespace ventrik::cifrado {
@@ -34,13 +35,15 @@ using ElegirClave =
 
 class ConfigTls {
  public:
-  static std::unique_ptr<ConfigTls> para_servidor(IdentidadServidor& identidad);
-  static std::unique_ptr<ConfigTls> para_servidor(mbedtls_x509_crt* certificado,
-                                                  mbedtls_pk_context* clave);
-  static std::unique_ptr<ConfigTls> para_programa();
-  static std::unique_ptr<ConfigTls> para_voz_servidor(ElegirClave elegir);
+  static std::unique_ptr<ConfigTls> para_servidor(IdentidadServidor& identidad,
+                                                  Algoritmo algoritmo = Algoritmo::automatico);
+  static std::unique_ptr<ConfigTls> para_servidor(mbedtls_x509_crt* certificado, mbedtls_pk_context* clave,
+                                                  Algoritmo algoritmo = Algoritmo::automatico);
+  static std::unique_ptr<ConfigTls> para_programa(Algoritmo algoritmo = Algoritmo::automatico);
+  static std::unique_ptr<ConfigTls> para_voz_servidor(ElegirClave elegir, Algoritmo algoritmo = Algoritmo::automatico);
   static std::unique_ptr<ConfigTls> para_voz_programa(gsl::span<const std::uint8_t> identidad,
-                                                      gsl::span<const std::uint8_t> clave);
+                                                      gsl::span<const std::uint8_t> clave,
+                                                      Algoritmo algoritmo = Algoritmo::automatico);
   ConfigTls();
   ~ConfigTls();
   ConfigTls(const ConfigTls&) = delete;

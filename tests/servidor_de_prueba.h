@@ -5,6 +5,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -25,6 +26,15 @@ inline ventrik::cifrado::IdentidadServidor identidad_nueva() {
   return std::move(*identidad);
 }
 
+inline const ventrik::cifrado::Secreto& clave_de_segundo_paso() {
+  static const ventrik::cifrado::Secreto clave = [] {
+    ventrik::cifrado::Secreto nueva(ventrik::cifrado::kBytesClaveSimetrica);
+    REQUIRE(ventrik::cifrado::aleatorio(nullptr, nueva.bytes().data(), nueva.size()) == 0);
+    return nueva;
+  }();
+  return clave;
+}
+
 inline bool esperar_que(const std::function<bool()>& condicion,
                         std::chrono::milliseconds limite = 5s) {
   const auto hasta = std::chrono::steady_clock::now() + limite;
@@ -41,8 +51,10 @@ class ServidorDePrueba {
  public:
   using Evento = ventrik::servidor::Evento;
 
-  explicit ServidorDePrueba(ventrik::servidor::Opciones opciones = {})
-      : identidad_(identidad_nueva()) {
+  explicit ServidorDePrueba(ventrik::servidor::Opciones opciones = {}) : ServidorDePrueba(std::move(opciones), nullptr) {}
+  ServidorDePrueba(ventrik::servidor::Opciones opciones, ventrik::cifrado::IdentidadServidor* externa)
+      : propia_(externa != nullptr ? std::nullopt : std::optional<ventrik::cifrado::IdentidadServidor>(identidad_nueva())),
+        identidad_(externa != nullptr ? *externa : *propia_) {
     opciones.escuchar = ventrik::red::Direccion{kLocal, 0};
     opciones.nombre_general = "General";
     servidor_ = std::make_unique<ventrik::servidor::Servidor>(
@@ -53,6 +65,7 @@ class ServidorDePrueba {
     ventrik::cifrado::Secreto clave(ventrik::cifrado::kBytesClaveSimetrica);
     REQUIRE(ventrik::cifrado::aleatorio(nullptr, clave.bytes().data(), clave.size()) == 0);
     servidor_->clave_del_historial(std::move(clave));
+    servidor_->clave_del_segundo_paso(ventrik::cifrado::copiar(clave_de_segundo_paso().bytes()));
     REQUIRE(servidor_->escuchar());
     hilo_ = std::thread([this] { servidor_->correr(seguir_); });
   }
@@ -68,8 +81,9 @@ class ServidorDePrueba {
   int cuantos(Evento evento) const { return eventos_[static_cast<std::size_t>(evento)].load(); }
 
  private:
-  ventrik::cifrado::IdentidadServidor identidad_;
-  std::array<std::atomic<int>, 32> eventos_{};
+  std::optional<ventrik::cifrado::IdentidadServidor> propia_;
+  ventrik::cifrado::IdentidadServidor& identidad_;
+  std::array<std::atomic<int>, 48> eventos_{};
   std::atomic<bool> seguir_{true};
   std::unique_ptr<ventrik::servidor::Servidor> servidor_;
   std::thread hilo_;

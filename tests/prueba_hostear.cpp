@@ -174,7 +174,7 @@ class ServidorDeCarpeta {
 
  private:
   std::unique_ptr<ventrik::cifrado::IdentidadServidor> identidad_;
-  std::array<std::atomic<int>, 40> eventos_{};
+  std::array<std::atomic<int>, 48> eventos_{};
   std::atomic<bool> seguir_{true};
   std::unique_ptr<ventrik::servidor::Servidor> servidor_;
   std::thread hilo_;
@@ -338,8 +338,9 @@ TEST_CASE("El evento para detener es uno por carpeta, como sea que esté escrita
 TEST_CASE("Crear arma un servidor real con el dueño ya asignado, y el dueño entra sin código") {
   Raiz raiz;
   const std::wstring carpeta = raiz.de(L"Casa");
-  REQUIRE(ventrik::servidor::crear_servidor(carpeta, servidor_nuevo("Casa de Tano", {}, {}, ventrik::Nivel::reforzado),
-                                            "General") == Creado::hecho);
+  auto nuevo = servidor_nuevo("Casa de Tano");
+  REQUIRE(ventrik::cambiar_opcion(nuevo.seguridad, ventrik::Opcion::historial_cifrado, 1));
+  REQUIRE(ventrik::servidor::crear_servidor(carpeta, nuevo, "General") == Creado::hecho);
   CHECK(existe(carpeta + ventrik::cifrado::kArchivoBoveda));
   CHECK(existe(carpeta + ventrik::cifrado::kArchivoClave));
   CHECK(existe(carpeta + ventrik::servidor::kArchivoBase));
@@ -349,7 +350,11 @@ TEST_CASE("Crear arma un servidor real con el dueño ya asignado, y el dueño en
     auto base = abrir_base(carpeta);
     CHECK(base->texto_guardado("nombre") == "Casa de Tano");
     CHECK(base->texto_guardado("contrasena").empty());
-    CHECK_FALSE(base->texto_guardado("seguridad").empty());
+    std::optional<ventrik::Seguridad> seguridad;
+    REQUIRE(base->leer_seguridad(seguridad));
+    REQUIRE(seguridad);
+    CHECK(seguridad->nivel == ventrik::Nivel::personalizado);
+    CHECK(seguridad->opciones == nuevo.seguridad.opciones);
     CHECK(base->historial_cifrado());
     const auto usuarios = base->usuarios(1000);
     REQUIRE(usuarios);
@@ -377,6 +382,29 @@ TEST_CASE("Crear arma un servidor real con el dueño ya asignado, y el dueño en
     return entrada.tipo == ventrik::protocolo::Seguridad::equipo_nuevo;
   }));
   CHECK(servidor.cuantos(ServidorDeCarpeta::Evento::equipo_nuevo) == 0);
+}
+
+TEST_CASE("El servidor creado arranca con la seguridad que eligió el asistente: en Reforzado el dueño configura el segundo paso") {
+  Raiz raiz;
+  const std::wstring carpeta = raiz.de(L"Reforzado");
+  REQUIRE(ventrik::servidor::crear_servidor(carpeta, servidor_nuevo("Casa", {}, {}, ventrik::Nivel::reforzado),
+                                            "General") == Creado::hecho);
+  {
+    auto base = abrir_base(carpeta);
+    std::optional<ventrik::Seguridad> seguridad;
+    REQUIRE(base->leer_seguridad(seguridad));
+    REQUIRE(seguridad);
+    CHECK(seguridad->nivel == ventrik::Nivel::reforzado);
+    CHECK(base->historial_cifrado());
+  }
+  ServidorDeCarpeta servidor(carpeta);
+  Cliente dueno(servidor.direccion(), servidor.huella(), "Dueño");
+  CHECK(dueno.entrar().rol == ventrik::protocolo::Rol::ninguno);
+  CHECK(dueno.esperar<ventrik::protocolo::ConfigurarSegundoPaso>());
+  dueno.ordenar(ventrik::protocolo::CambiarNombreServidor{"Sin segundo paso"});
+  CHECK(negado(dueno, TipoMensaje::cambiar_nombre_servidor, ventrik::protocolo::MotivoNegado::sin_permiso));
+  dueno.ordenar(ventrik::protocolo::PedirRegistro{});
+  CHECK(negado(dueno, TipoMensaje::pedir_registro, ventrik::protocolo::MotivoNegado::sin_permiso));
 }
 
 TEST_CASE("Crear con datos rotos o en una carpeta ocupada no crea nada") {

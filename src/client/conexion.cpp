@@ -163,6 +163,16 @@ void interpretar_presentacion(const protocolo::Marco& marco, ResultadoConexion& 
       resultado.estado = EstadoConexion::esperar;
       resultado.espera = rechazo->espera;
       break;
+    case protocolo::MotivoPresentacion::falta_segundo_paso:
+      resultado.estado = EstadoConexion::falta_segundo_paso;
+      break;
+    case protocolo::MotivoPresentacion::segundo_paso_incorrecto:
+      resultado.estado = EstadoConexion::segundo_paso_incorrecto;
+      resultado.espera = rechazo->espera;
+      break;
+    case protocolo::MotivoPresentacion::segundo_paso_bloqueado:
+      resultado.estado = EstadoConexion::segundo_paso_bloqueado;
+      break;
   }
 }
 
@@ -274,6 +284,7 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     presentarse.contrasena.assign(reinterpret_cast<const char*>(quien.contrasena->bytes().data()),
                                   quien.contrasena->size());
   }
+  presentarse.segundo_paso = quien.segundo_paso;
   std::array<std::uint8_t, protocolo::kBytesValorDeConexion> valor{};
   auto firmado = tls.valor_para_identidad(valor)
                      ? protocolo::lo_que_se_firma(presentarse, resultado.protocolo, de_la_conexion->bytes(), valor)
