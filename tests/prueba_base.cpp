@@ -1252,6 +1252,9 @@ TEST_CASE("Las llaves se guardan por identidad con su generación, con tope, y s
   CHECK(base->llaves()->at(0).generacion == 5);
   CHECK_FALSE(base->guardar_llaves({ana.clave, 5, std::vector<LlaveGuardada>(kMaximoLlavesPorUsuario + 1, una)}));
   REQUIRE(base->guardar_llaves({ana.clave, 5, {una}}));
+  REQUIRE(base->llaves()->at(0).llaves.at(0).confirmada);
+  REQUIRE(base->quitar_segundo_paso(ana.clave));
+  CHECK_FALSE(base->llaves()->at(0).llaves.at(0).confirmada);
   REQUIRE(base->borrar_usuarios({ana.clave}));
   CHECK(base->llaves()->empty());
   REQUIRE(base->guardar_usuario(ana));
@@ -1260,7 +1263,7 @@ TEST_CASE("Las llaves se guardan por identidad con su generación, con tope, y s
   CHECK(base->llaves()->empty());
 }
 
-TEST_CASE("Una fila de llave dañada en la base no se lee") {
+TEST_CASE("Una fila de llave dañada en la base no se lee, y una generación dañada anula todas las llaves") {
   const std::wstring archivo = archivo_temporal();
   borrar_base(archivo);
   UsuarioGuardado ana;
@@ -1276,14 +1279,26 @@ TEST_CASE("Una fila de llave dañada en la base no se lee") {
     REQUIRE(base->guardar_llaves({ana.clave, 2, {una}}));
   }
   for (const char* dano : {"UPDATE llaves SET contador = -1;", "UPDATE llaves SET confirmada = 2;",
-                           "UPDATE llaves SET llave = x'0102';", "UPDATE generaciones SET generacion = 4294967296;"}) {
+                           "UPDATE llaves SET llave = x'0102';"}) {
     CAPTURE(dano);
     armar_base(archivo, dano);
     auto base = Base::abrir(archivo, "General");
     REQUIRE(base);
     const auto leidas = base->llaves();
     REQUIRE(leidas);
-    CHECK(std::all_of(leidas->begin(), leidas->end(), [](const LlavesDeUsuario& suyas) { return suyas.llaves.empty(); }));
+    REQUIRE(leidas->size() == 1);
+    CHECK(leidas->at(0).llaves.empty());
+    REQUIRE(base->guardar_llaves({ana.clave, 2, {una}}));
+  }
+  for (const char* dano : {"UPDATE generaciones SET generacion = 4294967296;", "UPDATE generaciones SET generacion = -1;"}) {
+    CAPTURE(dano);
+    armar_base(archivo, dano);
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    const auto leidas = base->llaves();
+    REQUIRE(leidas);
+    REQUIRE(leidas->size() == 1);
+    CHECK(leidas->at(0).generacion == UINT32_MAX);
     REQUIRE(base->guardar_llaves({ana.clave, 2, {una}}));
   }
   borrar_base(archivo);

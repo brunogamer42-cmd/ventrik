@@ -31,7 +31,8 @@ struct Opciones {
   red::Direccion escuchar{0, red::kPuertoPredeterminado};
   std::chrono::milliseconds tiempo_para_saludar{10000};
   std::chrono::milliseconds tiempo_para_la_llave{180000};
-  std::size_t esperando_llave = 8;
+  std::size_t esperando_llave = 32;
+  std::size_t esperando_llave_sin_conocer = 8;
   std::size_t pendientes_por_ip = 4;
   std::size_t pendientes_en_total = 64;
   std::size_t conexiones_por_ip = 16;

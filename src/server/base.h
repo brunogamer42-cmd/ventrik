@@ -122,7 +122,7 @@ class Base {
   AvisosPendientes avisos_para(const ClaveDeUsuario& clave, const Equipo& equipo);
   bool entregados(const ClaveDeUsuario& clave, const Equipo& equipo, std::int64_t hasta);
   std::optional<bool> es_de_confianza(const ClaveDeUsuario& clave, const Equipo& equipo);
-  bool confiar_equipos(const ClaveDeUsuario& clave);
+  bool confiar_equipos(const ClaveDeUsuario& clave, const std::optional<Equipo>& solo = std::nullopt);
   std::optional<std::vector<SegundoPasoGuardado>> segundos_pasos();
   bool guardar_segundo_paso(const SegundoPasoGuardado& guardado);
   bool quitar_segundo_paso(const ClaveDeUsuario& clave);

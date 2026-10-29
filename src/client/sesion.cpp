@@ -95,13 +95,17 @@ Sesion::Sesion(const red::Direccion& destino, const cifrado::Huella& huella, Pre
       hilo_([this] { correr(); }) {}
 
 Sesion::~Sesion() {
+  abandonar();
+  hilo_.join();
+}
+
+void Sesion::abandonar() {
   {
     const std::lock_guard<std::mutex> candado(candado_);
     terminar_ = true;
   }
   despertador_.despertar();
   cancelar_.despertar();
-  hilo_.join();
 }
 
 void Sesion::ordenar(Orden orden) {
@@ -273,10 +277,17 @@ void Sesion::correr() {
   if (quien_.tocar_llave) {
     quien_.tocar_llave = [this, tocar = std::move(quien_.tocar_llave)](const std::vector<std::uint8_t>& id,
                                                                        gsl::span<const std::uint8_t> desafio) {
-      tocando_ = true;
+      {
+        const std::lock_guard<std::mutex> candado(candado_);
+        if (terminar_) {
+          return std::optional<LlaveTocada>();
+        }
+        tocando_ = true;
+      }
       auto tocada = tocar(id, desafio);
+      const std::lock_guard<std::mutex> candado(candado_);
       tocando_ = false;
-      return tocada;
+      return terminar_ ? std::nullopt : tocada;
     };
   }
   auto resultado = conectar(destino_, huella_, quien_, conexion);

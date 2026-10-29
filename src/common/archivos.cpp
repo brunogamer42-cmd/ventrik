@@ -145,6 +145,7 @@ bool borrar_con_ceros(const std::wstring& ruta) {
     if (archivo.valido() && GetFileSizeEx(archivo.get(), &tamano) && tamano.QuadPart > 0 &&
         static_cast<unsigned long long>(tamano.QuadPart) <= kPedazo) {
       escribir_todo(archivo.get(), std::vector<std::uint8_t>(static_cast<std::size_t>(tamano.QuadPart)));
+      FlushFileBuffers(archivo.get());
     }
   }
   return DeleteFileW(ruta.c_str()) != 0;

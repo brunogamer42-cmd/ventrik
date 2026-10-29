@@ -203,6 +203,9 @@ class Programa {
     if (sin_guardar_) {
       guardar();
     }
+    if (sesion_) {
+      sesion_->abandonar();
+    }
     if (sesion_ && sesion_->tocando_llave()) {
       tocando_.push_back(std::move(sesion_));
     }
@@ -780,7 +783,7 @@ class Programa {
                          : std::nullopt;
   }
 
-  std::uint32_t generacion() const { return std::max<std::uint32_t>(1, mis_llaves_ ? mis_llaves_->generacion : 0); }
+  std::uint32_t generacion() const { return mis_llaves_ ? mis_llaves_->generacion : 0; }
 
   void aplicar_identidad() {
     const bool con_llave = en_llave();
@@ -847,6 +850,9 @@ class Programa {
 
   void empezar_llave() {
     if (identidad_ && !copia_ && llaves_nuevas_.size() < cliente::kMaximoLlaves) {
+      if (llaves_nuevas_.empty()) {
+        generacion_nueva_ = std::max(cifrado::generacion_de_la_hora(cliente::ahora_ms()), generacion());
+      }
       if (ajustes_.dialogo_identidad != DialogoIdentidad::llave) {
         abrir_dialogo_identidad(DialogoIdentidad::llave);
       }
@@ -880,7 +886,7 @@ class Programa {
 
   void pasar_a_llaves() {
     const auto huella = mi_huella();
-    cliente::MisLlaves nuevas{generacion(), identidad_ ? identidad_->publica() : cifrado::ClavePublica{},
+    cliente::MisLlaves nuevas{generacion_nueva_, identidad_ ? identidad_->publica() : cifrado::ClavePublica{},
                               llaves_nuevas_};
     if (!identidad_ || !huella || !cliente::guardar_mis_llaves(carpeta_, nuevas) ||
         !cliente::borrar_identidad_de_la_pc(carpeta_, *huella)) {
@@ -966,7 +972,7 @@ class Programa {
     trabajo->contrasena = secreto_de(con_actual ? ajustes_.actual.data() : ajustes_.contrasena.data());
     trabajo->nueva = secreto_de(tarea == Tarea::cambiar ? ajustes_.contrasena.data() : "");
     trabajo->entrada = std::move(entrada);
-    trabajo->generacion = generacion();
+    trabajo->generacion = tarea == Tarea::crear_llave || copia_para_llaves_ ? generacion_nueva_ : generacion();
     trabajo->nombre = a_utf16("Ventrik " + ajustes_.identidad);
     for (const auto& llave : llaves_nuevas_) {
       trabajo->excluir.push_back(llave.id);
@@ -1112,8 +1118,14 @@ class Programa {
     estado_identidad_ = cliente::EstadoIdentidad::lista;
     const bool misma = mis_llaves_ && mis_llaves_->identidad == identidad_->publica();
     const std::uint32_t anterior = std::max(generacion_de_copia_, misma ? mis_llaves_->generacion : 0);
-    cliente::MisLlaves sin_llaves{desde_copia ? anterior + 1 : 0, identidad_->publica(), {}};
-    if (cliente::guardar_mis_llaves(carpeta_, sin_llaves)) {
+    cliente::MisLlaves sin_llaves{
+        desde_copia ? std::max(cifrado::generacion_de_la_hora(cliente::ahora_ms()),
+                               anterior == UINT32_MAX ? anterior : anterior + 1)
+                    : 0,
+        identidad_->publica(),
+        {}};
+    const bool anotada = cliente::guardar_mis_llaves(carpeta_, sin_llaves);
+    if (anotada) {
       mis_llaves_ = std::make_shared<const cliente::MisLlaves>(std::move(sin_llaves));
     }
     generacion_de_copia_ = 0;
@@ -1125,7 +1137,9 @@ class Programa {
     cliente::poner_texto(guardados_, cliente::Ajuste::copia_de_identidad,
                          desde_copia ? identidad_->huella().a_texto() : std::string());
     guardar();
-    avisar_identidad(aviso, false, cliente::identidad_corta(identidad_->huella()));
+    const bool sin_anular = desde_copia && !anotada;
+    avisar_identidad(sin_anular ? Clave::llave_sin_anular : aviso, sin_anular,
+                     cliente::identidad_corta(identidad_->huella()));
     aplicar_identidad();
   }
 
@@ -1965,6 +1979,7 @@ class Programa {
   std::vector<cliente::LlaveRegistrada> llaves_nuevas_;
   bool copia_para_llaves_ = false;
   std::uint32_t generacion_de_copia_ = 0;
+  std::uint32_t generacion_nueva_ = 0;
   std::vector<std::unique_ptr<cliente::Sesion>> tocando_;
   bool en_ajustes_ = false;
   PantallaHostear hostear_;

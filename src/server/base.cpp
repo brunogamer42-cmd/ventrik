@@ -779,12 +779,15 @@ std::optional<bool> Base::es_de_confianza(const ClaveDeUsuario& clave, const Equ
   return consulta.paso() == SQLITE_ROW ? std::optional<bool>(consulta.columna_entero(0) == 1) : std::nullopt;
 }
 
-bool Base::confiar_equipos(const ClaveDeUsuario& clave) {
+bool Base::confiar_equipos(const ClaveDeUsuario& clave, const std::optional<Equipo>& solo) {
   if (!es_su_hilo()) {
     return false;
   }
-  Consulta consulta(base_, "DELETE FROM equipos_nuevos WHERE clave = ?1");
+  Consulta consulta(base_, "DELETE FROM equipos_nuevos WHERE clave = ?1 AND (?2 IS NULL OR equipo = ?2)");
   consulta.bytes(1, clave);
+  if (solo) {
+    consulta.bytes(2, *solo);
+  }
   return consulta.paso() == SQLITE_DONE;
 }
 
@@ -928,8 +931,10 @@ bool Base::quitar_segundo_paso(const ClaveDeUsuario& clave) {
     return false;
   }
   Consulta consulta(base_, "DELETE FROM segundo_paso WHERE clave = ?1");
+  Consulta desconfirmar(base_, "UPDATE llaves SET confirmada = 0 WHERE clave = ?1");
   consulta.bytes(1, clave);
-  return consulta.paso() == SQLITE_DONE;
+  desconfirmar.bytes(1, clave);
+  return consulta.paso() == SQLITE_DONE && desconfirmar.paso() == SQLITE_DONE;
 }
 
 std::optional<std::vector<LlavesDeUsuario>> Base::llaves() {
@@ -938,14 +943,16 @@ std::optional<std::vector<LlavesDeUsuario>> Base::llaves() {
   }
   std::map<ClaveDeUsuario, LlavesDeUsuario> por_clave;
   Consulta generaciones(base_,
-                        "SELECT clave, generacion FROM generaciones WHERE clave IN (SELECT clave FROM usuarios)"
-                        " AND generacion BETWEEN 0 AND 4294967295 LIMIT ?1");
+                        "SELECT clave, generacion FROM generaciones WHERE clave IN (SELECT clave FROM usuarios) LIMIT ?1");
   generaciones.entero(1, static_cast<std::int64_t>(kMaximoUsuariosGuardados));
   int paso = SQLITE_ROW;
   while ((paso = generaciones.paso()) == SQLITE_ROW) {
     ClaveDeUsuario clave{};
+    const std::int64_t generacion = generaciones.columna_entero(1);
     if (generaciones.columna_bytes(0, clave)) {
-      por_clave[clave] = {clave, static_cast<std::uint32_t>(generaciones.columna_entero(1)), {}};
+      por_clave[clave] = {clave,
+                          generacion >= 0 && generacion <= UINT32_MAX ? static_cast<std::uint32_t>(generacion) : UINT32_MAX,
+                          {}};
     }
   }
   Consulta filas(base_,
@@ -973,7 +980,7 @@ std::optional<std::vector<LlavesDeUsuario>> Base::llaves() {
 }
 
 bool Base::guardar_llaves(const LlavesDeUsuario& suyas) {
-  if (!es_su_hilo() || suyas.llaves.size() > kMaximoLlavesPorUsuario) {
+  if (!es_su_hilo() || suyas.llaves.size() > kMaximoLlavesPorUsuario || !correr(Sentencia::marcar)) {
     return false;
   }
   Consulta generacion(base_,
@@ -988,7 +995,12 @@ bool Base::guardar_llaves(const LlavesDeUsuario& suyas) {
     nueva.bytes(1, suyas.clave).bytes(2, llave.llave).entero(3, llave.contador).entero(4, llave.confirmada);
     bien = bien && nueva.paso() == SQLITE_DONE;
   }
-  return bien;
+  if (!bien || !correr(Sentencia::soltar)) {
+    correr(Sentencia::volver);
+    correr(Sentencia::soltar);
+    return false;
+  }
+  return true;
 }
 
 namespace {

@@ -56,6 +56,7 @@ class Proteccion {
   Veredicto empezar_saludo(std::uint32_t ip, Instante ahora);
   bool fallo(std::uint32_t ip, Instante ahora);
   void saludo_completo(std::uint32_t ip, Instante ahora);
+  bool conocida(std::uint32_t ip, Instante ahora) const;
   bool puede_chatear(std::uint32_t ip, Instante ahora);
 
   std::size_t ips_recordadas() const { return ips_.size(); }

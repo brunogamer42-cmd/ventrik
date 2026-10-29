@@ -86,9 +86,7 @@ Veredicto Proteccion::empezar_saludo(std::uint32_t ip, Instante ahora) {
   if (total_.tomar(ahora)) {
     return veredicto;
   }
-  const auto encontrada = ips_.find(ip);
-  const bool conocida = encontrada != ips_.end() && ahora < encontrada->second.conocida_hasta;
-  if (conocida && reserva_.tomar(ahora)) {
+  if (conocida(ip, ahora) && reserva_.tomar(ahora)) {
     return veredicto;
   }
   veredicto.decision = Decision::ocupado;
@@ -113,6 +111,11 @@ bool Proteccion::fallo(std::uint32_t ip, Instante ahora) {
 
 void Proteccion::saludo_completo(std::uint32_t ip, Instante ahora) {
   registro_de(ip, ahora).conocida_hasta = ahora + opciones_.conocida_por;
+}
+
+bool Proteccion::conocida(std::uint32_t ip, Instante ahora) const {
+  const auto encontrada = ips_.find(ip);
+  return encontrada != ips_.end() && ahora < encontrada->second.conocida_hasta;
 }
 
 OpcionesProteccion proteccion_para(unsigned nucleos) {

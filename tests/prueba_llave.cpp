@@ -429,6 +429,11 @@ bool anotado(const std::wstring& archivo, proto::Seguridad tipo, std::size_t vec
          })) == veces;
 }
 
+std::uint64_t ms_de_ahora() {
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
 ventrik::servidor::Opciones sin_bloqueo() {
   ventrik::servidor::Opciones opciones;
   opciones.proteccion.fallas_para_bloquear = 1000;
@@ -439,7 +444,17 @@ ventrik::servidor::Opciones sin_bloqueo() {
 
 }
 
-TEST_CASE("Entrar con llave: el permiso vale con su identidad y su generación, y no con un salto mayor al tope") {
+TEST_CASE("La generación sale de la hora en minutos desde 2026 y el tope es la hora del servidor más dos días") {
+  constexpr std::uint64_t kDesde2026 = 1767225600000ull;
+  CHECK(cifrado::generacion_de_la_hora(0) == 0);
+  CHECK(cifrado::generacion_de_la_hora(kDesde2026) == 0);
+  CHECK(cifrado::generacion_de_la_hora(kDesde2026 + 59999) == 0);
+  CHECK(cifrado::generacion_de_la_hora(kDesde2026 + 60000) == 1);
+  CHECK(cifrado::generacion_tope(kDesde2026 + 60000) == 1 + cifrado::kAdelantoDeGeneracion);
+  CHECK(cifrado::generacion_tope(UINT64_MAX) == UINT32_MAX);
+}
+
+TEST_CASE("Entrar con llave: el permiso vale con su identidad y su generación, y no más allá del tope") {
   prueba::ServidorDePrueba servidor(sin_bloqueo());
   ConLlave ana;
   CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
@@ -454,19 +469,19 @@ TEST_CASE("Entrar con llave: el permiso vale con su identidad y su generación, 
   CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
   ana.generacion = 4;
   CHECK(ana.entrar(servidor) == EstadoConexion::llave_anulada);
-  ana.generacion = 5 + 17;
+  ana.generacion = cifrado::generacion_tope(ms_de_ahora()) + 10;
   CHECK(ana.entrar(servidor) == EstadoConexion::llave_anulada);
-  ana.generacion = 5 + 16;
+  ana.generacion = cifrado::generacion_de_la_hora(ms_de_ahora());
   CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
   auto con_identidad = ana.con_identidad("Ana");
   con_identidad.generacion = 3;
   CHECK(ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), con_identidad).estado ==
         EstadoConexion::conectado);
-  con_identidad.generacion = 100;
+  con_identidad.generacion = cifrado::generacion_tope(ms_de_ahora()) + 3000;
   CHECK(ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), con_identidad).estado ==
         EstadoConexion::conectado);
   CHECK(ana.entrar(servidor) == EstadoConexion::llave_anulada);
-  ana.generacion = 21 + 16;
+  ana.generacion = cifrado::generacion_tope(ms_de_ahora());
   CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
   CHECK(servidor.cuantos(Evento::firma_invalida) == 2);
 }
@@ -619,6 +634,15 @@ TEST_CASE("Sin segundo paso, una llave nueva vale desde un equipo conocido o con
     CHECK(desde_casa.esperar<proto::UsuarioRol>(
         [id](const proto::UsuarioRol& rol) { return rol.id == id && rol.rol == proto::Rol::admin; }));
   }
+  const auto pide_permiso = [&](std::string_view equipo) {
+    prueba::Cliente cliente(servidor, {"Beto", std::nullopt, beto.con_identidad("Beto").identidad,
+                                       prueba::secreto_de(equipo), nullptr});
+    cliente.entrar();
+    return cliente.esperar<proto::EstadoSegundoPaso>([](const proto::EstadoSegundoPaso& estado) {
+      return estado.falta == proto::FaltaSegundoPaso::pedir_permiso;
+    });
+  };
+  CHECK(pide_permiso("tercera"));
   {
     prueba::Cliente otra(servidor, beto.presentacion("Beto", "otra"));
     const auto id = otra.entrar().tu_id;
@@ -641,6 +665,7 @@ TEST_CASE("Sin segundo paso, una llave nueva vale desde un equipo conocido o con
     CHECK(otra.esperar<proto::EstadoSegundoPaso>(
         [](const proto::EstadoSegundoPaso& estado) { return estado.falta == proto::FaltaSegundoPaso::nada; }));
   }
+  CHECK(pide_permiso("tercera"));
   prueba::Cliente vuelve(servidor, beto.presentacion("Beto", "otra"));
   CHECK(vuelve.entrar().rol == proto::Rol::admin);
   CHECK(servidor.cuantos(Evento::segundo_paso_permitido) == 1);

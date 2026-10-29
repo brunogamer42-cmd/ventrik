@@ -69,6 +69,17 @@ std::optional<ClavePublica> leer_cose(Lector& lector) {
 
 }
 
+std::uint32_t generacion_de_la_hora(std::uint64_t ms_desde_1970) {
+  constexpr std::uint64_t kDesde2026 = 1767225600000ull;
+  constexpr std::uint64_t kMsPorMinuto = 60000;
+  const std::uint64_t minutos = ms_desde_1970 > kDesde2026 ? (ms_desde_1970 - kDesde2026) / kMsPorMinuto : 0;
+  return static_cast<std::uint32_t>(std::min<std::uint64_t>(minutos, UINT32_MAX - kAdelantoDeGeneracion));
+}
+
+std::uint32_t generacion_tope(std::uint64_t ms_desde_1970) {
+  return generacion_de_la_hora(ms_desde_1970) + kAdelantoDeGeneracion;
+}
+
 std::string texto_de_cliente(Ceremonia ceremonia, gsl::span<const std::uint8_t> desafio) {
   std::string base64(4 * ((desafio.size() + 2) / 3) + 1, '\0');
   std::size_t largo = 0;

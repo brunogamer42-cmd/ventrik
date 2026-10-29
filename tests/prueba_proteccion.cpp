@@ -107,6 +107,10 @@ TEST_CASE("Ser conocida dura un día y se pierde con una falla") {
   CHECK(proteccion.empezar_saludo(kOtra, kInicio).decision == Decision::ocupado);
   CHECK(proteccion.empezar_saludo(4, kInicio + 25h).decision == Decision::aceptar);
   CHECK(proteccion.empezar_saludo(kUna, kInicio + 25h).decision == Decision::ocupado);
+  CHECK(proteccion.conocida(kUna, kInicio + 23h));
+  CHECK_FALSE(proteccion.conocida(kUna, kInicio + 25h));
+  CHECK_FALSE(proteccion.conocida(kOtra, kInicio));
+  CHECK_FALSE(proteccion.conocida(9, kInicio));
 }
 
 TEST_CASE("Con la memoria llena, se olvidan primero las IP desconocidas") {

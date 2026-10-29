@@ -82,6 +82,7 @@ class Sesion {
   std::vector<Novedad> esperar_novedades(std::chrono::milliseconds tiempo);
   std::uint32_t despertares() const { return despertares_.load(std::memory_order_relaxed); }
   bool tocando_llave() const { return tocando_.load(); }
+  void abandonar();
 
  private:
   void correr();
