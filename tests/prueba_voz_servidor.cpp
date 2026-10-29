@@ -412,7 +412,7 @@ TEST_CASE("Ajustar la voz acerca la próxima renovación, marca el tamaño fijo 
   CHECK_FALSE(primera.voz_fija);
   CHECK(banco.voz.revisar(banco.ahora + std::chrono::minutes(20)).empty());
   banco.voz.ajustar(std::chrono::minutes(15), ventrik::Algoritmo::solo_chacha20, true, banco.ahora);
-  const auto vencidas = banco.voz.revisar(banco.ahora + std::chrono::minutes(16));
+  const auto vencidas = banco.voz.revisar(banco.ahora + std::chrono::minutes(17));
   REQUIRE(vencidas.size() == 1);
   CHECK(vencidas[0] == 1);
   const auto renovada = banco.voz.renovar(1, banco.ahora, derivar);

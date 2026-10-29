@@ -607,7 +607,11 @@ bool Base::cifrar_historial(bool cifrar) {
   }
   hecho = hecho && ejecutar(base_, cifrar ? kCifrarViejos : kDescifrarViejos) && correr(Sentencia::confirmar);
   deshacer_lo_abierto();
-  return hecho && ejecutar(base_, "VACUUM") && asentar();
+  if (hecho) {
+    ejecutar(base_, "VACUUM");
+    asentar();
+  }
+  return hecho;
 }
 
 void Base::borrar_viejos(std::uint64_t ahora) {

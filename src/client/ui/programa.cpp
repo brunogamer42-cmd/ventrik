@@ -1154,7 +1154,7 @@ class Programa {
     if (en_hostear_) {
       const PedidoHostear pedido = dibujar_hostear(hostear_);
       en_hostear_ = !pedido.cerrar;
-      if (pedido.seguridad && sala_ && hostear_.configurando && !hostear_.en_esta_pc) {
+      if (pedido.seguridad && sala_ && hostear_.configurando && !hostear_.en_esta_pc && config_recibida_) {
         hostear_.error.clear();
         ordenar({protocolo::CambiarConfigSeguridad{*pedido.seguridad}});
       }
@@ -1219,6 +1219,7 @@ class Programa {
       }
       if (pedido.configurar) {
         abrir_hostear(configuracion(servidor_.idioma, servidor_.nombre_servidor, false));
+        config_recibida_ = false;
         ordenar({protocolo::PedirConfigSeguridad{}});
       }
       return;
@@ -1368,10 +1369,15 @@ class Programa {
     } else if (negado != nullptr && (negado->pedido == protocolo::TipoMensaje::pedir_config_seguridad ||
                                      negado->pedido == protocolo::TipoMensaje::cambiar_config_seguridad)) {
       hostear_.error = cliente::explicar(pantalla_.idioma, negado->motivo);
+      if (negado->pedido == protocolo::TipoMensaje::cambiar_config_seguridad) {
+        config_recibida_ = false;
+        ordenar({protocolo::PedirConfigSeguridad{}});
+      }
     } else if (const auto* config = std::get_if<protocolo::ConfigSeguridad>(&novedad);
                config != nullptr && en_hostear_ && hostear_.configurando && !hostear_.en_esta_pc) {
       hostear_.seguridad = config->seguridad;
       hostear_.xp = config->xp;
+      config_recibida_ = true;
     }
   }
 
@@ -1823,6 +1829,7 @@ class Programa {
   bool poca_memoria_ = false;
   bool ahorrando_ = false;
   bool intento_con_codigo_ = false;
+  bool config_recibida_ = false;
   bool midiendo_ = false;
   std::ofstream registro_;
   std::shared_ptr<cliente::PuenteVoz> puente_;

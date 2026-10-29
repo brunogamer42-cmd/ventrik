@@ -99,6 +99,7 @@ class Voz {
   std::optional<std::uint32_t> saludar(gsl::span<const std::uint8_t> datagrama,
                                        const red::Direccion& origen, Instante ahora);
   Persona* buscar(std::uint32_t id);
+  Instante proxima_rotacion(Instante ahora) const;
 
   OpcionesVoz opciones_;
   cifrado::EnviarDatagrama enviar_;

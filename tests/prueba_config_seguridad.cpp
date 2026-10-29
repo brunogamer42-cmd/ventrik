@@ -343,3 +343,40 @@ TEST_CASE("Máximo en un servidor con Windows XP se avisa en la consola y en la 
   ana.ordenar(CambiarConfigSeguridad{maximo});
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::maximo_en_xp) == 1; }));
 }
+
+TEST_CASE("Un mensaje que llega mientras se pasa a no guardar el historial no queda guardado") {
+  ConDueno dueno;
+  ServidorDePrueba servidor(dueno.opciones());
+  Cliente ana(servidor, "Ana", dueno.codigo);
+  ana.entrar_con_voz();
+  ana.ordenar_juntas({CambiarConfigSeguridad{con(Opcion::sin_historial, 1)}, EnviarChat{kCanalGeneral, "en el medio"}});
+  REQUIRE(ana.esperar<ConfigSeguridad>());
+  REQUIRE(ana.esperar<MensajeChat>());
+  ana.ordenar(PedirHistorial{kCanalGeneral, 0});
+  const auto historial = ana.esperar<Historial>();
+  REQUIRE(historial);
+  CHECK(historial->mensajes.empty());
+}
+
+TEST_CASE("El dueño no puede pedirse un segundo paso que no podría activar desde ese equipo") {
+  ConDueno dueno;
+  ServidorDePrueba servidor(dueno.opciones());
+  const auto identidad = identidad_nueva_de_prueba();
+  {
+    Cliente casa(servidor, {"Ana", dueno.codigo, identidad, secreto_de("casa"), nullptr});
+    casa.entrar();
+  }
+  Cliente otra(servidor, {"Ana", std::nullopt, identidad, secreto_de("otra"), nullptr});
+  CHECK(otra.entrar().rol == Rol::dueno);
+  otra.ordenar(CambiarConfigSeguridad{con(Opcion::segundo_paso, 1)});
+  CHECK(otra.esperar<Negado>([](const Negado& negado) {
+    return negado.pedido == TipoMensaje::cambiar_config_seguridad && negado.motivo == MotivoNegado::sin_permiso;
+  }));
+  CHECK(otra.no_llega<ConfigSeguridad>());
+  Cliente vuelve(servidor, {"Ana", std::nullopt, identidad, secreto_de("casa"), nullptr});
+  vuelve.entrar();
+  REQUIRE(vuelve.esperar<AvisoDeSeguridad>());
+  vuelve.ordenar(CambiarConfigSeguridad{con(Opcion::segundo_paso, 1)});
+  CHECK(vuelve.esperar<ConfigurarSegundoPaso>());
+  CHECK(vuelve.no_llega<Negado>());
+}

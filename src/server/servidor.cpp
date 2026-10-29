@@ -80,12 +80,25 @@ bool aplicar_en_la_base(Base& base, const Seguridad& seguridad) {
   const Retencion retencion = sin_historial                     ? Retencion::no_guardar
                               : antes == Retencion::no_guardar ? Retencion::siempre
                                                                : antes;
-  const bool bien = base.cifrar_historial(seguridad.opciones[Opcion::historial_cifrado] != 0) &&
-                    (retencion == antes || base.cambiar_retencion(retencion));
-  if (bien && retencion != antes && sin_historial) {
+  const bool retenido = retencion == antes || base.cambiar_retencion(retencion);
+  if (retenido && retencion != antes && sin_historial) {
     base.borrar_viejos(ahora_ms());
   }
-  return bien;
+  return retenido && base.cifrar_historial(seguridad.opciones[Opcion::historial_cifrado] != 0);
+}
+
+Seguridad como_quedo(Base& base, Seguridad pedida) {
+  pedida.opciones[Opcion::historial_cifrado] = base.historial_cifrado() ? 1 : 0;
+  pedida.opciones[Opcion::sin_historial] = base.retencion() == Retencion::no_guardar ? 1 : 0;
+  if (!es_valida(pedida)) {
+    pedida.nivel = nivel_de(pedida.opciones);
+  }
+  return pedida;
+}
+
+bool pide_con(const Seguridad& seguridad, const UsuarioGuardado& usuario, bool reclama) {
+  const auto pedido = static_cast<SegundoPaso>(seguridad.opciones[Opcion::segundo_paso]);
+  return pedido == SegundoPaso::todos || (pedido == SegundoPaso::admins && (usuario.dueno || usuario.admin || reclama));
 }
 
 bool es_identidad_corta(const ClaveDeUsuario& clave, std::string_view texto) {
@@ -207,7 +220,9 @@ bool Servidor::escuchar() {
         if (opciones_.cifrar_historial) {
           cambiar_opcion(seguridad, Opcion::historial_cifrado, *opciones_.cifrar_historial);
         }
-        bien = bien && aplicar_en_la_base(base, seguridad) && base.guardar_seguridad(seguridad);
+        bien = bien && aplicar_en_la_base(base, seguridad) && base.guardar_seguridad(seguridad) &&
+               (!guardada || guardada->opciones == seguridad.opciones || opciones_.seguridad ||
+                base.anotar({protocolo::Seguridad::config_cambiada, ahora_ms(), {}, {}}));
         auto usuarios = base.usuarios(ahora_ms());
         std::string quitado;
         std::string permitido;
@@ -224,7 +239,7 @@ bool Servidor::escuchar() {
                            base.texto_guardado("contrasena"), base.historial_cifrado(), seguridad,
                            base.segundos_pasos(), quitado, permitido, bien});
         return {};
-      })) {
+      }, true)) {
     return false;
   }
   auto [canales, retencion, usuarios, nombre, contrasena, cifra, seguridad, segundos, quitado, permitido, bien] =
@@ -1260,8 +1275,7 @@ std::vector<Servidor::Registrado>::iterator Servidor::registrado_de(const ClaveD
 }
 
 bool Servidor::pide_segundo_paso(const UsuarioGuardado& usuario, bool reclama) const {
-  const auto pedido = static_cast<SegundoPaso>(seguridad_.opciones[Opcion::segundo_paso]);
-  return pedido == SegundoPaso::todos || (pedido == SegundoPaso::admins && (usuario.dueno || usuario.admin || reclama));
+  return pide_con(seguridad_, usuario, reclama);
 }
 
 bool Servidor::comprobar_segundo_paso(Conexion& conexion, Registrado& yo, const protocolo::Presentarse& presentacion) {
@@ -1462,24 +1476,33 @@ void Servidor::cambiar_config_seguridad(Conexion& conexion, const protocolo::Mar
     negar(conexion, TipoMensaje::cambiar_config_seguridad, MotivoNegado::sin_permiso);
     return;
   }
+  const auto yo = registrado_de(conexion.clave);
+  if (yo != registrados_.end() && pide_con(pedido->seguridad, yo->guardado, false) &&
+      !(yo->segundo_paso && conexion.segundo_paso_hecho) && !conexion.puede_configurar) {
+    negar(conexion, TipoMensaje::cambiar_config_seguridad, MotivoNegado::sin_permiso);
+    return;
+  }
   const std::uint32_t quien = conexion.id;
   const protocolo::AvisoDeSeguridad aviso{protocolo::Seguridad::config_cambiada, ahora_ms(), conexion.nombre, {}};
-  const auto trabajo = [this, quien, aviso, nueva = pedido->seguridad](Base& base) -> std::function<void()> {
-    const bool hecho = aplicar_en_la_base(base, nueva) && base.guardar_seguridad(nueva) && base.anotar(aviso);
-    return [this, quien, nueva, hecho, retencion = base.retencion(), cifra = base.historial_cifrado()] {
+  const auto trabajo = [this, quien, aviso, pedida = pedido->seguridad](Base& base) -> std::function<void()> {
+    const bool convertido = aplicar_en_la_base(base, pedida);
+    const Seguridad real = como_quedo(base, pedida);
+    const bool hecho = convertido && base.guardar_seguridad(real) && base.anotar(aviso);
+    return [this, quien, real, hecho, retencion = base.retencion(), cifra = base.historial_cifrado()] {
       retencion_ = retencion;
       historial_cifrado_ = cifra;
       Conexion* conexion = buscar_conectada(quien);
+      aplicar_seguridad(real);
       if (!hecho) {
         avisar(Evento::error_base, red::Direccion{});
         if (conexion != nullptr) {
           negar(*conexion, TipoMensaje::cambiar_config_seguridad, MotivoNegado::lleno);
         }
-        return;
       }
-      aplicar_seguridad(nueva);
       if (conexion != nullptr) {
         avisar(Evento::config_cambiada, *conexion);
+      } else {
+        avisar(Evento::config_cambiada, red::Direccion{});
       }
       if (maximo_en_xp()) {
         avisar(Evento::maximo_en_xp, red::Direccion{});
@@ -1493,12 +1516,15 @@ void Servidor::cambiar_config_seguridad(Conexion& conexion, const protocolo::Mar
   };
   if (!base_.pedir(trabajo, true)) {
     negar(conexion, TipoMensaje::cambiar_config_seguridad, MotivoNegado::lleno);
+  } else if (pedido->seguridad.opciones[Opcion::sin_historial] != 0) {
+    retencion_ = Retencion::no_guardar;
   }
 }
 
 void Servidor::aplicar_seguridad(const Seguridad& nueva) {
   const bool fija_antes = seguridad_.opciones[Opcion::voz_fija] != 0;
   const bool fija = nueva.opciones[Opcion::voz_fija] != 0;
+  const bool renovar_voz = fija != fija_antes || nueva.opciones[Opcion::algoritmo] != seguridad_.opciones[Opcion::algoritmo];
   seguridad_ = nueva;
   opciones_.protocolo.programa_minimo = std::max(programa_minimo_fijo_, version_minima(nueva.opciones));
   const bool rotacion_propia = opciones_.voz.rotacion != OpcionesVoz{}.rotacion;
@@ -1514,7 +1540,7 @@ void Servidor::aplicar_seguridad(const Seguridad& nueva) {
     if (conexion->rol() != antes) {
       difundir(protocolo::UsuarioRol{conexion->id, conexion->rol()});
     }
-    if (conexion->canal != 0 && fija != fija_antes) {
+    if (conexion->canal != 0 && renovar_voz) {
       con_voz.push_back(conexion->id);
     }
   }
