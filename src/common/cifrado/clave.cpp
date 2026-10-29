@@ -21,10 +21,6 @@ struct Clave::Datos {
   ClavePublica publica{};
 };
 
-namespace {
-
-using Resumen = std::array<unsigned char, 32>;
-
 std::optional<Resumen> resumir(gsl::span<const std::uint8_t> datos) {
   Resumen resumen{};
   if (mbedtls_sha256(datos.data(), datos.size(), resumen.data(), 0) != 0) {
@@ -32,6 +28,8 @@ std::optional<Resumen> resumir(gsl::span<const std::uint8_t> datos) {
   }
   return resumen;
 }
+
+namespace {
 
 bool es_p256(const mbedtls_pk_context& pk) {
   return mbedtls_pk_get_type(&pk) == MBEDTLS_PK_ECKEY &&

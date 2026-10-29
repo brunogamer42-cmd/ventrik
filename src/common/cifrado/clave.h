@@ -18,6 +18,7 @@ namespace ventrik::cifrado {
 constexpr std::size_t kBytesClavePublica = 65;
 constexpr std::size_t kMaximoFirma = 72;
 using ClavePublica = std::array<std::uint8_t, kBytesClavePublica>;
+using Resumen = std::array<std::uint8_t, 32>;
 
 class Clave {
  public:
@@ -41,6 +42,8 @@ class Clave {
 
   std::unique_ptr<Datos> datos_;
 };
+
+std::optional<Resumen> resumir(gsl::span<const std::uint8_t> datos);
 
 std::optional<Huella> huella_de_publica(const ClavePublica& publica);
 

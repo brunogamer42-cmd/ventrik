@@ -132,6 +132,7 @@ add_library(ventrik_comun STATIC
   src/common/cifrado/huella.cpp
   src/common/cifrado/identidad.cpp
   src/common/cifrado/inicio.cpp
+  src/common/cifrado/llave.cpp
   src/common/cifrado/sobre.cpp
   src/common/cifrado/tls.cpp
   src/common/cifrado/totp.cpp
@@ -150,8 +151,8 @@ target_include_directories(ventrik_comun PUBLIC src "${VENTRIK_GENERADO}")
 target_link_libraries(ventrik_comun PUBLIC ventrik_opciones ventrik_sistema gsl mbedtls argon2 ws2_32 shell32 crypt32)
 
 if(VENTRIK_VERSION STREQUAL "fuzzing")
-  foreach(fuzzer fuzz_base fuzz_cadena fuzz_guardados fuzz_identidad fuzz_nombres fuzz_paquete fuzz_protocolo
-          fuzz_sala fuzz_sonido fuzz_textos fuzz_utf fuzz_voz fuzz_voz_servidor)
+  foreach(fuzzer fuzz_base fuzz_cadena fuzz_firma fuzz_guardados fuzz_identidad fuzz_nombres fuzz_paquete
+          fuzz_protocolo fuzz_sala fuzz_sonido fuzz_textos fuzz_utf fuzz_voz fuzz_voz_servidor)
     add_executable(${fuzzer} fuzz/${fuzzer}.cpp)
     target_link_libraries(${fuzzer} PRIVATE ventrik_comun)
     add_custom_command(TARGET ${fuzzer} POST_BUILD
@@ -198,7 +199,7 @@ add_library(ventrik_cliente_base STATIC
   src/client/conexion.cpp src/client/cuando_suena.cpp src/client/prueba_de_audio.cpp
   src/client/diagnostico.cpp src/client/guardados.cpp src/client/horas.cpp src/client/limpieza.cpp src/client/mi_identidad.cpp
   src/client/motor_voz.cpp src/client/paquete_de_sonidos.cpp src/client/sala.cpp src/client/salida_de_windows.cpp
-  src/client/sesion.cpp src/client/silencios.cpp src/client/sonidos.cpp src/client/vigia.cpp)
+  src/client/sesion.cpp src/client/silencios.cpp src/client/sonidos.cpp src/client/vigia.cpp src/client/webauthn.cpp)
 target_sources(ventrik_cliente_base PRIVATE src/client/voz_primero.cpp)
 target_link_libraries(ventrik_cliente_base PUBLIC ventrik_comun psapi opus miniaudio winmm rnnoise speexdsp ole32 miniz jsmn
                       comdlg32)
@@ -266,6 +267,7 @@ add_executable(ventrik_pruebas
   tests/prueba_totp.cpp
   tests/prueba_arranque.cpp
   tests/prueba_limpieza.cpp
+  tests/prueba_llave.cpp
   tests/prueba_voz_servidor.cpp
   tests/prueba_textos.cpp
   tests/prueba_utf.cpp
