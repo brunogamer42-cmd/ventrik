@@ -202,11 +202,12 @@ std::optional<cifrado::Clave> leer_contenido_de_copia(gsl::span<const std::uint8
   const bool con_generacion = !desempaquetar(kVersion, contenido) && contenido.size() > kBytesGeneracion;
   const auto der =
       desempaquetar(kVersion, con_generacion ? contenido.first(contenido.size() - kBytesGeneracion) : contenido);
-  if (der && con_generacion && generacion != nullptr) {
+  auto clave = clave_de(der);
+  if (clave && con_generacion && generacion != nullptr) {
     protocolo::Lector cola(contenido.last(kBytesGeneracion));
     *generacion = cola.leer_u32();
   }
-  return clave_de(der);
+  return clave;
 }
 
 std::optional<std::vector<std::uint8_t>> armar_contenido_de_llaves(const MisLlaves& llaves) {
