@@ -102,10 +102,23 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       exigir(!sana || nuevo.id != canal.id || nuevo.contador >= canal.contador);
     }
   }
+  const auto avisos_validos = [&marco](const std::vector<ventrik::protocolo::AvisoDeSeguridad>& avisos,
+                                       std::size_t maximo) {
+    exigir(avisos.size() <= maximo);
+    for (const auto& aviso : avisos) {
+      exigir(ventrik::protocolo::armar_mensaje(aviso, marco));
+    }
+  };
+  avisos_validos(base->registro(SIZE_MAX), ventrik::servidor::kMaximoRegistroPorTipo * 8);
   if (const auto usuarios = base->usuarios(UINT64_MAX / 4)) {
     exigir(usuarios->size() <= ventrik::servidor::kMaximoUsuariosGuardados);
     for (const auto& usuario : *usuarios) {
       exigir(usuario.clave[0] == 0x04 && ventrik::es_nombre_valido(usuario.nombre));
+      ventrik::servidor::Equipo equipo{};
+      base->conoce_equipo(usuario.clave, equipo);
+      const auto pendientes = base->avisos_para(usuario.clave, equipo);
+      avisos_validos(pendientes.lista, ventrik::servidor::kMaximoAvisosPorUsuario);
+      base->entregados(usuario.clave, equipo, pendientes.hasta);
     }
   }
   ventrik::servidor::UsuarioGuardado nuevo;
@@ -114,6 +127,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   nuevo.visto_ms = 1;
   base->guardar_usuario(nuevo);
   base->anotar_equipo(nuevo.clave, {}, 1);
+  base->anotar({ventrik::protocolo::Seguridad::canal_borrado, 1, "Ana", "Juegos"});
+  base->guardar_aviso(nuevo.clave, std::nullopt, {ventrik::protocolo::Seguridad::canal_borrado, 1, "Ana", "Juegos"});
+  avisos_validos(base->avisos_para(nuevo.clave, {}).lista, ventrik::servidor::kMaximoAvisosPorUsuario);
   base->guardar_texto("nombre", "Taberna");
   base->texto_guardado("nombre");
   base->quitar_dueno();

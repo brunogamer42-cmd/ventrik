@@ -640,6 +640,15 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - **Registro de seguridad** (tabla `seguridad`): entradas nuevas, equipos nuevos, admins nombrados y sacados, canales borrados, nombres liberados e IP bloqueadas. Tope de 1.500 por tipo (unos 10.000 en total): así una lluvia de fallas desde muchas IP no borra los canales borrados. Se anota la IP bloqueada y no cada falla, así el ritmo de escrituras lo limita la protección por IP. Se mira desde "Configuración del servidor" (4.10).
   - **Consola del servidor:** nuevos renglones para admin nombrado o sacado, canal borrado, nombre liberado y equipo nuevo.
   - **Diálogos:** después de un nombre inválido el campo vuelve a quedar activo para corregirlo.
+  - **Revisión con subagente.** Lo que encontró y se arregló:
+    - un ladrón con tu identidad podía llevarse el aviso de equipo nuevo cambiando de "equipo" (borrando `equipo.dat`): ahora ese aviso solo se entrega a un equipo que el servidor ya conocía **antes** del aviso (`equipos.primera < avisos.hora`), así el de la primera intrusión le queda a tu PC;
+    - con el tope lleno ya no se borra el aviso más viejo: no entra el nuevo (si no, 100 equipos inventados empujaban afuera el primero);
+    - los pendientes se borraban al leerlos y se perdían si la conexión se cortaba antes de mandarlos: ahora se leen hasta 100 y se borran recién después de encolarlos;
+    - un aviso que no entraba en la cola de la base se perdía sin dejar renglón;
+    - faltaba fuzzing de lo nuevo de la base (`fuzz_base` ahora lee el registro y los pendientes);
+    - con varios avisos juntos sonaban varias alarmas a la vez: ahora suena una por tanda;
+    - el texto de equipo nuevo dice "El servidor avisa que…", porque el servidor podría mentir.
+    - Lo que dio por bueno: los permisos (nadie más que el dueño nombra admins ni libera nombres, y General no se borra), las carreras entre el hilo de la base y el de red, la validación de lo que viene de afuera y la privacidad de los avisos.
   - **Pruebas:** permisos de admin; sala con roles; protocolo de los mensajes nuevos; avisos pendientes y registro con tope en la base; servidor de verdad: nombrar y sacar admins (y que quede guardado al reiniciar), aviso al dueño al momento y al volver, equipo nuevo, liberar nombres; pantallas: la ventana de avisos a todos los tamaños, el clic derecho del dueño, "Liberar un nombre…" y su banco. `fuzz_protocolo` y `fuzz_sala` suman los mensajes nuevos.
 - **Etapa 4, paso 4.4: contraseña maestra y bloqueo automático (probado a mano en la PC y en la HP el 2026-10-29).** `check.ps1` en TODO OK y fuzzing de 10 minutos sin fallas (`fuzz_identidad`: 70.445 casos en 64 bits y 41.422 en 32).
   - **Archivo:** `identidad.dat` sigue siendo "VKMI" v1 con DPAPI por fuera. La capa 1 lleva adentro un sobre "VKMM" (Argon2id ajustado a la PC y AES-256-GCM, el mismo formato que la copia) con `[versión, largo, DER]`. La marca va en los datos asociados, así una copia `.vkid` no pasa por la capa maestra ni al revés. Una capa desconocida o una cabecera mala es "dañada": nunca se crea otra identidad encima.

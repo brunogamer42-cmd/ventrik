@@ -1150,12 +1150,14 @@ void Servidor::avisar_al_dueno(const protocolo::AvisoDeSeguridad& aviso) {
   if (avisado || dueno == registrados_.end()) {
     return;
   }
-  base_.pedir([this, clave = dueno->guardado.clave, aviso](Base& base) -> std::function<void()> {
-    if (base.guardar_aviso(clave, std::nullopt, aviso)) {
-      return {};
-    }
-    return [this] { avisar(Evento::error_base, red::Direccion{}); };
-  });
+  if (!base_.pedir([this, clave = dueno->guardado.clave, aviso](Base& base) -> std::function<void()> {
+        if (base.guardar_aviso(clave, std::nullopt, aviso)) {
+          return {};
+        }
+        return [this] { avisar(Evento::error_base, red::Direccion{}); };
+      })) {
+    avisar(Evento::error_base, red::Direccion{});
+  }
 }
 
 bool Servidor::anotar(const protocolo::AvisoDeSeguridad& aviso, const std::optional<UsuarioGuardado>& usuario) {
@@ -1177,7 +1179,8 @@ bool Servidor::guardar_entrada(std::uint32_t id, const UsuarioGuardado& usuario,
                       base.anotar_equipo(usuario.clave, equipo, usuario.visto_ms) &&
                       (!(nueva || equipo_nuevo) || base.anotar(aviso)) &&
                       (!equipo_nuevo || base.guardar_aviso(usuario.clave, equipo, aviso));
-    return [this, id, bien, equipo_nuevo, avisos = base.tomar_avisos(usuario.clave, equipo)] {
+    return [this, id, bien, equipo_nuevo, clave = usuario.clave, equipo,
+            pendientes = base.avisos_para(usuario.clave, equipo)] {
       if (!bien) {
         avisar(Evento::error_base, red::Direccion{});
       }
@@ -1188,8 +1191,14 @@ bool Servidor::guardar_entrada(std::uint32_t id, const UsuarioGuardado& usuario,
       if (equipo_nuevo) {
         avisar(Evento::equipo_nuevo, *conexion);
       }
-      for (const auto& aviso : avisos) {
+      for (const auto& aviso : pendientes.lista) {
         encolar(*conexion, aviso);
+      }
+      if (!pendientes.lista.empty()) {
+        base_.pedir([clave, equipo, hasta = pendientes.hasta](Base& base) -> std::function<void()> {
+          base.entregados(clave, equipo, hasta);
+          return {};
+        });
       }
     };
   });

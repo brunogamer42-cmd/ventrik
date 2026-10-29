@@ -595,40 +595,49 @@ TEST_CASE("Si la tabla de identidades no se puede leer, no se la toma por vacía
   }
 }
 
-TEST_CASE("Los avisos pendientes son de cada identidad, con tope, no vuelven al equipo que los causó y se van con ella") {
+TEST_CASE("Los avisos pendientes son de cada identidad, con tope, y el de equipo nuevo solo le llega a un equipo de antes") {
   auto base = base_en_memoria();
   UsuarioGuardado ana;
   ana.clave.fill(4);
   ana.nombre = "Ana";
   ana.creado_ms = ana.visto_ms = 1000;
   REQUIRE(base->guardar_usuario(ana));
-  Equipo casa{};
-  casa.fill(1);
-  Equipo otra{};
-  otra.fill(2);
+  const auto equipo = [](std::uint8_t cual) {
+    Equipo armado{};
+    armado.fill(cual);
+    return armado;
+  };
+  REQUIRE(base->anotar_equipo(ana.clave, equipo(1), 1000));
+  REQUIRE(base->anotar_equipo(ana.clave, equipo(2), 2000));
   ClaveDeUsuario nadie{};
   nadie.fill(9);
   using ventrik::protocolo::AvisoDeSeguridad;
   using ventrik::protocolo::Seguridad;
   const AvisoDeSeguridad borrado{Seguridad::canal_borrado, 5, "Tano", "partidas"};
   CHECK(base->guardar_aviso(nadie, std::nullopt, borrado));
-  CHECK(base->tomar_avisos(nadie, casa).empty());
+  CHECK(base->avisos_para(nadie, equipo(1)).lista.empty());
   CHECK_FALSE(base->guardar_aviso(ana.clave, std::nullopt, {Seguridad::canal_borrado, 5, " Tano", ""}));
+  REQUIRE(base->guardar_aviso(ana.clave, equipo(2), {Seguridad::equipo_nuevo, 2000, "Ana", ""}));
   for (int i = 0; i < 120; ++i) {
     REQUIRE(base->guardar_aviso(ana.clave, std::nullopt, borrado));
   }
-  REQUIRE(base->guardar_aviso(ana.clave, otra, {Seguridad::equipo_nuevo, 6, "Ana", ""}));
-  CHECK(base->tomar_avisos(ana.clave, otra).size() == kMaximoAvisosPorUsuario - 1);
-  CHECK(base->tomar_avisos(ana.clave, otra).empty());
-  const auto del_otro = base->tomar_avisos(ana.clave, casa);
-  REQUIRE(del_otro.size() == 1);
-  CHECK(del_otro[0].tipo == Seguridad::equipo_nuevo);
-  CHECK(del_otro[0].hora_ms == 6);
-  CHECK(base->tomar_avisos(ana.clave, casa).empty());
+  REQUIRE(base->anotar_equipo(ana.clave, equipo(3), 3000));
+  CHECK(base->avisos_para(ana.clave, equipo(2)).lista.size() == kMaximoAvisosPorUsuario - 1);
+  CHECK(base->avisos_para(ana.clave, equipo(3)).lista.size() == kMaximoAvisosPorUsuario - 1);
+  const auto pendientes = base->avisos_para(ana.clave, equipo(1));
+  REQUIRE(pendientes.lista.size() == kMaximoAvisosPorUsuario);
+  CHECK(pendientes.lista.front().tipo == Seguridad::equipo_nuevo);
+  CHECK(base->avisos_para(ana.clave, equipo(1)).lista.size() == kMaximoAvisosPorUsuario);
+  REQUIRE(base->entregados(ana.clave, equipo(3), base->avisos_para(ana.clave, equipo(3)).hasta));
+  const auto quedan = base->avisos_para(ana.clave, equipo(1)).lista;
+  REQUIRE(quedan.size() == 1);
+  CHECK(quedan[0].hora_ms == 2000);
+  REQUIRE(base->entregados(ana.clave, equipo(1), pendientes.hasta));
+  CHECK(base->avisos_para(ana.clave, equipo(1)).lista.empty());
   REQUIRE(base->guardar_aviso(ana.clave, std::nullopt, borrado));
   CHECK(base->liberar_nombre("Ana"));
   REQUIRE(base->guardar_usuario(ana));
-  CHECK(base->tomar_avisos(ana.clave, casa).empty());
+  CHECK(base->avisos_para(ana.clave, equipo(1)).lista.empty());
 }
 
 TEST_CASE("El registro de seguridad guarda lo último de cada tipo, así muchas fallas no borran lo demás") {

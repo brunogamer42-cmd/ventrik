@@ -1118,6 +1118,9 @@ class Programa {
     if (sala_ && entraron_o_salieron) {
       aplicar_personas();
     }
+    if (std::exchange(alerta_, false)) {
+      sonar(cliente::Sonido::alerta_seguridad);
+    }
     if (sala_) {
       ordenar_si(avisos_.pedir(Reloj::now(), sala_->esperando(), situacion.juego));
     }
@@ -1306,9 +1309,7 @@ class Programa {
       }
       lista.push_back(cliente::explicar(pantalla_.idioma, *aviso));
       avisos_.seguridad(lista.back());
-      if (aviso->tipo != protocolo::Seguridad::nombre_liberado) {
-        sonar(cliente::Sonido::alerta_seguridad);
-      }
+      alerta_ = alerta_ || aviso->tipo != protocolo::Seguridad::nombre_liberado;
     } else if (const auto* nuevos = std::get_if<protocolo::MensajesNuevos>(&novedad)) {
       for (const auto& contador : nuevos->canales) {
         const auto* canal = sala_->canal(contador.canal);
@@ -1707,6 +1708,7 @@ class Programa {
   std::optional<cifrado::LlaveDeSobre> maestra_;
   std::vector<std::uint8_t> cerrada_;
   bool bloqueado_ = false;
+  bool alerta_ = false;
   std::uint32_t bloqueos_vistos_ = 0;
   std::function<void()> al_desbloquear_;
   std::shared_ptr<const cifrado::Secreto> equipo_;

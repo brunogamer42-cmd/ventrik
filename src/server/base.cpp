@@ -69,6 +69,10 @@ const char kEsquema[] =
     " quien TEXT NOT NULL, detalle TEXT NOT NULL);"
     "CREATE INDEX IF NOT EXISTS seguridad_por_tipo ON seguridad(tipo, id);";
 
+const char kParaEsteEquipo[] =
+    "clave = ?1 AND (salvo IS NULL OR (salvo <> ?2 AND EXISTS (SELECT 1 FROM equipos"
+    " WHERE equipos.clave = ?1 AND equipos.equipo = ?2 AND equipos.primera < avisos.hora)))";
+
 const char kHuerfanos[] =
     "DELETE FROM equipos WHERE clave NOT IN (SELECT clave FROM usuarios);"
     "DELETE FROM avisos WHERE clave NOT IN (SELECT clave FROM usuarios);";
@@ -650,7 +654,8 @@ bool Base::guardar_aviso(const ClaveDeUsuario& clave, const std::optional<Equipo
   }
   Consulta nuevo(base_,
                  "INSERT INTO avisos(clave, salvo, tipo, hora, quien, detalle) SELECT ?1, ?2, ?3, ?4, ?5, ?6"
-                 " WHERE EXISTS (SELECT 1 FROM usuarios WHERE clave = ?1)");
+                 " WHERE EXISTS (SELECT 1 FROM usuarios WHERE clave = ?1)"
+                 " AND (SELECT COUNT(*) FROM avisos WHERE clave = ?1) < ?7");
   nuevo.bytes(1, clave);
   if (salvo) {
     nuevo.bytes(2, *salvo);
@@ -658,30 +663,37 @@ bool Base::guardar_aviso(const ClaveDeUsuario& clave, const std::optional<Equipo
   nuevo.entero(3, static_cast<std::int64_t>(aviso.tipo))
       .entero(4, static_cast<std::int64_t>(aviso.hora_ms))
       .texto(5, aviso.quien)
-      .texto(6, aviso.detalle);
-  Consulta viejos(base_,
-                  "DELETE FROM avisos WHERE clave = ?1 AND id <= (SELECT id FROM avisos WHERE clave = ?1"
-                  " ORDER BY id DESC LIMIT 1 OFFSET ?2)");
-  viejos.bytes(1, clave).entero(2, static_cast<std::int64_t>(kMaximoAvisosPorUsuario));
-  return nuevo.paso() == SQLITE_DONE && viejos.paso() == SQLITE_DONE;
+      .texto(6, aviso.detalle)
+      .entero(7, static_cast<std::int64_t>(kMaximoAvisosPorUsuario));
+  return nuevo.paso() == SQLITE_DONE;
 }
 
-std::vector<protocolo::AvisoDeSeguridad> Base::tomar_avisos(const ClaveDeUsuario& clave, const Equipo& equipo) {
-  std::vector<protocolo::AvisoDeSeguridad> lista;
+AvisosPendientes Base::avisos_para(const ClaveDeUsuario& clave, const Equipo& equipo) {
+  AvisosPendientes pendientes;
   if (!es_su_hilo()) {
-    return lista;
+    return pendientes;
   }
-  Consulta consulta(base_,
-                    "SELECT tipo, hora, quien, detalle FROM avisos WHERE clave = ?1 AND (salvo IS NULL OR salvo <> ?2)"
-                    " ORDER BY id LIMIT ?3");
-  consulta.bytes(1, clave).bytes(2, equipo).entero(3, static_cast<std::int64_t>(kMaximoAvisosPorUsuario));
-  leer_avisos(consulta, lista);
-  Consulta tomados(base_, "DELETE FROM avisos WHERE clave = ?1 AND (salvo IS NULL OR salvo <> ?2)");
-  tomados.bytes(1, clave).bytes(2, equipo);
-  if (tomados.paso() != SQLITE_DONE) {
-    lista.clear();
+  Consulta hasta(base_, (std::string("SELECT IFNULL(MAX(id), 0) FROM (SELECT id FROM avisos WHERE ") + kParaEsteEquipo +
+                         " ORDER BY id LIMIT ?3)").c_str());
+  hasta.bytes(1, clave).bytes(2, equipo).entero(3, static_cast<std::int64_t>(kMaximoAvisosPorUsuario));
+  if (hasta.paso() != SQLITE_ROW) {
+    return pendientes;
   }
-  return lista;
+  pendientes.hasta = hasta.columna_entero(0);
+  Consulta consulta(base_, (std::string("SELECT tipo, hora, quien, detalle FROM avisos WHERE ") + kParaEsteEquipo +
+                            " AND id <= ?3 ORDER BY id").c_str());
+  consulta.bytes(1, clave).bytes(2, equipo).entero(3, pendientes.hasta);
+  leer_avisos(consulta, pendientes.lista);
+  return pendientes;
+}
+
+bool Base::entregados(const ClaveDeUsuario& clave, const Equipo& equipo, std::int64_t hasta) {
+  if (!es_su_hilo()) {
+    return false;
+  }
+  Consulta borrados(base_, (std::string("DELETE FROM avisos WHERE ") + kParaEsteEquipo + " AND id <= ?3").c_str());
+  borrados.bytes(1, clave).bytes(2, equipo).entero(3, hasta);
+  return borrados.paso() == SQLITE_DONE;
 }
 
 bool Base::quitar_dueno() {

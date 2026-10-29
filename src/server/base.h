@@ -43,6 +43,11 @@ struct UsuarioGuardado {
   std::uint32_t entradas = 0;
 };
 
+struct AvisosPendientes {
+  std::vector<protocolo::AvisoDeSeguridad> lista;
+  std::int64_t hasta = 0;
+};
+
 bool esta_vencido(const UsuarioGuardado& usuario, std::uint64_t ahora_ms);
 bool se_puede_desalojar(const UsuarioGuardado& usuario, std::uint64_t ahora_ms);
 
@@ -81,7 +86,8 @@ class Base {
   std::vector<protocolo::AvisoDeSeguridad> registro(std::size_t maximo);
   bool guardar_aviso(const ClaveDeUsuario& clave, const std::optional<Equipo>& salvo,
                      const protocolo::AvisoDeSeguridad& aviso);
-  std::vector<protocolo::AvisoDeSeguridad> tomar_avisos(const ClaveDeUsuario& clave, const Equipo& equipo);
+  AvisosPendientes avisos_para(const ClaveDeUsuario& clave, const Equipo& equipo);
+  bool entregados(const ClaveDeUsuario& clave, const Equipo& equipo, std::int64_t hasta);
   bool quitar_dueno();
   std::string texto_guardado(const std::string& clave);
   bool guardar_texto(const std::string& clave, const std::string& valor);
