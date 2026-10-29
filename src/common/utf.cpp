@@ -1,5 +1,6 @@
 #include "common/utf.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <limits>
 
@@ -112,6 +113,11 @@ std::string a_utf8(std::wstring_view utf16) {
     return {};
   }
   return resultado;
+}
+
+std::size_t cantidad_de_letras(std::string_view texto) {
+  return static_cast<std::size_t>(std::count_if(
+      texto.begin(), texto.end(), [](char byte) { return (static_cast<unsigned char>(byte) & 0xC0) != 0x80; }));
 }
 
 }  // namespace ventrik

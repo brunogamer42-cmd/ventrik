@@ -6,6 +6,7 @@
 
 #include "common/protocol/pedidos.h"
 #include "common/texto.h"
+#include "common/utf.h"
 
 namespace ventrik::cliente {
 namespace {
@@ -16,11 +17,6 @@ bool termina(std::string_view resto) {
   const auto letra = static_cast<unsigned char>(resto.front());
   return letra < 0x80 && letra != '_' && !(letra >= '0' && letra <= '9') && !(letra >= 'a' && letra <= 'z') &&
          !(letra >= 'A' && letra <= 'Z');
-}
-
-std::size_t letras(std::string_view texto) {
-  return static_cast<std::size_t>(std::count_if(
-      texto.begin(), texto.end(), [](char byte) { return (static_cast<unsigned char>(byte) & 0xC0) != 0x80; }));
 }
 
 std::string_view primeras(std::string_view texto, std::size_t cuantas) {
@@ -55,7 +51,7 @@ Mencion mencion_en(std::string_view texto, std::string_view nombre) {
        arroba = texto.find('@', arroba + 1), ++vistas) {
     const std::string_view resto = texto.substr(arroba + 1);
     const auto nombra = [&resto](std::string_view palabra, const std::wstring& comparada) {
-      const std::string_view pedazo = primeras(resto, letras(palabra));
+      const std::string_view pedazo = primeras(resto, cantidad_de_letras(palabra));
       return !comparada.empty() && termina(resto.substr(pedazo.size())) && nombre_para_comparar(pedazo) == comparada;
     };
     if (nombra(nombre, buscado)) {

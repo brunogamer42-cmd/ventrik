@@ -152,7 +152,7 @@ target_link_libraries(ventrik_comun PUBLIC ventrik_opciones ventrik_sistema gsl 
 
 if(VENTRIK_VERSION STREQUAL "fuzzing")
   foreach(fuzzer fuzz_base fuzz_cadena fuzz_firma fuzz_guardados fuzz_identidad fuzz_nombres fuzz_paquete
-          fuzz_protocolo fuzz_sala fuzz_sonido fuzz_textos fuzz_utf fuzz_voz fuzz_voz_servidor)
+          fuzz_protocolo fuzz_respaldo fuzz_sala fuzz_sonido fuzz_textos fuzz_utf fuzz_voz fuzz_voz_servidor)
     add_executable(${fuzzer} fuzz/${fuzzer}.cpp)
     target_link_libraries(${fuzzer} PRIVATE ventrik_comun)
     add_custom_command(TARGET ${fuzzer} POST_BUILD
@@ -165,7 +165,9 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
   target_sources(fuzz_sala PRIVATE src/client/avisos.cpp src/client/guardados.cpp src/client/sala.cpp
                                    src/client/silencios.cpp)
   target_sources(fuzz_textos PRIVATE src/client/avisos.cpp src/client/silencios.cpp src/server/contrasena.cpp)
+  target_sources(fuzz_respaldo PRIVATE src/server/base.cpp src/server/respaldo.cpp)
   target_link_libraries(fuzz_base PRIVATE sqlite)
+  target_link_libraries(fuzz_respaldo PRIVATE sqlite)
   target_sources(fuzz_voz_servidor PRIVATE src/server/proteccion.cpp src/server/voz.cpp)
   target_sources(fuzz_voz PRIVATE src/client/buffer_voz.cpp src/client/canal_voz.cpp src/client/limpieza.cpp
                  src/client/motor_voz.cpp src/client/voz_primero.cpp)
@@ -181,7 +183,7 @@ endif()
 
 add_library(ventrik_servidor_base STATIC
   src/server/base.cpp src/server/comprobador.cpp src/server/contrasena.cpp src/server/permisos.cpp
-  src/server/proteccion.cpp src/server/registro.cpp
+  src/server/proteccion.cpp src/server/registro.cpp src/server/respaldo.cpp
   src/server/servidor.cpp src/server/voz.cpp)
 target_link_libraries(ventrik_servidor_base PUBLIC ventrik_comun sqlite)
 target_compile_definitions(ventrik_servidor_base PRIVATE FD_SETSIZE=1024)
@@ -255,6 +257,7 @@ add_executable(ventrik_pruebas
   tests/prueba_qr.cpp
   tests/prueba_red.cpp
   tests/prueba_registro.cpp
+  tests/prueba_respaldo.cpp
   tests/prueba_rnnoise.cpp
   tests/prueba_sala.cpp
   tests/prueba_sesion.cpp

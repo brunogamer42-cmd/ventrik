@@ -2,6 +2,7 @@
 
 // Conversión entre UTF-8 (lo que usa Ventrik) y UTF-16 (lo que usa Windows).
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 
@@ -19,5 +20,7 @@ std::wstring a_utf16(std::string_view utf8);
 
 // Para mostrar rutas y argumentos. Las mitades de par sueltas pasan a U+FFFD acá: XP no lo hace.
 std::string a_utf8(std::wstring_view utf16);
+
+std::size_t cantidad_de_letras(std::string_view texto);
 
 }  // namespace ventrik

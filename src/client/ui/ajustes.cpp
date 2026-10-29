@@ -1210,8 +1210,7 @@ class Dibujo {
     const DatosDeDialogo& datos = kDialogos[static_cast<std::size_t>(pantalla_.dialogo_identidad)];
     const std::string_view primera(pantalla_.contrasena.data());
     const std::string_view segunda(pantalla_.repetir.data());
-    const auto letras = static_cast<std::size_t>(
-        std::count_if(primera.begin(), primera.end(), [](char c) { return (static_cast<unsigned char>(c) & 0xC0) != 0x80; }));
+    const std::size_t letras = cantidad_de_letras(primera);
     if (datos.actual && pantalla_.actual[0] == '\0') {
       return false;
     }

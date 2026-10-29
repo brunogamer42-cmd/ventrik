@@ -17,7 +17,7 @@
 namespace ventrik::cliente {
 
 constexpr std::size_t kMaximoArchivoIdentidad = 16 * 1024;
-constexpr std::size_t kMinimoContrasena = 8;
+constexpr std::size_t kMinimoContrasena = cifrado::kMinimoContrasena;
 constexpr std::size_t kBytesSecretoDeEquipo = 32;
 
 enum class EstadoIdentidad { lista, creada, con_contrasena, danada, error };

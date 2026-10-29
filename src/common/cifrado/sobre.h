@@ -22,6 +22,7 @@ constexpr std::size_t kBytesNonce = 12;
 constexpr std::size_t kBytesEtiqueta = 16;
 constexpr std::size_t kBytesMarca = 4;
 constexpr std::uint32_t kMilisegundosArgon2 = 1000;
+constexpr std::size_t kMinimoContrasena = 8;
 
 struct Argon2 {
   std::uint32_t memoria_kib = 0;
