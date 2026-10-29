@@ -148,6 +148,7 @@ struct Red {
   std::function<bool(int tanda)> habla = [](int) { return true; };
   int perder_cada = 0;
   std::size_t muestras_del_que_habla = 480;
+  int clave_nueva_en = -1;
 };
 
 struct Llegada {
@@ -156,6 +157,7 @@ struct Llegada {
   std::uint32_t objetivo_mayor = 0;
   std::uint32_t objetivo_final = 0;
   std::uint32_t espera_mayor = 0;
+  std::uint32_t espera_final = 0;
   std::uint32_t acelerado = 0;
   std::uint32_t estirado = 0;
   std::uint32_t faltas = 0;
@@ -200,6 +202,9 @@ Llegada por_la_red(const Red& red) {
         ++viaje;
       }
     }
+    if (tanda == red.clave_nueva_en) {
+      de_vuelta.claves.fetch_add(1);
+    }
     receptor.procesar(mudo, salida);
     llegada.tardes_al_arrancar = tanda == 500 ? receptor.tardes() : llegada.tardes_al_arrancar;
     llegada.objetivo_mayor = std::max(llegada.objetivo_mayor, receptor.objetivo_ms());
@@ -207,6 +212,7 @@ Llegada por_la_red(const Red& red) {
   }
   llegada.tardes = receptor.tardes();
   llegada.objetivo_final = receptor.objetivo_ms();
+  llegada.espera_final = receptor.espera_ms();
   llegada.acelerado = receptor.acelerado_ms();
   llegada.estirado = receptor.estirado_ms();
   llegada.faltas = receptor.faltas();
@@ -342,11 +348,11 @@ TEST_CASE("El colchón se ajusta solo: con atrasos al azar sube lo justo y despu
   CHECK(llegada.recortes == 0);
 }
 
-TEST_CASE("El colchón se ajusta solo: una traba de 150 ms sube el objetivo, que después baja acelerando") {
+TEST_CASE("El colchón se ajusta solo: trabas de 150 ms cada 10 s suben el objetivo desde la segunda, y después baja acelerando") {
   Red red;
   red.demora = [](int tanda) { return tanda % 1000 < 15 ? 150 - (tanda % 1000) * 10 : 0; };
   const Llegada llegada = por_la_red(red);
-  CHECK(llegada.tardes <= 3);
+  CHECK(llegada.tardes <= 6);
   CHECK(llegada.objetivo_mayor >= 150);
   CHECK(llegada.objetivo_final < llegada.objetivo_mayor);
   CHECK(llegada.acelerado > 0);
@@ -365,12 +371,41 @@ TEST_CASE("El colchón se ajusta solo: si la red pasa a tardar medio segundo má
 
 TEST_CASE("El colchón se ajusta solo: una pausa larga del que habla no le hace olvidar lo aprendido") {
   Red red;
-  red.segundos = 13;
-  red.demora = [](int tanda) { return tanda >= 500 && tanda < 515 ? 150 - (tanda - 500) * 10 : 0; };
-  red.habla = [](int tanda) { return tanda < 1000 || tanda >= 1200; };
+  red.segundos = 9;
+  red.demora = [](int tanda) {
+    const int en_traba = (tanda - 300) % 200;
+    return tanda >= 300 && tanda < 600 && en_traba < 15 ? 150 - en_traba * 10 : 0;
+  };
+  red.habla = [](int tanda) { return tanda < 600 || tanda >= 800; };
   const Llegada llegada = por_la_red(red);
   CHECK(llegada.objetivo_mayor >= 150);
-  CHECK(llegada.objetivo_final >= 120);
+  CHECK(llegada.objetivo_final >= 100);
+  CHECK(llegada.recortes == 0);
+}
+
+TEST_CASE("El colchón se ajusta solo: una traba suelta de 180 ms no lo deja alto, acelera y en segundos vuelve") {
+  Red red;
+  red.segundos = 12;
+  red.demora = [](int tanda) { return tanda >= 500 && tanda < 518 ? 180 - (tanda - 500) * 10 : 0; };
+  const Llegada llegada = por_la_red(red);
+  CHECK(llegada.objetivo_mayor <= 110);
+  CHECK(llegada.objetivo_final <= 50);
+  CHECK(llegada.espera_final <= 80);
+  CHECK(llegada.acelerado > 0);
+  CHECK(llegada.recortes == 0);
+}
+
+TEST_CASE("El colchón se ajusta solo: con una clave nueva de la voz empieza de cero") {
+  Red red;
+  red.segundos = 7;
+  red.demora = [](int tanda) {
+    const int en_traba = (tanda - 300) % 200;
+    return tanda >= 300 && tanda < 600 && en_traba < 15 ? 150 - en_traba * 10 : 0;
+  };
+  red.clave_nueva_en = 650;
+  const Llegada llegada = por_la_red(red);
+  CHECK(llegada.objetivo_mayor >= 150);
+  CHECK(llegada.objetivo_final <= 50);
   CHECK(llegada.recortes == 0);
 }
 

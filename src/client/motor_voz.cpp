@@ -18,7 +18,10 @@ constexpr float kObjetivoMinimo = 40;
 constexpr float kObjetivoMaximo = 200;
 constexpr float kMargenDelObjetivo = 20;
 constexpr float kHolgura = 20;
-constexpr float kBajadaDelObjetivo = 0.002f;
+constexpr float kBajadaDelObjetivo = 0.01f;
+constexpr float kPico = 60;
+constexpr std::uint64_t kMismoPico = 1000;
+constexpr std::uint64_t kPicosSeguidos = 20000;
 constexpr float kSubidaDeLaBase = 0.01f;
 constexpr int kRetrasoImposible = 1000;
 constexpr int kCasiCallado = 300;
@@ -353,6 +356,14 @@ void MotorVoz::codificar(const Pedazo& pedazo, std::uint16_t tiempo, std::uint8_
 }
 
 void MotorVoz::recibir() {
+  const std::uint32_t claves = puente_.claves.load(std::memory_order_relaxed);
+  if (std::exchange(claves_vistas_, claves) != claves) {
+    for (Voz& voz : voces_) {
+      voz.objetivo = kObjetivoMinimo;
+      voz.con_base = false;
+      voz.hubo_pico = false;
+    }
+  }
   PaqueteVoz llegado;
   while (puente_.bajada.sacar(llegado)) {
     if (Voz* voz = lugar_para(llegado)) {
@@ -397,6 +408,7 @@ MotorVoz::Voz* MotorVoz::lugar_para(const PaqueteVoz& paquete) {
     elegida->disimulos = 0;
     elegida->objetivo = kObjetivoMinimo;
     elegida->con_base = false;
+    elegida->hubo_pico = false;
   }
   return elegida;
 }
@@ -413,7 +425,16 @@ void MotorVoz::medir(Voz& voz, std::uint16_t tiempo) {
     tardes_.fetch_add(1, std::memory_order_relaxed);
   }
   if (voz.con_base && retraso >= 0) {
-    voz.objetivo = std::min(std::max(voz.objetivo, retraso + kMargenDelObjetivo), kObjetivoMaximo);
+    const float pedido = retraso + kMargenDelObjetivo;
+    if (pedido <= voz.objetivo + kPico) {
+      voz.objetivo = std::min(std::max(voz.objetivo, pedido), kObjetivoMaximo);
+    } else if (!voz.hubo_pico || ahora - voz.ultimo_pico >= kMismoPico) {
+      if (voz.hubo_pico && ahora - voz.ultimo_pico < kPicosSeguidos) {
+        voz.objetivo = std::min(pedido, kObjetivoMaximo);
+      }
+      voz.hubo_pico = true;
+      voz.ultimo_pico = ahora;
+    }
   }
   if (!voz.con_base || retraso < 0 || retraso > kObjetivoMaximo) {
     voz.con_base = true;

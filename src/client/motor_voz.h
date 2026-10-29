@@ -106,6 +106,8 @@ class MotorVoz {
     int disimulos = 0;
     float objetivo = 40;
     bool con_base = false;
+    bool hubo_pico = false;
+    std::uint64_t ultimo_pico = 0;
     std::uint16_t base = 0;
     float resto = 0;
     std::uint64_t ultima_llegada = 0;
@@ -145,6 +147,7 @@ class MotorVoz {
   bool hay_anterior_ = false;
   bool abierto_ = false;
   bool tamano_fijo_ = false;
+  std::uint32_t claves_vistas_ = 0;
   int restante_ = 0;
   std::array<Voz, kVoces> voces_;
   std::array<float, 960> mezcla_{};

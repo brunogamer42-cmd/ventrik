@@ -109,6 +109,7 @@ struct PuenteVoz {
   std::atomic<std::uint32_t> perdidos{0};
   std::atomic<std::uint32_t> ping_ms{0};
   std::atomic<bool> voz_fija{false};
+  std::atomic<std::uint32_t> claves{0};
 };
 
 }

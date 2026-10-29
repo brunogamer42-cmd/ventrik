@@ -168,6 +168,7 @@ void Sesion::usar_clave() {
   cifrado::Secreto secreto(32);
   if (clave_ && canal_voz_ && tls_->exportar(clave_->identidad, secreto.bytes())) {
     canal_voz_->clave(*clave_, std::move(secreto));
+    puente_->claves.fetch_add(1, std::memory_order_relaxed);
   }
 }
 

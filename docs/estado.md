@@ -275,7 +275,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - un atraso de más de 200 ms (el tope del objetivo) lleva el objetivo al tope y toma ese paquete como base nueva: si la red pasó a tardar más para siempre (alguien subiendo archivos, otra ruta, el micrófono del que habla se trabó), el colchón se reacomoda enseguida. Antes solo se reacomodaba pasando 1 s, y entre 200 ms y 1 s aceleraba cada paquete durante decenas de segundos (lo encontró la revisión). Si fue una traba sola, el paquete siguiente llega con atraso negativo y la base vuelve;
     - solo se miden los paquetes que el colchón aceptó (los repetidos o viejos no mueven nada).
     - En una pausa del DTX la llegada y el `tiempo` avanzan juntos: el silencio no cuenta como atraso. Por eso el `tiempo` cuenta todo lo que entra del micrófono, también sin transmitir.
-  - **Objetivo** (uno por voz, así alguien con mal WiFi no le suma demora a los demás): el mayor atraso más 20 ms, entre 40 y 200 ms. Sube enseguida y baja 2 ms por segundo. Un paquete que llega con más atraso que el objetivo cuenta como "tarde". El registro muestra el mayor.
+  - **Objetivo** (uno por voz, así alguien con mal WiFi no le suma demora a los demás): el mayor atraso más 20 ms, entre 40 y 200 ms. Sube enseguida y baja 2 ms por segundo (desde el 2026-10-29 baja 10 ms por segundo y un pico suelto no lo sube: ver "Arreglo de la demora de la voz de la HP a la PC"). Un paquete que llega con más atraso que el objetivo cuenta como "tarde". El registro muestra el mayor.
   - **Control**, en cada paquete que se decodifica:
     - si va más de 20 ms por encima del objetivo, se acorta;
     - si va más de 20 ms por debajo, se estira;
@@ -963,6 +963,18 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - las dos veces fuzz_voz de 32 bits no llegó a tiempo: con todos a la vez solo repasa su corpus (4.494 casos). Corrido solo terminó en 884 s sin fallas. Achicarlo con `-merge=1` no anduvo (el proceso interno no arranca, probablemente por los espacios de la carpeta): queda en Pendientes.
   - **La prueba a mano final del dueño** (PC y HP): la lista que se le pasó junta la del plan (identidad exportada, borrada e importada; servidor mudado a la HP) con las de los pasos 4.5 a 4.11. Antes se reinicia `build\servidor_de_prueba` con el .exe nuevo (la clave pasa a la bóveda y la base a la versión 7).
   - **Decidido por Claude, a contarle al dueño:** el servidor de Hostear sigue andando al cerrar Ventrik (se para con Detener).
+
+- **Arreglo de la demora de la voz de la HP a la PC (pedido del dueño en la prueba a mano de la etapa 4, 2026-10-29).** El dueño oía su voz de la HP en la PC con 100 a 150 ms de demora.
+  - **Medido** con `--registro` en las dos (registro_pc.csv y el de la HP): el ping de la voz de la HP era de 4 a 23 ms; la demora la ponía el colchón de la PC, entre 100 y 180 ms. El objetivo saltó dos veces al tope (200 ms) y bajaba 2 ms por segundo, así que tardaba más de un minuto en volver a 40:
+    - a los pocos segundos de empezar a hablar, por una sola traba del WiFi de la HP;
+    - justo al apagar "Voz de tamaño fijo": cambiarla renueva las claves de la voz (también pasa sola cada hora), y ese corte se medía como atraso.
+    - La voz fija en sí no agregaba demora: con y sin ella pasó lo mismo.
+  - **Decidido por el dueño** (prefirió menos demora aunque a veces se corte un poquito):
+    - el objetivo baja 10 ms por segundo (antes 2);
+    - un pico (un atraso que pediría más de 60 ms sobre el objetivo) no sube el objetivo si está suelto: se anota y lo que llegó junto se acelera (un período de la voz por paquete, menos de un segundo). Solo sube si llega otro pico entre 1 y 20 s después (los paquetes del mismo segundo son la misma traba);
+    - con una clave nueva de la voz (`PuenteVoz::claves`, que sube la sesión en `usar_clave`), el objetivo y la base de cada voz empiezan de cero.
+  - **Pruebas** (red simulada): una traba suelta de 180 ms deja el objetivo en 87 ms y a los segundos en 40, con 120 ms acelerados; trabas de 150 ms cada 10 s suben el objetivo a 157 ms desde la segunda (5 tardes en 3 trabas); una clave nueva lo devuelve a 40; siguen las de atrasos al azar, red medio segundo más lenta, pérdidas y reloj 0,7 % rápido.
+  - Sin hilos, cachés ni despertares nuevos: dos campos por voz y un contador atómico en el puente.
 
 ## Ramas y repositorio
 
