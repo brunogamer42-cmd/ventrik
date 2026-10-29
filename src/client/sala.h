@@ -64,7 +64,8 @@ class Sala {
   void marcar_leido(std::uint32_t canal);
 
   std::uint32_t tu_id() const { return tu_id_; }
-  bool dueno() const { return dueno_; }
+  bool dueno() const { return rol_ == protocolo::Rol::dueno; }
+  bool admin() const { return rol_ != protocolo::Rol::ninguno; }
   const std::vector<protocolo::CanalInfo>& canales() const { return canales_; }
   const std::map<std::uint32_t, protocolo::UsuarioInfo>& usuarios() const { return usuarios_; }
   const std::vector<const protocolo::UsuarioInfo*>& en_canal(std::uint32_t canal) const;
@@ -90,6 +91,7 @@ class Sala {
   std::vector<Orden> atender(const protocolo::UsuarioSalio& salio);
   std::vector<Orden> atender(const protocolo::UsuarioCambioCanal& cambio);
   std::vector<Orden> atender(const protocolo::UsuarioSilencio& silencio);
+  std::vector<Orden> atender(const protocolo::UsuarioRol& rol);
   std::vector<Orden> atender(const protocolo::CanalCreado& creado);
   std::vector<Orden> atender(const protocolo::CanalCambiado& cambiado);
   std::vector<Orden> atender(const protocolo::CanalBorrado& borrado);
@@ -106,7 +108,7 @@ class Sala {
   void subir(std::uint32_t canal, std::uint32_t contador);
 
   std::uint32_t tu_id_ = 0;
-  bool dueno_ = false;
+  protocolo::Rol rol_ = protocolo::Rol::ninguno;
   std::vector<protocolo::CanalInfo> canales_;
   std::map<std::uint32_t, protocolo::UsuarioInfo> usuarios_;
   mutable std::optional<std::map<std::uint32_t, std::vector<const protocolo::UsuarioInfo*>>> por_canal_;

@@ -96,7 +96,7 @@ struct Grupo {
 };
 
 constexpr std::array<Grupo, 4> kGruposDeSonidos = {{{0, 14, 0}, {14, 4, 0}, {18, 5, 14}, {23, 4, 0}}};
-constexpr std::array<std::size_t, 15> kSuenanYa = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 14, 15, 26};
+constexpr std::array<std::size_t, 16> kSuenanYa = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 14, 15, 24, 26};
 
 struct ItemDeSonido {
   Clave nombre;

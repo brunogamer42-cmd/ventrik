@@ -119,6 +119,7 @@ class Dibujo {
     chat();
     estado();
     dialogo();
+    avisos_de_seguridad();
     EleccionDeAvisos eleccion = dialogo_avisos(pantalla_.idioma, pantalla_.nombre_servidor, pantalla_.avisos,
                                                &sala_.canales(), ahora_, pantalla_.abrir_avisos);
     if (eleccion.avisos) {
@@ -170,7 +171,7 @@ class Dibujo {
   void abrir(Dialogo cual, std::uint32_t canal, std::string_view nombre, bool solo_admins) {
     pantalla_.dialogo = cual;
     pantalla_.abrir_dialogo = true;
-    pantalla_.canal_dialogo = canal;
+    pantalla_.id_dialogo = canal;
     poner(pantalla_.nombre_dialogo, nombre);
     pantalla_.marca_dialogo = solo_admins ? 1 : 0;
     pantalla_.error_dialogo.clear();
@@ -207,12 +208,12 @@ class Dibujo {
     }
     ImGui::Separator();
     const std::string editar(t(Clave::avisos_editar_canal));
-    if (!sala_.dueno()) {
+    if (!sala_.admin()) {
       ImGui::MenuItem(editar.c_str(), std::string(t(Clave::avisos_admins)).c_str(), false, false);
     } else if (ImGui::MenuItem(editar.c_str())) {
       abrir(Dialogo::cambiar, canal.id, canal.nombre, canal.solo_admins);
     }
-    if (sala_.dueno() && canal.id != protocolo::kCanalGeneral &&
+    if (sala_.admin() && canal.id != protocolo::kCanalGeneral &&
         ImGui::MenuItem(std::string(t(Clave::servidor_menu_borrar)).c_str())) {
       abrir(Dialogo::borrar, canal.id, canal.nombre, false);
     }
@@ -334,7 +335,7 @@ class Dibujo {
     };
     std::vector<Boton> botones = {{Clave::servidor_servidores, Icono::servidor, "6", "##servidores"},
                                   {Clave::servidor_perfil, Icono::persona, "10", "##perfil"}};
-    if (sala_.dueno()) {
+    if (sala_.admin()) {
       botones.push_back({Clave::servidor_personalizar, Icono::lapiz, "10", "##personalizar"});
     }
     botones.push_back({Clave::inicio_ajustes, Icono::ajustes, nullptr, "##ajustes"});
@@ -371,7 +372,14 @@ class Dibujo {
     if (!ImGui::BeginPopup("##servidor")) {
       return;
     }
-    const EleccionDeServidor eleccion = menu_servidor(pantalla_.idioma, pantalla_.avisos, true, sala_.dueno(), ahora_);
+    const EleccionDeServidor eleccion =
+        menu_servidor(pantalla_.idioma, pantalla_.avisos, true, sala_.dueno() ? protocolo::Rol::dueno
+                                                                  : sala_.admin() ? protocolo::Rol::admin
+                                                                                  : protocolo::Rol::ninguno,
+                      ahora_);
+    if (eleccion.liberar_nombre) {
+      abrir(Dialogo::liberar, 0, "", false);
+    }
     if (eleccion.avisos) {
       pedido_.avisos = eleccion.avisos;
       pedido_.guardar = true;
@@ -746,7 +754,7 @@ class Dibujo {
       ImDrawList& dibujo = *ImGui::GetWindowDrawList();
       escribir_espaciado(ImVec2(x + px(18), medio - medir(etiqueta, Letra::negrita, medida::letra_mini).y / 2),
                          etiqueta, color::apagado, Letra::negrita, medida::letra_mini, px(1.2f));
-      if (sala_.dueno() && id != nullptr) {
+      if (sala_.admin() && id != nullptr) {
         const ImVec2 desde(x + ancho - px(11) - px(medida::boton_mas), medio - px(medida::boton_mas) / 2);
         const ImVec2 hasta(desde.x + px(medida::boton_mas), desde.y + px(medida::boton_mas));
         ImGui::SetCursorScreenPos(desde);
@@ -870,6 +878,7 @@ class Dibujo {
       ImGui::SetCursorScreenPos(ImVec2(x, y));
       ImGui::PushID(static_cast<int>(usuario.id));
       const bool tocada = ImGui::InvisibleButton("##persona", ImVec2(ancho, alto));
+      menu_de_persona(usuario);
       ImGui::PopID();
       if (tocada) {
         pantalla_.persona = usuario.id;
@@ -901,6 +910,21 @@ class Dibujo {
     const std::string_view nombre = yo ? t(Clave::servidor_vos) : std::string_view(usuario.nombre);
     escribir_en(x + px(74), medio, nombre, color::texto2, Letra::normal, medida::letra, icono - x - px(86));
     return y + alto;
+  }
+
+  void menu_de_persona(const protocolo::UsuarioInfo& usuario) {
+    if (!sala_.dueno() || usuario.rol == protocolo::Rol::dueno || !ImGui::BeginPopupContextItem("##rol")) {
+      return;
+    }
+    const bool es_admin = usuario.rol == protocolo::Rol::admin;
+    if (ImGui::MenuItem(std::string(t(es_admin ? Clave::servidor_sacar_admin : Clave::servidor_hacer_admin)).c_str())) {
+      if (es_admin) {
+        pedido_.ordenes.emplace_back(protocolo::NombrarAdmin{usuario.id, false});
+      } else {
+        abrir(Dialogo::admin, usuario.id, usuario.nombre, false);
+      }
+    }
+    ImGui::EndPopup();
   }
 
   void chat() {
@@ -1203,14 +1227,18 @@ class Dibujo {
       pantalla_.abrir_dialogo = false;
     }
     const Dialogo cual = pantalla_.dialogo;
-    const auto* canal = sala_.canal(pantalla_.canal_dialogo);
+    const auto* canal = sala_.canal(pantalla_.id_dialogo);
     const bool de_canal = cual == Dialogo::cambiar || cual == Dialogo::borrar;
-    const bool con_nombre = cual != Dialogo::borrar;
+    const bool con_nombre = cual != Dialogo::borrar && cual != Dialogo::admin;
     const bool con_marca = cual == Dialogo::crear_texto ||
                            (cual == Dialogo::cambiar && canal != nullptr && canal->tipo == TipoCanal::texto);
+    const std::string_view ayuda = cual == Dialogo::admin     ? t(Clave::servidor_admin_ayuda)
+                                   : cual == Dialogo::liberar ? t(Clave::servidor_liberar_ayuda)
+                                                              : std::string_view();
     const float ancho = px(380);
-    const float alto = px(64) + (con_nombre ? px(46) : px(40)) + (con_marca ? px(48) : 0) +
-                       (pantalla_.error_dialogo.empty() ? 0 : px(22)) + px(56);
+    const float alto_ayuda = ayuda.empty() ? 0 : alto_envuelto(ayuda, ancho - px(40)) + px(10);
+    const float alto = px(64) + (con_nombre ? px(46) : cual == Dialogo::borrar ? px(40) : 0) + alto_ayuda +
+                       (con_marca ? px(48) : 0) + (pantalla_.error_dialogo.empty() ? 0 : px(22)) + px(56);
     ImGui::SetNextWindowPos(ImVec2(ancho_ / 2, alto_ / 2), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(ancho, alto));
     if (!ImGui::BeginPopupModal("##dialogo", nullptr,
@@ -1219,7 +1247,8 @@ class Dibujo {
       pantalla_.dialogo = Dialogo::ninguno;
       return;
     }
-    if (de_canal && canal == nullptr) {
+    if ((de_canal && canal == nullptr) ||
+        (cual == Dialogo::admin && sala_.usuarios().count(pantalla_.id_dialogo) == 0)) {
       cerrar_ventana_emergente();
       ImGui::EndPopup();
       pantalla_.dialogo = Dialogo::ninguno;
@@ -1235,6 +1264,8 @@ class Dibujo {
     const std::string titulo =
         cual == Dialogo::crear_texto ? std::string(t(Clave::servidor_nuevo_texto))
         : cual == Dialogo::crear_voz ? std::string(t(Clave::servidor_nuevo_voz))
+        : cual == Dialogo::liberar   ? std::string(t(Clave::servidor_liberar_titulo))
+        : cual == Dialogo::admin     ? con_datos(t(Clave::servidor_admin_titulo), {pantalla_.nombre_dialogo.data()})
         : cual == Dialogo::cambiar
             ? con_datos(t(es_texto ? Clave::servidor_cambiar_canal_texto : Clave::servidor_cambiar_canal), {nombre_canal})
             : con_datos(t(es_texto ? Clave::servidor_borrar_canal_texto : Clave::servidor_borrar_canal), {nombre_canal});
@@ -1242,18 +1273,24 @@ class Dibujo {
     y += px(36);
     bool confirmar = false;
     if (con_nombre) {
-      if (ImGui::IsWindowAppearing()) {
+      if (ImGui::IsWindowAppearing() || std::exchange(pantalla_.enfocar_dialogo, false)) {
         ImGui::SetKeyboardFocusHere();
       }
       ImGui::SetCursorScreenPos(ImVec2(x, y));
-      confirmar = campo("##nombre_canal", t(Clave::servidor_nombre_del_canal), pantalla_.nombre_dialogo,
-                        ImVec2(interior, px(36)), Icono::ninguno, ImGuiInputTextFlags_EnterReturnsTrue, color::pozo);
+      confirmar = campo("##nombre_canal",
+                        t(cual == Dialogo::liberar ? Clave::servidor_nombre_a_liberar : Clave::servidor_nombre_del_canal),
+                        pantalla_.nombre_dialogo, ImVec2(interior, px(36)), Icono::ninguno,
+                        ImGuiInputTextFlags_EnterReturnsTrue, color::pozo);
       y += px(46);
-    } else {
+    } else if (cual == Dialogo::borrar) {
       escribir_cortado(ImVec2(x, y), interior,
                        t(canal->tipo == TipoCanal::texto ? Clave::servidor_borrar_texto : Clave::servidor_borrar_voz),
                        color::texto2);
       y += px(40);
+    }
+    if (!ayuda.empty()) {
+      escribir_envuelto(ImVec2(x, y), ayuda, color::texto2, interior);
+      y += alto_ayuda;
     }
     if (con_marca) {
       ImGui::SetCursorScreenPos(ImVec2(x, y));
@@ -1269,6 +1306,8 @@ class Dibujo {
     }
     const std::string_view si = t(cual == Dialogo::borrar    ? Clave::servidor_borrar_si
                                   : cual == Dialogo::cambiar ? Clave::servidor_guardar
+                                  : cual == Dialogo::admin   ? Clave::servidor_hacer_admin
+                                  : cual == Dialogo::liberar ? Clave::servidor_liberar_si
                                                              : Clave::servidor_crear);
     const std::string_view no = t(Clave::inicio_cancelar);
     const float ancho_no = ancho_boton(no, Estilo::contorneado);
@@ -1285,14 +1324,66 @@ class Dibujo {
     ImGui::EndPopup();
   }
 
+  void avisos_de_seguridad() {
+    if (pantalla_.seguridad.empty()) {
+      return;
+    }
+    if (!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
+      ImGui::OpenPopup("##seguridad");
+    }
+    const float ancho = px(440);
+    const float interior = ancho - px(40);
+    float textos = 0;
+    for (const std::string& linea : pantalla_.seguridad) {
+      textos += alto_envuelto(linea, interior) + px(10);
+    }
+    const float lista = std::min(textos, alto_ - px(200));
+    const float alto = px(64) + lista + px(56);
+    ImGui::SetNextWindowPos(ImVec2(ancho_ / 2, alto_ / 2), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(ancho, alto));
+    if (!ImGui::BeginPopupModal("##seguridad", nullptr,
+                                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                    ImGuiWindowFlags_NoScrollbar)) {
+      return;
+    }
+    const ImVec2 desde = ImGui::GetWindowPos();
+    triangulos(*ImGui::GetWindowDrawList(), desde, ImVec2(desde.x + ancho, desde.y + alto));
+    const float x = desde.x + px(20);
+    escribir_cortado(ImVec2(x, desde.y + px(20)), interior, t(Clave::seguridad_avisos_titulo), color::texto, Letra::titulo,
+                     medida::letra_tarjeta);
+    ImGui::SetCursorScreenPos(ImVec2(x, desde.y + px(56)));
+    ImGui::BeginChild("##lineas", ImVec2(interior, lista));
+    ImVec2 donde = ImGui::GetCursorScreenPos();
+    for (const std::string& linea : pantalla_.seguridad) {
+      escribir_envuelto(donde, linea, color::texto2, interior);
+      donde.y += alto_envuelto(linea, interior) + px(10);
+    }
+    ImGui::Dummy(ImVec2(interior, textos));
+    ImGui::EndChild();
+    const std::string_view entendido = t(Clave::seguridad_entendido);
+    const float ancho_si = ancho_boton(entendido, Estilo::principal);
+    ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_si, desde.y + alto - px(50)));
+    if (boton("##entendido", entendido, Estilo::principal, ImVec2(ancho_si, px(medida::alto_principal))) ||
+        (!ImGui::IsWindowAppearing() && (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_Enter)))) {
+      pantalla_.seguridad.clear();
+      cerrar_ventana_emergente();
+    }
+    ImGui::EndPopup();
+  }
+
   bool confirmar_dialogo(const protocolo::CanalInfo* canal, bool con_marca) {
     const std::string nombre(pantalla_.nombre_dialogo.data());
     const bool solo_admins = con_marca && pantalla_.marca_dialogo == 1;
     if (pantalla_.dialogo == Dialogo::borrar) {
       pedido_.ordenes.emplace_back(protocolo::BorrarCanal{canal->id});
+    } else if (pantalla_.dialogo == Dialogo::admin) {
+      pedido_.ordenes.emplace_back(protocolo::NombrarAdmin{pantalla_.id_dialogo, true});
     } else if (!es_nombre_valido(nombre)) {
       pantalla_.error_dialogo = t(Clave::conectar_nombre_invalido);
+      pantalla_.enfocar_dialogo = true;
       return false;
+    } else if (pantalla_.dialogo == Dialogo::liberar) {
+      pedido_.ordenes.emplace_back(protocolo::LiberarNombre{nombre});
     } else if (pantalla_.dialogo == Dialogo::cambiar) {
       pedido_.ordenes.emplace_back(protocolo::CambiarCanal{canal->id, nombre, solo_admins});
     } else {

@@ -62,7 +62,7 @@ void revisar(const Avisos& avisos, std::uint64_t& version) {
   version = avisos.version();
   exigir(avisos.pendientes() <= kMaximoCanales);
   const auto lista = avisos.lista();
-  exigir(lista.size() <= kMaximoCanales + 1);
+  exigir(lista.size() <= kMaximoCanales + 2);
   for (std::size_t i = 0; i < lista.size(); ++i) {
     exigir(i == 0 || lista[i - 1].version < lista[i].version);
     exigir(ventrik::es_utf8_valido(lista[i].titulo) && ventrik::es_utf8_valido(lista[i].cuerpo));
@@ -78,12 +78,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   presentado.tu_id = 1;
   presentado.servidor = "Servidor";
   const std::uint8_t inicio = lector.leer_u8();
-  presentado.dueno = (inicio & 1) != 0;
+  presentado.rol = (inicio & 1) != 0 ? Rol::dueno : Rol::ninguno;
   presentado.canales = {{1, "General"}, {2, "charla", TipoCanal::texto, false, 3},
                         {3, "anuncios", TipoCanal::texto, true, 0}, {4, "Juegos"}};
   presentado.usuarios = {{1, "Ana", (inicio & 2) != 0 ? 0u : 1u}, {2, "Beto", 4, 3}};
   std::vector<ventrik::cliente::Leido> leidos;
-  if (presentado.dueno) {
+  if (presentado.rol == Rol::dueno) {
     leidos = {{1, lector.leer_u8()}, {2, lector.leer_u16()}, {7, lector.leer_u8()}};
   }
   Sala sala(presentado, leidos, (inicio >> 2) % 6);
@@ -117,7 +117,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     const std::uint16_t c = lector.leer_u16();
     const TipoCanal tipo = (c & 1) != 0 ? TipoCanal::texto : TipoCanal::voz;
     const bool solo_admins = tipo == TipoCanal::texto && (c & 2) != 0;
-    switch (que % 25) {
+    switch (que % 27) {
       case 0: sala.aplicar(UsuarioEntro{{a, "Alguien", b}}); break;
       case 1: sala.aplicar(UsuarioSalio{a}); break;
       case 2: sala.aplicar(UsuarioCambioCanal{a, b}); break;
@@ -164,7 +164,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
         break;
       }
       case 9: {
-        const Negado negado{static_cast<TipoMensaje>(10 + c % 9), static_cast<MotivoNegado>(1 + b % 7)};
+        const Negado negado{static_cast<TipoMensaje>(10 + c % 9), static_cast<MotivoNegado>(1 + b % 8)};
         if (negado.pedido == TipoMensaje::pedir_historial && avisos.pidiendo() && !sala.esperando()) {
           avisos.negado();
         } else {
@@ -204,6 +204,15 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       }
       case 22: avisos.visto(a); break;
       case 23: (b & 1) != 0 ? avisos.corte(std::string(c % 300, 'z')) : avisos.desconectado(); break;
+      case 25:
+        sala.aplicar(UsuarioRol{a, static_cast<Rol>(b % 3)});
+        exigir(a != sala.tu_id() || sala.admin() == (b % 3 != 0));
+        break;
+      case 26:
+        avisos.seguridad(ventrik::cliente::explicar(
+            ventrik::elegir_idioma((b & 1) != 0 ? "es" : "en"),
+            AvisoDeSeguridad{static_cast<Seguridad>(1 + b % 7), c * 1000ull, nombres[a % 5], nombres[b % 5]}));
+        break;
       default: break;
     }
     anotar_todas(sala.revisar());

@@ -176,8 +176,8 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
                   UsuarioCambioCanal, UsuarioSilencio, CanalCreado, CanalCambiado, CanalBorrado, EntrarACanal,
                   Silenciar, SilenciarPersonas, DestinosDeSusurro,
                   EnviarChat, MensajeChat, PedirHistorial, Historial, CrearCanal, CambiarCanal,
-                  MirarCanal, MensajesNuevos, BorrarCanal, Negado, Desplazado, Ping, Pong, ClaveVoz, MedioSubida,
-                  MedioBajada>(marco.cuerpo);
+                  MirarCanal, MensajesNuevos, BorrarCanal, Negado, Desplazado, NombrarAdmin, UsuarioRol, LiberarNombre,
+                  AvisoDeSeguridad, Ping, Pong, ClaveVoz, MedioSubida, MedioBajada>(marco.cuerpo);
   if (marco.tipo == static_cast<std::uint16_t>(TipoMensaje::presentarse)) {
     if (const auto presentarse = leer_mensaje<Presentarse>(marco.cuerpo)) {
       const std::array<std::uint8_t, kBytesValorDeConexion> nada{};

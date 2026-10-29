@@ -247,7 +247,8 @@ class Dibujo {
       ImGui::OpenPopup("##servidor");
     }
     if (ImGui::BeginPopup("##servidor")) {
-      const EleccionDeServidor eleccion = menu_servidor(pantalla_.idioma, servidor.avisos, false, false, ahora_);
+      const EleccionDeServidor eleccion =
+          menu_servidor(pantalla_.idioma, servidor.avisos, false, protocolo::Rol::ninguno, ahora_);
       if (eleccion.avisos) {
         pedido_.avisos = eleccion.avisos;
         pedido_.cual = cual;

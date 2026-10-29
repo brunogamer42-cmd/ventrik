@@ -217,7 +217,7 @@ ventrik::cliente::Sala sala_llena(bool dueno, std::size_t canales, std::size_t p
                                   const std::string& largo = std::string(4000, 'w')) {
   Presentado presentado;
   presentado.tu_id = 1;
-  presentado.dueno = dueno;
+  presentado.rol = dueno ? ventrik::protocolo::Rol::dueno : ventrik::protocolo::Rol::ninguno;
   for (std::uint32_t id = 1; id <= canales; ++id) {
     const bool texto = id % 2 == 0;
     presentado.canales.push_back({id, (texto ? "texto " : "voz ") + std::to_string(id) + std::string(id == 2 ? 20 : 0, 'x'),
@@ -482,7 +482,7 @@ TEST_CASE("El clic derecho del dueño abre el menú, y cambiar o borrar mandan s
   sin_pantalla.cuadro(pantalla, sala, cambiar, true);
   sin_pantalla.cuadro(pantalla, sala, cambiar);
   CHECK(pantalla.dialogo == ui::Dialogo::cambiar);
-  CHECK(pantalla.canal_dialogo == 2);
+  CHECK(pantalla.id_dialogo == 2);
   CHECK(std::string(pantalla.nombre_dialogo.data()) == sala.canal(2)->nombre);
   std::vector<ui::PedidoServidor> pedidos;
   pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
@@ -495,7 +495,7 @@ TEST_CASE("El clic derecho del dueño abre el menú, y cambiar o borrar mandan s
   CHECK(cambiados[0].canal == 2);
 
   pantalla.dialogo = ui::Dialogo::borrar;
-  pantalla.canal_dialogo = 3;
+  pantalla.id_dialogo = 3;
   pantalla.abrir_dialogo = true;
   pedidos.clear();
   pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
@@ -763,7 +763,7 @@ TEST_CASE("Si borran el canal mientras su cuadro está abierto, el cuadro se cie
   auto sala = sala_llena(true, 4, 3, 5);
   auto pantalla = pantalla_servidor();
   pantalla.dialogo = ui::Dialogo::cambiar;
-  pantalla.canal_dialogo = 2;
+  pantalla.id_dialogo = 2;
   pantalla.abrir_dialogo = true;
   sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
   CHECK(hay_ventana_emergente());
@@ -932,7 +932,7 @@ TEST_CASE("El ▾ del servidor lo silencia por 1 hora y la cabecera lo dice; el 
   pedidos.clear();
 
   tocar(nombre);
-  tocar(ImVec2(100, 221));
+  tocar(ImVec2(100, 243));
   const bool desconectar = std::any_of(pedidos.begin(), pedidos.end(),
                                        [](const ui::PedidoServidor& pedido) { return pedido.desconectar; });
   CHECK(desconectar);
@@ -1812,6 +1812,157 @@ TEST_CASE("Los diálogos de la contraseña maestra se dibujan a cualquier tamañ
   sin_pantalla.apretar(ImGuiKey_Enter);
   CHECK(confirma());
   CHECK(std::string(pantalla.actual.data()) == "la de antes");
+}
+
+TEST_CASE("Los avisos de seguridad se ven juntos a cualquier tamaño, esperan a otro diálogo y Entendido los borra") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.0f, ImVec2(1376, 768)),
+                                       std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    SinPantalla sin_pantalla(escala, tamano);
+    auto sala = sala_llena(true, 4, 3, 5);
+    auto pantalla = pantalla_servidor();
+    pantalla.dialogo = ui::Dialogo::crear_texto;
+    pantalla.abrir_dialogo = true;
+    for (int i = 0; i < 30; ++i) {
+      pantalla.seguridad.push_back("Persona con nombre largo 2 borr\xC3\xB3 el canal \xC2\xABtexto " + std::to_string(i) +
+                                   "\xC2\xBB (27/10/2026 21:40).");
+    }
+    for (int i = 0; i < 3; ++i) {
+      sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+    }
+    CHECK(ImGui::GetCurrentContext()->OpenPopupStack.Size == 1);
+    sin_pantalla.apretar(ImGuiKey_Escape);
+    for (int i = 0; i < 3; ++i) {
+      sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+    }
+    CHECK(pantalla.dialogo == ui::Dialogo::ninguno);
+    CHECK(hay_ventana_emergente());
+    CHECK(pantalla.seguridad.size() == 30);
+    for (float y = 5; y < tamano.y; y += 61) {
+      sin_pantalla.cuadro(pantalla, sala, ImVec2(tamano.x / 2, y));
+    }
+    sin_pantalla.apretar(ImGuiKey_Enter);
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5));
+    CHECK(pantalla.seguridad.empty());
+    CHECK_FALSE(hay_ventana_emergente());
+  }
+}
+
+TEST_CASE("El dueño hace admin con clic derecho y confirmación, y saca admin sin ella; los demás no tienen ese menú") {
+  using ventrik::protocolo::Rol;
+  for (const Rol mio : {Rol::dueno, Rol::admin}) {
+    SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+    Presentado presentado{1, mio, "Servidor", {{1, "General"}},
+                          {{1, "Ana", 1}, {2, "Beto", 1}, {3, "Carla", 1, 0, Rol::admin}}};
+    ventrik::cliente::Sala sala(presentado);
+    sala.empezar();
+    auto pantalla = pantalla_servidor();
+    std::vector<ui::PedidoServidor> pedidos;
+    const auto tocar = [&](ImVec2 donde, int boton = 0) {
+      sin_pantalla.usar_boton(boton);
+      for (const bool clic : {false, true, false}) {
+        pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, donde, clic));
+      }
+      sin_pantalla.usar_boton(0);
+    };
+    bool confirmo = false;
+    for (float y = 100; y < 500; y += 6) {
+      tocar(ImVec2(100, y), 1);
+      if (hay_ventana_emergente()) {
+        tocar(en_menu(0));
+      }
+      if (pantalla.dialogo == ui::Dialogo::admin) {
+        CHECK(pantalla.id_dialogo == 2);
+        const ImGuiWindow& dialogo = *ImGui::GetCurrentContext()->OpenPopupStack.back().Window;
+        const ImVec2 desde = dialogo.Pos;
+        const ImVec2 tamano = dialogo.Size;
+        for (float x = desde.x + 20; x < desde.x + tamano.x && pantalla.dialogo == ui::Dialogo::admin; x += 8) {
+          tocar(ImVec2(x, desde.y + tamano.y - 30));
+        }
+        confirmo = true;
+      }
+      for (int i = 0; i < 3 && hay_ventana_emergente(); ++i) {
+        sin_pantalla.apretar(ImGuiKey_Escape);
+        pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+        pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+      }
+    }
+    const auto nombrados = ordenes_de<NombrarAdmin>(pedidos);
+    const auto hace = [&](std::uint32_t id, bool admin) {
+      return std::any_of(nombrados.begin(), nombrados.end(),
+                         [&](const NombrarAdmin& orden) { return orden.usuario == id && orden.admin == admin; });
+    };
+    CHECK(confirmo == (mio == Rol::dueno));
+    CHECK(hace(2, true) == (mio == Rol::dueno));
+    CHECK(hace(3, false) == (mio == Rol::dueno));
+    CHECK(std::all_of(nombrados.begin(), nombrados.end(), [](const NombrarAdmin& orden) {
+      return (orden.usuario == 2 && orden.admin) || (orden.usuario == 3 && !orden.admin);
+    }));
+  }
+}
+
+TEST_CASE("El ▾ del servidor del dueño libera un nombre: lo pide y lo manda, y sin un nombre válido no") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  std::vector<ui::PedidoServidor> pedidos;
+  const auto cuadro = [&](ImVec2 donde, bool clic = false) {
+    pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, donde, clic));
+  };
+  const auto tocar = [&](ImVec2 donde) {
+    cuadro(donde);
+    cuadro(donde, true);
+    cuadro(donde);
+  };
+  cuadro(ImVec2(5, 5));
+  tocar(ImVec2(150, 20));
+  tocar(ImVec2(100, 221));
+  REQUIRE(pantalla.dialogo == ui::Dialogo::liberar);
+  cuadro(ImVec2(5, 5));
+  cuadro(ImVec2(5, 5));
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  cuadro(ImVec2(5, 5));
+  cuadro(ImVec2(5, 5));
+  CHECK(pantalla.dialogo == ui::Dialogo::liberar);
+  CHECK_FALSE(pantalla.error_dialogo.empty());
+  cuadro(ImVec2(5, 5));
+  sin_pantalla.teclear("Tano");
+  cuadro(ImVec2(5, 5));
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  cuadro(ImVec2(5, 5));
+  cuadro(ImVec2(5, 5));
+  CHECK(pantalla.dialogo == ui::Dialogo::ninguno);
+  const auto liberados = ordenes_de<LiberarNombre>(pedidos);
+  REQUIRE(liberados.size() == 1);
+  CHECK(liberados[0].nombre == "Tano");
+
+  auto invitado = sala_llena(false, 4, 3, 5);
+  auto otra = pantalla_servidor();
+  for (const ImVec2 donde : {ImVec2(150, 20), ImVec2(100, 221)}) {
+    sin_pantalla.cuadro(otra, invitado, donde);
+    sin_pantalla.cuadro(otra, invitado, donde, true);
+    sin_pantalla.cuadro(otra, invitado, donde);
+  }
+  CHECK(otra.dialogo == ui::Dialogo::ninguno);
+}
+
+TEST_CASE("banco de los avisos de seguridad" * doctest::skip()) {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto sala = sala_llena(true, 4, 3, 5);
+  auto pantalla = pantalla_servidor();
+  for (int i = 0; i < 5; ++i) {
+    pantalla.seguridad.push_back("Persona con nombre largo 2 borr\xC3\xB3 el canal \xC2\xABtexto\xC2\xBB (27/10/2026 21:40).");
+  }
+  for (int i = 0; i < 30; ++i) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(600, 400));
+  }
+  const auto desde = std::chrono::steady_clock::now();
+  for (int i = 0; i < 1000; ++i) {
+    sin_pantalla.cuadro(pantalla, sala, ImVec2(600, 400));
+  }
+  MESSAGE("avisos de seguridad: "
+          << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde).count() / 1000
+          << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
 }
 
 TEST_CASE("banco de la contraseña maestra" * doctest::skip()) {

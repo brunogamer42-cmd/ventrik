@@ -377,7 +377,7 @@ TEST_CASE("Una base de una versión futura o que no es una base no se abre") {
       archivo, gsl::make_span(reinterpret_cast<const std::uint8_t*>(basura.data()), basura.size())));
   CHECK_FALSE(Base::abrir(archivo, "General"));
   REQUIRE(DeleteFileW(archivo.c_str()));
-  armar_base(archivo, "PRAGMA user_version=4");
+  armar_base(archivo, "PRAGMA user_version=5");
   CHECK_FALSE(Base::abrir(archivo, "General"));
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master") == 0);
   CHECK(DeleteFileW(archivo.c_str()));
@@ -527,7 +527,7 @@ TEST_CASE("Las identidades se guardan, se renombran y las que no vuelven en 180 
   }
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM equipos") == 0);
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM usuarios") == 0);
-  CHECK(leer_numero(archivo, "PRAGMA user_version") == 3);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 4);
   for (const auto* final : {L"", L"-wal", L"-shm"}) {
     DeleteFileW((archivo + final).c_str());
   }
@@ -595,7 +595,61 @@ TEST_CASE("Si la tabla de identidades no se puede leer, no se la toma por vacía
   }
 }
 
-TEST_CASE("Una base de la versión 2 pasa sola a la 3 y suma las tablas de identidades") {
+TEST_CASE("Los avisos pendientes son de cada identidad, con tope, no vuelven al equipo que los causó y se van con ella") {
+  auto base = base_en_memoria();
+  UsuarioGuardado ana;
+  ana.clave.fill(4);
+  ana.nombre = "Ana";
+  ana.creado_ms = ana.visto_ms = 1000;
+  REQUIRE(base->guardar_usuario(ana));
+  Equipo casa{};
+  casa.fill(1);
+  Equipo otra{};
+  otra.fill(2);
+  ClaveDeUsuario nadie{};
+  nadie.fill(9);
+  using ventrik::protocolo::AvisoDeSeguridad;
+  using ventrik::protocolo::Seguridad;
+  const AvisoDeSeguridad borrado{Seguridad::canal_borrado, 5, "Tano", "partidas"};
+  CHECK(base->guardar_aviso(nadie, std::nullopt, borrado));
+  CHECK(base->tomar_avisos(nadie, casa).empty());
+  CHECK_FALSE(base->guardar_aviso(ana.clave, std::nullopt, {Seguridad::canal_borrado, 5, " Tano", ""}));
+  for (int i = 0; i < 120; ++i) {
+    REQUIRE(base->guardar_aviso(ana.clave, std::nullopt, borrado));
+  }
+  REQUIRE(base->guardar_aviso(ana.clave, otra, {Seguridad::equipo_nuevo, 6, "Ana", ""}));
+  CHECK(base->tomar_avisos(ana.clave, otra).size() == kMaximoAvisosPorUsuario - 1);
+  CHECK(base->tomar_avisos(ana.clave, otra).empty());
+  const auto del_otro = base->tomar_avisos(ana.clave, casa);
+  REQUIRE(del_otro.size() == 1);
+  CHECK(del_otro[0].tipo == Seguridad::equipo_nuevo);
+  CHECK(del_otro[0].hora_ms == 6);
+  CHECK(base->tomar_avisos(ana.clave, casa).empty());
+  REQUIRE(base->guardar_aviso(ana.clave, std::nullopt, borrado));
+  CHECK(base->liberar_nombre("Ana"));
+  REQUIRE(base->guardar_usuario(ana));
+  CHECK(base->tomar_avisos(ana.clave, casa).empty());
+}
+
+TEST_CASE("El registro de seguridad guarda lo último de cada tipo, así muchas fallas no borran lo demás") {
+  auto base = base_en_memoria();
+  using ventrik::protocolo::Seguridad;
+  REQUIRE(base->anotar({Seguridad::canal_borrado, 1, "Tano", "partidas"}));
+  REQUIRE(base->anotar({Seguridad::admin_nombrado, 2, "Ana", "Tano"}));
+  for (std::size_t i = 0; i < kMaximoRegistroPorTipo + 50; ++i) {
+    REQUIRE(base->anotar({Seguridad::ip_bloqueada, 3 + i, "", "203.0.113.9:4000"}));
+  }
+  CHECK_FALSE(base->anotar({static_cast<Seguridad>(9), 1, "", ""}));
+  const auto registro = base->registro(100000);
+  REQUIRE(registro.size() == kMaximoRegistroPorTipo + 2);
+  CHECK(registro.front().hora_ms == 3 + kMaximoRegistroPorTipo + 49);
+  CHECK(registro[registro.size() - 2].tipo == Seguridad::admin_nombrado);
+  CHECK(registro.back().tipo == Seguridad::canal_borrado);
+  CHECK(registro.back().detalle == "partidas");
+  CHECK(base->registro(5).size() == 5);
+}
+
+TEST_CASE("Una base de la versión 2 pasa sola a la 4 y suma las tablas de identidades y de seguridad") {
   const std::wstring archivo = archivo_temporal();
   DeleteFileW(archivo.c_str());
   armar_base(archivo,
@@ -614,8 +668,8 @@ TEST_CASE("Una base de la versión 2 pasa sola a la 3 y suma las tablas de ident
     CHECK(base->canales().size() == 2);
     CHECK(base->usuarios(1800000000000ull)->empty());
   }
-  CHECK(leer_numero(archivo, "PRAGMA user_version") == 3);
-  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('usuarios', 'equipos', 'textos')") == 3);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 4);
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('usuarios', 'equipos', 'textos', 'avisos', 'seguridad')") == 5);
   for (const auto* final : {L"", L"-wal", L"-shm"}) {
     DeleteFileW((archivo + final).c_str());
   }

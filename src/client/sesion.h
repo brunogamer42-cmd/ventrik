@@ -42,13 +42,14 @@ using Novedad = std::variant<IntentoDeConexion, protocolo::UsuarioEntro, protoco
                              protocolo::UsuarioCambioCanal, protocolo::UsuarioSilencio, protocolo::CanalCreado,
                              protocolo::CanalCambiado, protocolo::CanalBorrado,
                              protocolo::MensajeChat, protocolo::MensajesNuevos,
-                             protocolo::Historial, protocolo::Negado, PingMedido, Fin>;
+                             protocolo::Historial, protocolo::Negado, protocolo::UsuarioRol,
+                             protocolo::AvisoDeSeguridad, PingMedido, Fin>;
 
 using Orden = std::variant<protocolo::EntrarACanal, protocolo::EnviarChat,
                            protocolo::PedirHistorial, protocolo::CrearCanal,
                            protocolo::CambiarCanal, protocolo::MirarCanal,
                            protocolo::BorrarCanal, protocolo::Silenciar, protocolo::SilenciarPersonas,
-                           protocolo::DestinosDeSusurro>;
+                           protocolo::DestinosDeSusurro, protocolo::NombrarAdmin, protocolo::LiberarNombre>;
 
 struct OpcionesSesion {
   OpcionesConexion conexion;
@@ -61,6 +62,7 @@ struct OpcionesSesion {
 std::string explicar(Idioma idioma, const IntentoDeConexion& intento);
 std::string explicar(Idioma idioma, const Fin& fin);
 std::string explicar(Idioma idioma, protocolo::MotivoNegado motivo);
+std::string explicar(Idioma idioma, const protocolo::AvisoDeSeguridad& aviso);
 
 class Sesion {
  public:

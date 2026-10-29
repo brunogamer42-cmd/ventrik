@@ -1299,6 +1299,16 @@ class Programa {
         sonar(cliente::sonido_de_mensaje(*mensaje, sala_->tu_id(), pendiente_.nombre, a_la_vista, servidor_.avisos,
                                          cliente::ahora_ms()));
       }
+    } else if (const auto* aviso = std::get_if<protocolo::AvisoDeSeguridad>(&novedad)) {
+      auto& lista = servidor_.seguridad;
+      if (lista.size() >= kTopeAvisosDeSeguridad) {
+        lista.erase(lista.begin());
+      }
+      lista.push_back(cliente::explicar(pantalla_.idioma, *aviso));
+      avisos_.seguridad(lista.back());
+      if (aviso->tipo != protocolo::Seguridad::nombre_liberado) {
+        sonar(cliente::Sonido::alerta_seguridad);
+      }
     } else if (const auto* nuevos = std::get_if<protocolo::MensajesNuevos>(&novedad)) {
       for (const auto& contador : nuevos->canales) {
         const auto* canal = sala_->canal(contador.canal);

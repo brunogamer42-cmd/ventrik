@@ -224,6 +224,29 @@ TEST_CASE("La conexión cortada avisa solo con Ventrik fuera y queda después de
   CHECK(avisos.lista().empty());
 }
 
+TEST_CASE("Un aviso de seguridad sale con Ventrik fuera, sin el texto si es privado, y se va al volver") {
+  const auto idioma = ventrik::elegir_idioma("es");
+  Avisos avisos(idioma);
+  avisos.conectado("srv", 1, "Yo");
+  avisos.seguridad("Tano borr\xC3\xB3 el canal");
+  CHECK(avisos.lista().empty());
+  avisos.fuera(true);
+  avisos.seguridad("Tano borr\xC3\xB3 el canal");
+  auto lista = avisos.lista();
+  REQUIRE(lista.size() == 1);
+  CHECK(lista[0].canal == 0);
+  CHECK(lista[0].titulo == "srv " + kPunto + " Aviso de seguridad");
+  CHECK(lista[0].cuerpo == "Tano borr\xC3\xB3 el canal");
+  OpcionesAvisos privado;
+  privado.privado = true;
+  avisos.opciones(privado);
+  lista = avisos.lista();
+  REQUIRE(lista.size() == 1);
+  CHECK(lista[0].cuerpo == std::string(ventrik::texto(idioma, ventrik::Clave::aviso_seguridad_privado)));
+  avisos.fuera(false);
+  CHECK(avisos.lista().empty());
+}
+
 TEST_CASE("Cada tipo de aviso y No molestar se apagan") {
   OpcionesAvisos sin_voz;
   sin_voz.voz = false;

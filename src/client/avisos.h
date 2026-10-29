@@ -69,6 +69,7 @@ class Avisos {
   void historial(const protocolo::Historial& historial, std::uint32_t leido);
   void negado();
   void corte(const std::string& texto);
+  void seguridad(const std::string& texto);
   void visto(std::uint32_t canal);
 
   std::vector<Notificacion> lista() const;
@@ -93,6 +94,7 @@ class Avisos {
   bool activo(bool tipo) const { return fuera_ && opciones_.prendidos && tipo && !opciones_.no_molestar; }
   Pendiente* buscar_o_crear(std::uint32_t canal);
   void actualizar(Pendiente& pendiente);
+  void rehacer_seguridad();
 
   Idioma idioma_;
   OpcionesAvisos opciones_;
@@ -104,6 +106,8 @@ class Avisos {
   bool fuera_ = false;
   std::map<std::uint32_t, Pendiente> pendientes_;
   std::optional<Notificacion> corte_;
+  std::optional<Notificacion> seguridad_;
+  std::string texto_seguridad_;
   std::uint32_t en_vuelo_ = 0;
   Reloj::time_point en_vuelo_desde_{};
   Reloj::time_point proximo_pedido_{};

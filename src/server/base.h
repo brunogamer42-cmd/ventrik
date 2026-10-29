@@ -28,6 +28,8 @@ constexpr std::uint64_t kMsPorDia = 24ull * 60 * 60 * 1000;
 constexpr std::uint64_t kDiasSinVolver = 180;
 constexpr std::uint64_t kDiasDeUnaSolaVez = 30;
 constexpr std::uint64_t kDiasParaDesalojar = 7;
+constexpr std::size_t kMaximoAvisosPorUsuario = 100;
+constexpr std::size_t kMaximoRegistroPorTipo = 1500;
 using ClaveDeUsuario = std::array<std::uint8_t, protocolo::kBytesClavePublica>;
 using Equipo = std::array<std::uint8_t, protocolo::kBytesEquipo>;
 
@@ -74,6 +76,12 @@ class Base {
   bool borrar_usuarios(const std::vector<ClaveDeUsuario>& claves);
   bool liberar_nombre(const std::string& nombre);
   bool anotar_equipo(const ClaveDeUsuario& clave, const Equipo& equipo, std::uint64_t ahora_ms);
+  std::optional<bool> conoce_equipo(const ClaveDeUsuario& clave, const Equipo& equipo);
+  bool anotar(const protocolo::AvisoDeSeguridad& aviso);
+  std::vector<protocolo::AvisoDeSeguridad> registro(std::size_t maximo);
+  bool guardar_aviso(const ClaveDeUsuario& clave, const std::optional<Equipo>& salvo,
+                     const protocolo::AvisoDeSeguridad& aviso);
+  std::vector<protocolo::AvisoDeSeguridad> tomar_avisos(const ClaveDeUsuario& clave, const Equipo& equipo);
   bool quitar_dueno();
   std::string texto_guardado(const std::string& clave);
   bool guardar_texto(const std::string& clave, const std::string& valor);

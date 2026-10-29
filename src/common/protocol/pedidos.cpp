@@ -26,6 +26,37 @@ void leer_nombre(Lector& lector, std::string& nombre) {
   }
 }
 
+void escribir_nombre_o_nada(Escritor& escritor, const std::string& nombre) {
+  if (nombre.empty()) {
+    escritor.escribir_texto(nombre, kMaximoBytesNombre);
+    return;
+  }
+  escribir_nombre(escritor, nombre);
+}
+
+void leer_nombre_o_nada(Lector& lector, std::string& nombre) {
+  nombre = lector.leer_texto(kMaximoBytesNombre);
+  if (lector.ok() && !nombre.empty() && !es_nombre_valido(nombre)) {
+    lector.marcar_error();
+  }
+}
+
+void escribir_rol(Escritor& escritor, Rol rol) {
+  if (rol > Rol::dueno) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u8(static_cast<std::uint8_t>(rol));
+}
+
+Rol leer_rol(Lector& lector) {
+  const std::uint8_t rol = lector.leer_u8();
+  if (rol > static_cast<std::uint8_t>(Rol::dueno)) {
+    lector.marcar_error();
+  }
+  return static_cast<Rol>(rol);
+}
+
 void escribir_chat(Escritor& escritor, const std::string& texto) {
   if (!es_chat_valido(texto)) {
     escritor.marcar_error();
@@ -112,7 +143,7 @@ void escribir_usuario(Escritor& escritor, const UsuarioInfo& usuario) {
   escribir_nombre(escritor, usuario.nombre);
   escritor.escribir_u32(usuario.canal);
   escritor.escribir_u8(usuario.silencio);
-  escritor.escribir_booleano(usuario.admin);
+  escribir_rol(escritor, usuario.rol);
 }
 
 void leer_usuario(Lector& lector, UsuarioInfo& usuario) {
@@ -120,7 +151,7 @@ void leer_usuario(Lector& lector, UsuarioInfo& usuario) {
   leer_nombre(lector, usuario.nombre);
   usuario.canal = lector.leer_u32();
   usuario.silencio = leer_silencio(lector);
-  usuario.admin = lector.leer_booleano();
+  usuario.rol = leer_rol(lector);
 }
 
 bool medio_valido(TipoFlujo tipo, std::uint8_t flujo, std::uint8_t nivel, std::size_t largo) {
@@ -185,7 +216,7 @@ bool sigue(Sentido sentido, std::uint64_t anterior, std::uint64_t id) {
 
 bool es_pedido(std::uint16_t tipo) {
   return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
-         tipo <= static_cast<std::uint16_t>(TipoMensaje::destinos_de_susurro);
+         tipo <= static_cast<std::uint16_t>(TipoMensaje::liberar_nombre);
 }
 
 bool son_ids_validos(const std::vector<std::uint32_t>& usuarios) {
@@ -263,7 +294,7 @@ void leer(Lector& lector, Presentarse& mensaje) {
 
 void escribir(Escritor& escritor, const Presentado& mensaje) {
   escritor.escribir_u32(mensaje.tu_id);
-  escritor.escribir_booleano(mensaje.dueno);
+  escribir_rol(escritor, mensaje.rol);
   escribir_nombre(escritor, mensaje.servidor);
   escribir_lista(escritor, mensaje.canales, kMaximoCanalesEnLista,
                  [&escritor](const CanalInfo& canal) { escribir_canal(escritor, canal); });
@@ -273,7 +304,7 @@ void escribir(Escritor& escritor, const Presentado& mensaje) {
 
 void leer(Lector& lector, Presentado& mensaje) {
   mensaje.tu_id = lector.leer_u32();
-  mensaje.dueno = lector.leer_booleano();
+  mensaje.rol = leer_rol(lector);
   leer_nombre(lector, mensaje.servidor);
   leer_lista(lector, mensaje.canales, kMaximoCanalesEnLista,
              [&lector](CanalInfo& canal) { leer_canal(lector, canal); });
@@ -567,7 +598,7 @@ void leer(Lector& lector, Negado& mensaje) {
     return;
   }
   if (!es_pedido(pedido) || motivo < static_cast<std::uint8_t>(MotivoNegado::sin_permiso) ||
-      motivo > static_cast<std::uint8_t>(MotivoNegado::tipo_de_canal)) {
+      motivo > static_cast<std::uint8_t>(MotivoNegado::nombre_libre)) {
     lector.marcar_error();
     return;
   }
@@ -578,6 +609,56 @@ void leer(Lector& lector, Negado& mensaje) {
 void escribir(Escritor&, const Desplazado&) {}
 
 void leer(Lector&, Desplazado&) {}
+
+void escribir(Escritor& escritor, const NombrarAdmin& mensaje) {
+  escritor.escribir_u32(mensaje.usuario);
+  escritor.escribir_booleano(mensaje.admin);
+}
+
+void leer(Lector& lector, NombrarAdmin& mensaje) {
+  mensaje.usuario = lector.leer_u32();
+  mensaje.admin = lector.leer_booleano();
+}
+
+void escribir(Escritor& escritor, const UsuarioRol& mensaje) {
+  escritor.escribir_u32(mensaje.id);
+  escribir_rol(escritor, mensaje.rol);
+}
+
+void leer(Lector& lector, UsuarioRol& mensaje) {
+  mensaje.id = lector.leer_u32();
+  mensaje.rol = leer_rol(lector);
+}
+
+void escribir(Escritor& escritor, const LiberarNombre& mensaje) {
+  escribir_nombre(escritor, mensaje.nombre);
+}
+
+void leer(Lector& lector, LiberarNombre& mensaje) {
+  leer_nombre(lector, mensaje.nombre);
+}
+
+void escribir(Escritor& escritor, const AvisoDeSeguridad& mensaje) {
+  if (mensaje.tipo < Seguridad::entrada_nueva || mensaje.tipo > Seguridad::ip_bloqueada) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u8(static_cast<std::uint8_t>(mensaje.tipo));
+  escritor.escribir_u64(mensaje.hora_ms);
+  escribir_nombre_o_nada(escritor, mensaje.quien);
+  escribir_nombre_o_nada(escritor, mensaje.detalle);
+}
+
+void leer(Lector& lector, AvisoDeSeguridad& mensaje) {
+  const std::uint8_t tipo = lector.leer_u8();
+  mensaje.hora_ms = lector.leer_u64();
+  leer_nombre_o_nada(lector, mensaje.quien);
+  leer_nombre_o_nada(lector, mensaje.detalle);
+  if (tipo < static_cast<std::uint8_t>(Seguridad::entrada_nueva) || tipo > static_cast<std::uint8_t>(Seguridad::ip_bloqueada)) {
+    lector.marcar_error();
+  }
+  mensaje.tipo = static_cast<Seguridad>(tipo);
+}
 
 void escribir(Escritor& escritor, const Ping& mensaje) {
   escritor.escribir_u64(mensaje.marca);

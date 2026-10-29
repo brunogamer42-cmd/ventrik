@@ -137,14 +137,34 @@ TEST_CASE("El silencio solo vale 0, 1 o 3: el audio apagado exige el micrófono 
   }
 }
 
+TEST_CASE("Los mensajes de admins y de seguridad vuelven iguales, y con un rol o un tipo desconocido no se leen") {
+  ida_y_vuelta(NombrarAdmin{8, true});
+  ida_y_vuelta(UsuarioRol{8, Rol::admin});
+  ida_y_vuelta(LiberarNombre{"Tano"});
+  ida_y_vuelta(AvisoDeSeguridad{Seguridad::canal_borrado, 1761234567890ull, "Tano", "partidas"});
+  ida_y_vuelta(AvisoDeSeguridad{Seguridad::equipo_nuevo, 5, "", ""});
+  CHECK(en_bytes(UsuarioRol{0x01020304, Rol::dueno}) == Bytes{4, 3, 2, 1, 2});
+  CHECK_FALSE(leer_mensaje<UsuarioRol>(Bytes{1, 0, 0, 0, 3}));
+  CHECK_FALSE(leer_mensaje<NombrarAdmin>(Bytes{1, 0, 0, 0, 2}));
+  CHECK_FALSE(se_escribe(UsuarioRol{1, static_cast<Rol>(3)}));
+  CHECK_FALSE(se_escribe(LiberarNombre{""}));
+  CHECK_FALSE(se_escribe(AvisoDeSeguridad{static_cast<Seguridad>(0), 1, "", ""}));
+  CHECK_FALSE(se_escribe(AvisoDeSeguridad{Seguridad::canal_borrado, 1, " Tano", ""}));
+  Bytes malo = en_bytes(AvisoDeSeguridad{Seguridad::canal_borrado, 1, "Tano", "partidas"});
+  for (const int tipo : {0, 8, 255}) {
+    malo[0] = static_cast<std::uint8_t>(tipo);
+    CHECK_FALSE(leer_mensaje<AvisoDeSeguridad>(malo));
+  }
+}
+
 TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con bytes de más no") {
   std::array<std::uint8_t, 16> codigo{};
   codigo.fill(0xAB);
   ida_y_vuelta(presentarse());
   ida_y_vuelta(presentarse(codigo));
-  ida_y_vuelta(Presentado{7, true, "Mi servidor", {{1, "General"}, {2, "Juegos", TipoCanal::voz, false, 4},
+  ida_y_vuelta(Presentado{7, Rol::dueno, "Mi servidor", {{1, "General"}, {2, "Juegos", TipoCanal::voz, false, 4},
                                                   {3, "Charla", TipoCanal::texto, true, 9}},
-                          {{7, "Ana", 1, 0, true}, {8, "Beto", 2}}});
+                          {{7, "Ana", 1, 0, Rol::admin}, {8, "Beto", 2}}});
   ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::nombre_en_uso});
   ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::firma_invalida});
   ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::demasiadas});
@@ -212,8 +232,8 @@ TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{30, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{1, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 0}));
-  CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 8}));
-  CHECK_FALSE(leer_mensaje<Negado>(Bytes{22, 0, 1}));
+  CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 9}));
+  CHECK_FALSE(leer_mensaje<Negado>(Bytes{24, 0, 1}));
   CHECK_FALSE(leer_mensaje<Presentado>(Bytes{1, 0, 0, 0, 2, 0, 0, 0, 0}));
   CHECK_FALSE(leer_mensaje<Historial>(Bytes{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1}));
 }
@@ -272,7 +292,7 @@ TEST_CASE("Nombres y chats con trampas no se escriben ni se leen") {
   CHECK_FALSE(se_escribe(sin_firma));
   sin_firma.firma.assign(kMaximoFirma + 1, 1);
   CHECK_FALSE(se_escribe(sin_firma));
-  CHECK_FALSE(se_escribe(Presentado{7, true, ""}));
+  CHECK_FALSE(se_escribe(Presentado{7, Rol::dueno, ""}));
   CHECK_FALSE(se_escribe(EnviarChat{1, ""}));
   CHECK_FALSE(se_escribe(EnviarChat{1, "a\xE2\x80\xAE" "b"}));
   CHECK_FALSE(se_escribe(EnviarChat{1, std::string(4001, 'x')}));

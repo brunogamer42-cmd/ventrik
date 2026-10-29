@@ -146,7 +146,7 @@ std::optional<Avisar> menu_avisarme(Idioma idioma, Clave etiqueta, Avisar actual
   return elegido;
 }
 
-EleccionDeServidor menu_servidor(Idioma idioma, const AvisosDelServidor& avisos, bool conectado, bool dueno,
+EleccionDeServidor menu_servidor(Idioma idioma, const AvisosDelServidor& avisos, bool conectado, protocolo::Rol rol,
                                  std::uint64_t ahora) {
   EleccionDeServidor eleccion;
   const std::string pronto = s(idioma, Clave::servidor_chip_pronto);
@@ -158,9 +158,11 @@ EleccionDeServidor menu_servidor(Idioma idioma, const AvisosDelServidor& avisos,
   }
   eleccion.marcar_todo = ImGui::MenuItem(s(idioma, Clave::avisos_marcar_todo).c_str(), nullptr, false, conectado);
   ImGui::Separator();
-  const std::string solo = dueno ? pronto : s(idioma, Clave::avisos_admins);
+  const std::string solo = rol != protocolo::Rol::ninguno ? pronto : s(idioma, Clave::avisos_admins);
   ImGui::MenuItem(s(idioma, Clave::avisos_bots).c_str(), solo.c_str(), false, false);
   ImGui::MenuItem(s(idioma, Clave::avisos_configuracion).c_str(), solo.c_str(), false, false);
+  eleccion.liberar_nombre =
+      conectado && rol == protocolo::Rol::dueno && ImGui::MenuItem(s(idioma, Clave::avisos_liberar_nombre).c_str());
   if (conectado) {
     ImGui::Separator();
     eleccion.desconectar = ImGui::MenuItem(s(idioma, Clave::inicio_desconectar).c_str());

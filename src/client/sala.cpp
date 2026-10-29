@@ -105,7 +105,7 @@ Orden pedir(Chat& chat, std::uint64_t desde, Sentido sentido, std::uint16_t cant
 }
 
 Sala::Sala(const protocolo::Presentado& presentado, const std::vector<Leido>& leidos, std::uint32_t texto)
-    : tu_id_(presentado.tu_id), dueno_(presentado.dueno), canales_(presentado.canales), ultimo_texto_(texto) {
+    : tu_id_(presentado.tu_id), rol_(presentado.rol), canales_(presentado.canales), ultimo_texto_(texto) {
   canales_.erase(std::remove_if(canales_.begin(), canales_.end(),
                                 [](const protocolo::CanalInfo& info) { return info.id == 0; }),
                  canales_.end());
@@ -195,7 +195,7 @@ std::vector<Leido> Sala::leidos() const {
 
 bool Sala::puede_escribir() const {
   const auto* info = canal(chat().canal);
-  return info != nullptr && (info->tipo == TipoCanal::voz || !info->solo_admins || dueno_);
+  return info != nullptr && (info->tipo == TipoCanal::voz || !info->solo_admins || admin());
 }
 
 std::vector<Orden> Sala::elegir_voz(std::uint32_t id) {
@@ -303,6 +303,14 @@ std::vector<Orden> Sala::atender(const protocolo::UsuarioSilencio& silencio) {
   if (const auto usuario = usuarios_.find(silencio.id); usuario != usuarios_.end()) {
     usuario->second.silencio = silencio.silencio;
   }
+  return {};
+}
+
+std::vector<Orden> Sala::atender(const protocolo::UsuarioRol& rol) {
+  if (const auto usuario = usuarios_.find(rol.id); usuario != usuarios_.end()) {
+    usuario->second.rol = rol.rol;
+  }
+  rol_ = rol.id == tu_id_ ? rol.rol : rol_;
   return {};
 }
 

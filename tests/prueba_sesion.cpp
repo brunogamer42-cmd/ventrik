@@ -40,7 +40,7 @@ TEST_CASE("Dos programas se presentan y se ven") {
   ServidorDePrueba servidor;
   Cliente ana(servidor, "Ana");
   const auto presentada = ana.entrar();
-  CHECK_FALSE(presentada.dueno);
+  CHECK(presentada.rol == ventrik::protocolo::Rol::ninguno);
   REQUIRE(presentada.canales.size() == 1);
   CHECK(presentada.canales[0].nombre == "General");
   REQUIRE(presentada.usuarios.size() == 1);
@@ -76,7 +76,7 @@ TEST_CASE("Un código de dueño equivocado no entra y cuenta como falla") {
   CHECK(intento->estado == EstadoConexion::codigo_incorrecto);
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::codigo_incorrecto) == 1; }));
   Cliente verdadero(servidor, "Ana", dueno.codigo);
-  CHECK(verdadero.entrar().dueno);
+  CHECK(verdadero.entrar().rol == ventrik::protocolo::Rol::dueno);
 }
 
 TEST_CASE("El chat llega a los del mismo canal, se guarda y otro canal no lo ve") {

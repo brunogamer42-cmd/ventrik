@@ -25,6 +25,7 @@ constexpr std::size_t kMuestrasDelGrafico = 12;
 constexpr std::uint32_t kSegundosPorMuestra = 5;
 constexpr std::size_t kTopeCaras = 2048;
 constexpr std::size_t kTopeFechas = 512;
+constexpr std::size_t kTopeAvisosDeSeguridad = 100;
 
 struct Muestra {
   std::uint32_t ping = 0;
@@ -72,7 +73,7 @@ struct TextosGuardados {
   std::deque<TextoGuardado> etapas;
 };
 
-enum class Dialogo { ninguno, crear_texto, crear_voz, cambiar, borrar };
+enum class Dialogo { ninguno, crear_texto, crear_voz, cambiar, borrar, admin, liberar };
 
 struct DatosDiagnostico {
   bool voz_lista = false;
@@ -121,10 +122,12 @@ struct PantallaServidor {
   DatosDiagnostico diagnostico;
   Dialogo dialogo = Dialogo::ninguno;
   bool abrir_dialogo = false;
-  std::uint32_t canal_dialogo = 0;
+  std::uint32_t id_dialogo = 0;
   Campo nombre_dialogo{};
   int marca_dialogo = 0;
   std::string error_dialogo;
+  bool enfocar_dialogo = false;
+  std::vector<std::string> seguridad;
   TextosGuardados textos;
   std::map<std::string, Cara, std::less<>> caras;
   std::map<std::uint32_t, std::string> fechas;

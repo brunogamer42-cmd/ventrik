@@ -244,13 +244,13 @@ TEST_CASE("El código de dueño sirve una sola vez y el dueño sigue siéndolo s
   ServidorDePrueba servidor(opciones);
   {
     Cliente ana(servidor, "Ana", codigo);
-    CHECK(ana.entrar().dueno);
+    CHECK(ana.entrar().rol == ventrik::protocolo::Rol::dueno);
   }
   CHECK(esperar_que([&] { return servidor.cuantos(Evento::dueno_reclamado) == 1; }));
   Cliente beto(servidor, "Beto", codigo);
   CHECK(estado_de(beto) == EstadoConexion::codigo_incorrecto);
   Cliente ana_otra_vez(servidor, "Ana");
-  CHECK(ana_otra_vez.entrar().dueno);
+  CHECK(ana_otra_vez.entrar().rol == ventrik::protocolo::Rol::dueno);
 }
 
 TEST_CASE("Si la misma identidad entra dos veces, la nueva saca a la vieja y los demás lo ven") {
@@ -279,9 +279,9 @@ TEST_CASE("El dueño desplazado por su otra sesión sigue siendo dueño") {
   opciones.codigo_dueno = codigo;
   ServidorDePrueba servidor(opciones);
   Cliente vieja(servidor, "Ana", codigo);
-  CHECK(vieja.entrar().dueno);
+  CHECK(vieja.entrar().rol == ventrik::protocolo::Rol::dueno);
   Cliente nueva(servidor, "Ana");
-  CHECK(nueva.entrar().dueno);
+  CHECK(nueva.entrar().rol == ventrik::protocolo::Rol::dueno);
   const auto fin = vieja.esperar<Fin>();
   REQUIRE(fin);
   CHECK(fin->motivo == MotivoFin::desplazada);
@@ -385,7 +385,7 @@ TEST_CASE("El servidor recuerda identidades, dueño y nombre al volver a abrir, 
     opciones.nombre_servidor = "Taberna";
     ServidorDePrueba servidor(opciones);
     Cliente ana(servidor, "Ana", codigo);
-    CHECK(ana.entrar().dueno);
+    CHECK(ana.entrar().rol == ventrik::protocolo::Rol::dueno);
   }
   {
     ventrik::servidor::Opciones opciones;
@@ -395,7 +395,7 @@ TEST_CASE("El servidor recuerda identidades, dueño y nombre al volver a abrir, 
     CHECK(estado_de(impostor) == EstadoConexion::nombre_en_uso);
     Cliente ana(servidor, "Ana");
     const auto presentado = ana.entrar();
-    CHECK(presentado.dueno);
+    CHECK(presentado.rol == ventrik::protocolo::Rol::dueno);
     CHECK(presentado.servidor == "Taberna");
   }
   {
@@ -405,9 +405,9 @@ TEST_CASE("El servidor recuerda identidades, dueño y nombre al volver a abrir, 
     opciones.codigo_dueno = codigo;
     ServidorDePrueba servidor(opciones);
     Cliente ana(servidor, "Ana");
-    CHECK_FALSE(ana.entrar().dueno);
+    CHECK_FALSE(ana.entrar().rol == ventrik::protocolo::Rol::dueno);
     Cliente beto(servidor, "Beto", codigo);
-    CHECK(beto.entrar().dueno);
+    CHECK(beto.entrar().rol == ventrik::protocolo::Rol::dueno);
   }
   borrar_base(archivo);
 }
@@ -452,12 +452,12 @@ TEST_CASE("Un reclamo de dueño rechazado por el nombre no gasta el código") {
   ServidorDePrueba servidor(opciones);
   {
     Cliente ana(servidor, "Ana");
-    CHECK_FALSE(ana.entrar().dueno);
+    CHECK_FALSE(ana.entrar().rol == ventrik::protocolo::Rol::dueno);
   }
   Cliente impostor(servidor, otra_identidad("Ana", codigo));
   CHECK(estado_de(impostor) == EstadoConexion::nombre_en_uso);
   Cliente beto(servidor, "Beto", codigo);
-  CHECK(beto.entrar().dueno);
+  CHECK(beto.entrar().rol == ventrik::protocolo::Rol::dueno);
 }
 
 TEST_CASE("Las identidades nuevas también tienen tope por hora entre todas las IP") {
@@ -527,6 +527,161 @@ TEST_CASE("--liberar-nombre suelta el nombre de alguien que no es el dueño") {
     CHECK(estado_de(nueva) == EstadoConexion::conectado);
   }
   borrar_base(archivo);
+}
+
+TEST_CASE("El dueño nombra admins: manejan canales, todos ven su rol, no nombran a otros y el rol queda guardado") {
+  const std::wstring archivo = base_temporal();
+  const auto codigo = ventrik::cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  const auto negado = [](TipoMensaje pedido, MotivoNegado motivo) {
+    return [pedido, motivo](const Negado& recibido) { return recibido.pedido == pedido && recibido.motivo == motivo; };
+  };
+  {
+    ventrik::servidor::Opciones opciones;
+    opciones.archivo_base = archivo;
+    opciones.codigo_dueno = codigo;
+    ServidorDePrueba servidor(opciones);
+    Cliente ana(servidor, "Ana", codigo);
+    const auto de_ana = ana.entrar();
+    Cliente beto(servidor, "Beto");
+    const auto de_beto = beto.entrar();
+    beto.ordenar(CrearCanal{"Partidas"});
+    CHECK(beto.esperar<Negado>(negado(TipoMensaje::crear_canal, MotivoNegado::sin_permiso)));
+    beto.ordenar(NombrarAdmin{de_beto.tu_id, true});
+    CHECK(beto.esperar<Negado>(negado(TipoMensaje::nombrar_admin, MotivoNegado::sin_permiso)));
+    ana.ordenar(NombrarAdmin{de_ana.tu_id, false});
+    CHECK(ana.esperar<Negado>(negado(TipoMensaje::nombrar_admin, MotivoNegado::sin_permiso)));
+    ana.ordenar(NombrarAdmin{de_beto.tu_id, true});
+    const auto es_admin = [&](const UsuarioRol& rol) { return rol.id == de_beto.tu_id && rol.rol == Rol::admin; };
+    CHECK(ana.esperar<UsuarioRol>(es_admin));
+    CHECK(beto.esperar<UsuarioRol>(es_admin));
+    beto.ordenar(CrearCanal{"Partidas"});
+    CHECK(ana.esperar<CanalCreado>([](const CanalCreado& creado) { return creado.canal.nombre == "Partidas"; }));
+    beto.ordenar(NombrarAdmin{de_ana.tu_id, false});
+    CHECK(beto.esperar<Negado>(negado(TipoMensaje::nombrar_admin, MotivoNegado::sin_permiso)));
+    beto.ordenar(LiberarNombre{"Ana"});
+    CHECK(beto.esperar<Negado>(negado(TipoMensaje::liberar_nombre, MotivoNegado::sin_permiso)));
+    CHECK(esperar_que([&] { return servidor.cuantos(Evento::admin_nombrado) == 1; }));
+  }
+  {
+    ventrik::servidor::Opciones opciones;
+    opciones.archivo_base = archivo;
+    ServidorDePrueba servidor(opciones);
+    Cliente beto(servidor, "Beto");
+    const auto de_beto = beto.entrar();
+    CHECK(de_beto.rol == Rol::admin);
+    Cliente ana(servidor, "Ana");
+    const auto de_ana = ana.entrar();
+    CHECK(std::any_of(de_ana.usuarios.begin(), de_ana.usuarios.end(), [&](const UsuarioInfo& usuario) {
+      return usuario.id == de_beto.tu_id && usuario.rol == Rol::admin;
+    }));
+    ana.ordenar(NombrarAdmin{de_beto.tu_id, false});
+    CHECK(beto.esperar<UsuarioRol>([&](const UsuarioRol& rol) { return rol.id == de_beto.tu_id && rol.rol == Rol::ninguno; }));
+    beto.ordenar(CrearCanal{"Otra"});
+    CHECK(beto.esperar<Negado>(negado(TipoMensaje::crear_canal, MotivoNegado::sin_permiso)));
+    CHECK(esperar_que([&] { return servidor.cuantos(Evento::admin_quitado) == 1; }));
+  }
+  borrar_base(archivo);
+}
+
+TEST_CASE("Si un admin borra un canal, al dueño le llega el aviso al momento o al volver a entrar") {
+  const auto codigo = ventrik::cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  ventrik::servidor::Opciones opciones;
+  opciones.codigo_dueno = codigo;
+  ServidorDePrueba servidor(opciones);
+  std::optional<Cliente> ana;
+  ana.emplace(servidor, "Ana", codigo);
+  const auto de_ana = ana->entrar();
+  Cliente beto(servidor, "Beto");
+  const auto de_beto = beto.entrar();
+  ana->ordenar(NombrarAdmin{de_beto.tu_id, true});
+  REQUIRE(beto.esperar<UsuarioRol>());
+  const auto crear = [&](Cliente& quien, const std::string& nombre) {
+    quien.ordenar(CrearCanal{nombre, TipoCanal::texto});
+    const auto creado =
+        quien.esperar<CanalCreado>([&](const CanalCreado& canal) { return canal.canal.nombre == nombre; });
+    REQUIRE(creado);
+    return creado->canal.id;
+  };
+  beto.ordenar(BorrarCanal{crear(beto, "Uno")});
+  const auto aviso = ana->esperar<AvisoDeSeguridad>();
+  REQUIRE(aviso);
+  CHECK(aviso->tipo == Seguridad::canal_borrado);
+  CHECK(aviso->quien == "Beto");
+  CHECK(aviso->detalle == "Uno");
+  CHECK(beto.no_llega<AvisoDeSeguridad>());
+  const std::uint32_t dos = crear(beto, "Dos");
+  ana.reset();
+  REQUIRE(beto.esperar<UsuarioSalio>([&](const UsuarioSalio& salio) { return salio.id == de_ana.tu_id; }));
+  beto.ordenar(BorrarCanal{dos});
+  REQUIRE(beto.esperar<CanalBorrado>([&](const CanalBorrado& borrado) { return borrado.id == dos; }));
+  Cliente vuelve(servidor, "Ana");
+  vuelve.entrar();
+  const auto pendiente = vuelve.esperar<AvisoDeSeguridad>();
+  REQUIRE(pendiente);
+  CHECK(pendiente->detalle == "Dos");
+  vuelve.ordenar(BorrarCanal{crear(vuelve, "Tres")});
+  CHECK(vuelve.no_llega<AvisoDeSeguridad>());
+  CHECK(esperar_que([&] { return servidor.cuantos(Evento::canal_borrado) == 3; }));
+}
+
+TEST_CASE("Entrar desde un equipo nuevo queda anotado y avisa al volver desde el de antes, no al equipo nuevo") {
+  ServidorDePrueba servidor;
+  const auto identidad = identidad_nueva_de_prueba();
+  const auto desde = [&](std::string_view equipo) {
+    return ventrik::cliente::Presentacion{"Ana", std::nullopt, identidad, secreto_de(equipo), nullptr};
+  };
+  {
+    Cliente casa(servidor, desde("casa"));
+    casa.entrar();
+    CHECK(casa.no_llega<AvisoDeSeguridad>());
+  }
+  Cliente otra(servidor, desde("otra"));
+  otra.entrar();
+  CHECK(otra.no_llega<AvisoDeSeguridad>());
+  CHECK(esperar_que([&] { return servidor.cuantos(Evento::equipo_nuevo) == 1; }));
+  Cliente casa(servidor, desde("casa"));
+  casa.entrar();
+  const auto aviso = casa.esperar<AvisoDeSeguridad>();
+  REQUIRE(aviso);
+  CHECK(aviso->tipo == Seguridad::equipo_nuevo);
+  CHECK(aviso->quien == "Ana");
+  CHECK(servidor.cuantos(Evento::equipo_nuevo) == 1);
+}
+
+TEST_CASE("El dueño libera el nombre de alguien desconectado, pero no el suyo ni el de alguien conectado") {
+  const auto codigo = ventrik::cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  ventrik::servidor::Opciones opciones;
+  opciones.codigo_dueno = codigo;
+  ServidorDePrueba servidor(opciones);
+  {
+    Cliente perdida(servidor, otra_identidad("Perdida"));
+    perdida.entrar();
+  }
+  CHECK(esperar_que([&] { return servidor.cuantos(Evento::salio) == 1; }));
+  Cliente ana(servidor, "Ana", codigo);
+  ana.entrar();
+  Cliente carla(servidor, "Carla");
+  carla.entrar();
+  const auto negado = [&](const std::string& nombre, MotivoNegado motivo) {
+    ana.ordenar(LiberarNombre{nombre});
+    return ana.esperar<Negado>([motivo](const Negado& recibido) {
+      return recibido.pedido == TipoMensaje::liberar_nombre && recibido.motivo == motivo;
+    });
+  };
+  CHECK(negado("ana", MotivoNegado::sin_permiso));
+  CHECK(negado("Carla", MotivoNegado::sin_permiso));
+  CHECK(negado("Nadie", MotivoNegado::nombre_libre));
+  ana.ordenar(LiberarNombre{"perdida"});
+  const auto aviso = ana.esperar<AvisoDeSeguridad>();
+  REQUIRE(aviso);
+  CHECK(aviso->tipo == Seguridad::nombre_liberado);
+  CHECK(aviso->detalle == "Perdida");
+  Cliente nueva(servidor, otra_identidad("Perdida"));
+  CHECK(estado_de(nueva) == EstadoConexion::conectado);
+  CHECK(servidor.cuantos(Evento::nombre_liberado) == 1);
 }
 
 TEST_CASE("Cortar la conexión mientras se calcula la contraseña no saltea la espera") {

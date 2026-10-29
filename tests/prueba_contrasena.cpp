@@ -193,7 +193,7 @@ TEST_CASE("El que reclama el servidor con el código de dueño no necesita la co
   const auto resultado = probar(servidor, dueno, std::nullopt);
   CHECK(resultado.estado == EstadoConexion::conectado);
   REQUIRE(resultado.presentado);
-  CHECK(resultado.presentado->dueno);
+  CHECK(resultado.presentado->rol == ventrik::protocolo::Rol::dueno);
 }
 
 TEST_CASE("La contraseña queda guardada en la base del servidor y vacía se quita") {

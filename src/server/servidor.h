@@ -90,6 +90,11 @@ enum class Evento {
   error_base,
   contrasena_incorrecta,
   no_se_pudo_comprobar,
+  admin_nombrado,
+  admin_quitado,
+  canal_borrado,
+  nombre_liberado,
+  equipo_nuevo,
 };
 
 using Avisar = std::function<void(Evento, const red::Direccion&, const std::string&)>;
@@ -140,6 +145,11 @@ class Servidor {
   void cambiar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void mirar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void borrar_canal(Conexion& conexion, const protocolo::Marco& marco);
+  void nombrar_admin(Conexion& conexion, const protocolo::Marco& marco);
+  void liberar_nombre(Conexion& conexion, const protocolo::Marco& marco);
+  void avisar_al_dueno(const protocolo::AvisoDeSeguridad& aviso);
+  bool anotar(const protocolo::AvisoDeSeguridad& aviso, const std::optional<UsuarioGuardado>& usuario = std::nullopt);
+  bool guardar_entrada(std::uint32_t id, const UsuarioGuardado& usuario, const Equipo& equipo, bool nueva);
   void rechazar_presentacion(Conexion& conexion, protocolo::MotivoPresentacion motivo, std::uint16_t espera = 0);
   void continuar_presentacion(Conexion& conexion, protocolo::Presentarse presentacion,
                               std::optional<cifrado::Secreto> contrasena);
@@ -150,7 +160,7 @@ class Servidor {
   bool admitir_identidad(Conexion& conexion, const protocolo::Presentarse& presentacion,
                          std::vector<Registrado>::iterator& yo, bool reclama, bool& nueva);
   bool desalojar_una();
-  bool guardar(const UsuarioGuardado& usuario, const std::optional<Equipo>& equipo);
+  bool guardar(const UsuarioGuardado& usuario);
   void anotar_salida(const ClaveDeUsuario& clave);
   void vencer_identidades();
   bool conectada(const ClaveDeUsuario& clave) const;

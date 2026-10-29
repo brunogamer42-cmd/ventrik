@@ -72,6 +72,11 @@ ventrik::Clave clave_de(ventrik::servidor::Evento evento) {
     case Evento::error_base: return Clave::servidor_error_guardar;
     case Evento::contrasena_incorrecta: return Clave::servidor_contrasena_incorrecta;
     case Evento::no_se_pudo_comprobar: return Clave::servidor_no_se_pudo_comprobar;
+    case Evento::admin_nombrado: return Clave::servidor_admin_nombrado;
+    case Evento::admin_quitado: return Clave::servidor_admin_quitado;
+    case Evento::canal_borrado: return Clave::servidor_canal_borrado;
+    case Evento::nombre_liberado: return Clave::servidor_nombre_liberado;
+    case Evento::equipo_nuevo: return Clave::servidor_equipo_nuevo;
   }
   return Clave::servidor_conectada;
 }

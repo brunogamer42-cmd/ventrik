@@ -59,7 +59,7 @@ Permiso puede_escribir(const Persona& persona, const std::vector<Canal>& canales
   if (leer) {
     return leer;
   }
-  if (buscar_canal(canales, canal)->solo_admins && !persona.dueno) {
+  if (buscar_canal(canales, canal)->solo_admins && !persona.manda()) {
     return MotivoNegado::sin_permiso;
   }
   return std::nullopt;
@@ -67,7 +67,7 @@ Permiso puede_escribir(const Persona& persona, const std::vector<Canal>& canales
 
 Permiso puede_crear(const Persona& persona, const std::vector<Canal>& canales,
                     const std::string& nombre) {
-  if (!persona.dueno) {
+  if (!persona.manda()) {
     return MotivoNegado::sin_permiso;
   }
   if (!es_nombre_valido(nombre)) {
@@ -84,7 +84,7 @@ Permiso puede_crear(const Persona& persona, const std::vector<Canal>& canales,
 
 Permiso puede_cambiar(const Persona& persona, const std::vector<Canal>& canales,
                       const protocolo::CambiarCanal& cambio) {
-  if (!persona.dueno) {
+  if (!persona.manda()) {
     return MotivoNegado::sin_permiso;
   }
   const Canal* buscado = buscar_canal(canales, cambio.canal);
@@ -105,7 +105,7 @@ Permiso puede_cambiar(const Persona& persona, const std::vector<Canal>& canales,
 
 Permiso puede_borrar(const Persona& persona, const std::vector<Canal>& canales,
                      std::uint32_t canal) {
-  if (!persona.dueno || canal == kCanalGeneral) {
+  if (!persona.manda() || canal == kCanalGeneral) {
     return MotivoNegado::sin_permiso;
   }
   if (buscar_canal(canales, canal) == nullptr) {

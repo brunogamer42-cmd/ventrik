@@ -68,8 +68,9 @@ struct Servidor::Conexion {
            estado == Estado::presentando || estado == Estado::comprobando;
   }
   bool tiene_limite() const { return pendiente() || estado == Estado::cerrando; }
-  Persona persona() const { return Persona{dueno, canal}; }
-  protocolo::UsuarioInfo info() const { return {id, nombre, canal, silencio, dueno}; }
+  Persona persona() const { return Persona{dueno, admin, canal}; }
+  protocolo::Rol rol() const { return dueno ? protocolo::Rol::dueno : admin ? protocolo::Rol::admin : protocolo::Rol::ninguno; }
+  protocolo::UsuarioInfo info() const { return {id, nombre, canal, silencio, rol()}; }
   std::size_t por_enviar() const { return salida.size() - enviado; }
 
   red::Socket socket;
@@ -93,6 +94,7 @@ struct Servidor::Conexion {
   std::string nombre;
   std::wstring comparable;
   bool dueno = false;
+  bool admin = false;
   std::uint32_t canal = 0;
   std::uint32_t mirando = 0;
   std::uint8_t silencio = 0;
@@ -205,6 +207,7 @@ void Servidor::avisar(Evento evento, const Conexion& conexion) {
 void Servidor::falla(const red::Direccion& origen) {
   if (proteccion_.fallo(origen.ipv4, Reloj::now())) {
     avisar(Evento::bloqueada, origen);
+    anotar({protocolo::Seguridad::ip_bloqueada, ahora_ms(), {}, red::a_texto(origen)});
   }
 }
 
@@ -633,7 +636,8 @@ void Servidor::continuar_presentacion(Conexion& conexion, protocolo::Presentarse
   actualizado.visto_ms = std::max(actualizado.visto_ms, hoy);
   actualizado.creado_ms = nueva ? actualizado.visto_ms : actualizado.creado_ms;
   actualizado.entradas = otro_dia ? std::max(actualizado.entradas, actualizado.entradas + 1) : actualizado.entradas;
-  if (!guardar(actualizado, presentacion.equipo)) {
+  conexion.id = proximo_id_++;
+  if (!guardar_entrada(conexion.id, actualizado, presentacion.equipo, nueva)) {
     if (nueva) {
       registrados_.erase(yo);
     }
@@ -647,11 +651,11 @@ void Servidor::continuar_presentacion(Conexion& conexion, protocolo::Presentarse
   }
 
   const auto ahora = Reloj::now();
-  conexion.id = proximo_id_++;
   conexion.clave = presentacion.clave;
   conexion.nombre = presentacion.nombre;
   conexion.comparable = comparable;
   conexion.dueno = yo->guardado.dueno;
+  conexion.admin = yo->guardado.admin;
   conexion.estado = Estado::conectada;
   conexion.ultimo_dato = ahora;
   conexion.chat = Cubeta(opciones_.rafaga_chat, opciones_.chat_por_segundo, ahora);
@@ -662,7 +666,7 @@ void Servidor::continuar_presentacion(Conexion& conexion, protocolo::Presentarse
 
   protocolo::Presentado presentado;
   presentado.tu_id = conexion.id;
-  presentado.dueno = conexion.dueno;
+  presentado.rol = conexion.rol();
   presentado.servidor = nombre_;
   for (const Canal& canal : canales_) {
     presentado.canales.push_back(info_de(canal));
@@ -719,6 +723,12 @@ void Servidor::atender_pedido(Conexion& conexion, const protocolo::Marco& marco)
       return;
     case TipoMensaje::borrar_canal:
       borrar_canal(conexion, marco);
+      return;
+    case TipoMensaje::nombrar_admin:
+      nombrar_admin(conexion, marco);
+      return;
+    case TipoMensaje::liberar_nombre:
+      liberar_nombre(conexion, marco);
       return;
     case TipoMensaje::ping:
       if (const auto ping = protocolo::leer_mensaje<protocolo::Ping>(marco.cuerpo)) {
@@ -1009,10 +1019,17 @@ void Servidor::borrar_canal(Conexion& conexion, const protocolo::Marco& marco) {
     return;
   }
   const std::uint32_t quien = conexion.id;
+  const bool del_dueno = conexion.dueno;
+  const protocolo::AvisoDeSeguridad aviso{protocolo::Seguridad::canal_borrado, ahora_ms(), conexion.nombre,
+                                          buscar_canal(canales_, pedido->canal)->nombre};
   const bool pedido_aceptado =
-      base_.pedir([this, quien, canal = pedido->canal](Base& base) {
+      base_.pedir([this, quien, canal = pedido->canal, del_dueno, aviso](Base& base) {
         const bool hecho = base.borrar_canal(canal);
-        return std::function<void()>([this, quien, canal, hecho]() {
+        const bool anotado = !hecho || base.anotar(aviso);
+        return std::function<void()>([this, quien, canal, hecho, anotado, del_dueno, aviso]() {
+          if (!anotado) {
+            avisar(Evento::error_base, red::Direccion{});
+          }
           if (!hecho) {
             if (Conexion* conexion = buscar_conectada(quien)) {
               negar(*conexion, TipoMensaje::borrar_canal, MotivoNegado::no_existe);
@@ -1037,11 +1054,145 @@ void Servidor::borrar_canal(Conexion& conexion, const protocolo::Marco& marco) {
             }
           }
           difundir(protocolo::CanalBorrado{canal, kCanalGeneral});
+          if (Conexion* conexion = buscar_conectada(quien)) {
+            avisar(Evento::canal_borrado, *conexion);
+          }
+          if (!del_dueno) {
+            avisar_al_dueno(aviso);
+          }
         });
       });
   if (!pedido_aceptado) {
     negar(conexion, TipoMensaje::borrar_canal, MotivoNegado::lleno);
   }
+}
+
+void Servidor::nombrar_admin(Conexion& conexion, const protocolo::Marco& marco) {
+  const auto pedido = protocolo::leer_mensaje<protocolo::NombrarAdmin>(marco.cuerpo);
+  if (!pedido) {
+    error_de_protocolo(conexion);
+    return;
+  }
+  Conexion* otra = buscar_conectada(pedido->usuario);
+  const auto registrado = std::find_if(registrados_.begin(), registrados_.end(), [otra](const Registrado& cual) {
+    return otra != nullptr && cual.guardado.clave == otra->clave;
+  });
+  if (!conexion.dueno || otra == nullptr || otra->dueno || registrado == registrados_.end()) {
+    negar(conexion, TipoMensaje::nombrar_admin, MotivoNegado::sin_permiso);
+    return;
+  }
+  if (otra->admin == pedido->admin) {
+    return;
+  }
+  UsuarioGuardado cambiado = registrado->guardado;
+  cambiado.admin = pedido->admin;
+  if (!anotar({pedido->admin ? protocolo::Seguridad::admin_nombrado : protocolo::Seguridad::admin_quitado, ahora_ms(),
+               conexion.nombre, otra->nombre},
+              cambiado)) {
+    negar(conexion, TipoMensaje::nombrar_admin, MotivoNegado::lleno);
+    return;
+  }
+  registrado->guardado = std::move(cambiado);
+  otra->admin = pedido->admin;
+  difundir(protocolo::UsuarioRol{otra->id, otra->rol()});
+  avisar(pedido->admin ? Evento::admin_nombrado : Evento::admin_quitado, *otra);
+}
+
+void Servidor::liberar_nombre(Conexion& conexion, const protocolo::Marco& marco) {
+  const auto pedido = protocolo::leer_mensaje<protocolo::LiberarNombre>(marco.cuerpo);
+  if (!pedido) {
+    error_de_protocolo(conexion);
+    return;
+  }
+  const std::wstring comparable = nombre_para_comparar(pedido->nombre);
+  const auto registrado = std::find_if(registrados_.begin(), registrados_.end(),
+                                       [&comparable](const Registrado& cual) { return cual.comparable == comparable; });
+  if (!conexion.dueno || (registrado != registrados_.end() &&
+                          (registrado->guardado.dueno || conectada(registrado->guardado.clave)))) {
+    negar(conexion, TipoMensaje::liberar_nombre, MotivoNegado::sin_permiso);
+    return;
+  }
+  if (registrado == registrados_.end()) {
+    negar(conexion, TipoMensaje::liberar_nombre, MotivoNegado::nombre_libre);
+    return;
+  }
+  const std::uint32_t quien = conexion.id;
+  const protocolo::AvisoDeSeguridad aviso{protocolo::Seguridad::nombre_liberado, ahora_ms(), conexion.nombre,
+                                          registrado->guardado.nombre};
+  if (!base_.pedir([this, quien, aviso](Base& base) -> std::function<void()> {
+        const bool hecho = base.liberar_nombre(aviso.detalle) && base.anotar(aviso);
+        return [this, quien, aviso, hecho] {
+          Conexion* conexion = buscar_conectada(quien);
+          if (!hecho) {
+            avisar(Evento::error_base, red::Direccion{});
+          } else if (conexion != nullptr) {
+            encolar(*conexion, aviso);
+            avisar(Evento::nombre_liberado, *conexion);
+          }
+        };
+      })) {
+    negar(conexion, TipoMensaje::liberar_nombre, MotivoNegado::lleno);
+    return;
+  }
+  registrados_.erase(registrado);
+}
+
+void Servidor::avisar_al_dueno(const protocolo::AvisoDeSeguridad& aviso) {
+  bool avisado = false;
+  for (auto& conexion : conexiones_) {
+    if (conexion->estado == Estado::conectada && !conexion->terminar && conexion->dueno) {
+      encolar(*conexion, aviso);
+      avisado = true;
+    }
+  }
+  const auto dueno = std::find_if(registrados_.begin(), registrados_.end(),
+                                  [](const Registrado& cual) { return cual.guardado.dueno; });
+  if (avisado || dueno == registrados_.end()) {
+    return;
+  }
+  base_.pedir([this, clave = dueno->guardado.clave, aviso](Base& base) -> std::function<void()> {
+    if (base.guardar_aviso(clave, std::nullopt, aviso)) {
+      return {};
+    }
+    return [this] { avisar(Evento::error_base, red::Direccion{}); };
+  });
+}
+
+bool Servidor::anotar(const protocolo::AvisoDeSeguridad& aviso, const std::optional<UsuarioGuardado>& usuario) {
+  return base_.pedir([this, aviso, usuario](Base& base) -> std::function<void()> {
+    if ((!usuario || base.guardar_usuario(*usuario)) && base.anotar(aviso)) {
+      return {};
+    }
+    return [this] { avisar(Evento::error_base, red::Direccion{}); };
+  });
+}
+
+bool Servidor::guardar_entrada(std::uint32_t id, const UsuarioGuardado& usuario, const Equipo& equipo, bool nueva) {
+  return base_.pedir([this, id, usuario, equipo, nueva](Base& base) -> std::function<void()> {
+    const auto conocido = nueva ? std::optional<bool>(false) : base.conoce_equipo(usuario.clave, equipo);
+    const bool equipo_nuevo = !nueva && conocido == false;
+    const protocolo::AvisoDeSeguridad aviso{nueva ? protocolo::Seguridad::entrada_nueva : protocolo::Seguridad::equipo_nuevo,
+                                            usuario.visto_ms, usuario.nombre, {}};
+    const bool bien = conocido && base.guardar_usuario(usuario) &&
+                      base.anotar_equipo(usuario.clave, equipo, usuario.visto_ms) &&
+                      (!(nueva || equipo_nuevo) || base.anotar(aviso)) &&
+                      (!equipo_nuevo || base.guardar_aviso(usuario.clave, equipo, aviso));
+    return [this, id, bien, equipo_nuevo, avisos = base.tomar_avisos(usuario.clave, equipo)] {
+      if (!bien) {
+        avisar(Evento::error_base, red::Direccion{});
+      }
+      Conexion* conexion = buscar_conectada(id);
+      if (conexion == nullptr) {
+        return;
+      }
+      if (equipo_nuevo) {
+        avisar(Evento::equipo_nuevo, *conexion);
+      }
+      for (const auto& aviso : avisos) {
+        encolar(*conexion, aviso);
+      }
+    };
+  });
 }
 
 void Servidor::error_de_protocolo(Conexion& conexion) {
@@ -1242,10 +1393,9 @@ bool Servidor::desalojar_una() {
   return true;
 }
 
-bool Servidor::guardar(const UsuarioGuardado& usuario, const std::optional<Equipo>& equipo) {
-  return base_.pedir([this, usuario, equipo](Base& base) -> std::function<void()> {
-    const bool bien = base.guardar_usuario(usuario) && (!equipo || base.anotar_equipo(usuario.clave, *equipo, usuario.visto_ms));
-    if (bien) {
+bool Servidor::guardar(const UsuarioGuardado& usuario) {
+  return base_.pedir([this, usuario](Base& base) -> std::function<void()> {
+    if (base.guardar_usuario(usuario)) {
       return {};
     }
     return [this] { avisar(Evento::error_base, red::Direccion{}); };
@@ -1257,7 +1407,7 @@ void Servidor::anotar_salida(const ClaveDeUsuario& clave) {
                                        [&clave](const Registrado& cual) { return cual.guardado.clave == clave; });
   if (registrado != registrados_.end()) {
     registrado->guardado.visto_ms = std::max(registrado->guardado.visto_ms, ahora_ms());
-    guardar(registrado->guardado, std::nullopt);
+    guardar(registrado->guardado);
   }
 }
 

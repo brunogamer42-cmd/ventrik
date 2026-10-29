@@ -19,7 +19,7 @@ namespace {
 Presentado presentado(bool dueno = false) {
   Presentado armado;
   armado.tu_id = 7;
-  armado.dueno = dueno;
+  armado.rol = dueno ? ventrik::protocolo::Rol::dueno : ventrik::protocolo::Rol::ninguno;
   armado.canales = {{1, "General"},
                     {2, "Juegos"},
                     {3, "charla", TipoCanal::texto, false, 5},
@@ -511,6 +511,24 @@ TEST_CASE("Solo el dueño escribe donde solo escriben los admins, y no se manda 
   CHECK(como<EnviarChat>(*en_anuncios).canal == 4);
 }
 
+TEST_CASE("El rol de cada uno se actualiza; si te hacen admin escribís donde solo escriben los admins") {
+  Sala sala(presentado());
+  sala.elegir_texto(4);
+  CHECK_FALSE(sala.admin());
+  CHECK_FALSE(sala.puede_escribir());
+  sala.aplicar(UsuarioRol{8, Rol::admin});
+  CHECK(sala.usuarios().at(8).rol == Rol::admin);
+  CHECK_FALSE(sala.admin());
+  sala.aplicar(UsuarioRol{7, Rol::admin});
+  CHECK(sala.admin());
+  CHECK_FALSE(sala.dueno());
+  CHECK(sala.puede_escribir());
+  sala.aplicar(UsuarioRol{99, Rol::admin});
+  CHECK(sala.usuarios().count(99) == 0);
+  sala.aplicar(UsuarioRol{7, Rol::ninguno});
+  CHECK_FALSE(sala.puede_escribir());
+}
+
 TEST_CASE("Un rechazo queda como aviso hasta la próxima acción y destraba el historial") {
   Sala sala(presentado());
   sala.elegir_texto(3);
@@ -582,7 +600,7 @@ TEST_CASE("Un rechazo con un motivo que no se conoce se explica como falta de pe
   const auto idioma = ventrik::elegir_idioma("es");
   CHECK(ventrik::cliente::explicar(idioma, static_cast<MotivoNegado>(0)) ==
         ventrik::cliente::explicar(idioma, MotivoNegado::sin_permiso));
-  CHECK(ventrik::cliente::explicar(idioma, static_cast<MotivoNegado>(8)) ==
+  CHECK(ventrik::cliente::explicar(idioma, static_cast<MotivoNegado>(9)) ==
         ventrik::cliente::explicar(idioma, MotivoNegado::sin_permiso));
   CHECK(ventrik::cliente::explicar(idioma, MotivoNegado::tipo_de_canal) !=
         ventrik::cliente::explicar(idioma, MotivoNegado::sin_permiso));

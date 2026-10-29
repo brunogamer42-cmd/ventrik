@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-29, con el paso 4.4 probado a mano; sigue el paso 4.5.
+Última actualización: 2026-10-29, con el paso 4.5 hecho; el resto de la etapa 4 se hace de una.
 
 ## Dónde estamos
 
@@ -627,6 +627,19 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - **Revisión con subagente:** no encontró forma de que un usuario termine sin querer con dos abiertos (copias, renombrados, otra carpeta, 32 y 64 bits, como administrador en los dos órdenes, otra sesión, dos a la vez, mientras uno se cierra; en XP con cuenta limitada `Global\` anda). Falla cerrado en todos los caminos. Arreglado lo que sí encontró: la prueba de la ventana daba OK falso si el primer proceso mostraba el aviso (ahora exige la clase `VentrikVentanaPrincipal`), "muestra el que ya estaba abierto" no dependía de que se hubiera escondido, faltaba esperar después de matar un proceso, el tipo de PowerShell cambió de nombre (`VentanaDeCheck`) para poder correr check.ps1 dos veces en la misma consola, check.ps1 corta al empezar si hay otro Ventrik abierto, y el tipo largo del mutex no se repite.
   - **`--carpeta`** sigue para las pruebas, pero ya no sirve para tener dos identidades abiertas a la vez: `identidad_nueva.bat` necesita el otro Ventrik cerrado. `check.ps1` ya cerraba los Ventrik que corren desde `build\`; ahora además avisa si queda otro abierto, y la prueba de combinaciones lo revisa al empezar (en la HP, `probar_en_xp.bat` dice que lo cierres).
   - **Pruebas:** `Probar-Ventana` (check.ps1) abre un segundo Ventrik con **otra** carpeta: tiene que mostrar el aviso, no crear su carpeta, terminar con 4 al aceptar y mostrar el primero. Se sacó la marca de carpeta (`marca_de`, `despertar_otra`, la propiedad de la ventana) y su prueba.
+- **Etapa 4, paso 4.5: admin simple, avisos de seguridad y equipo nuevo (hecho; la prueba a mano va con la de toda la etapa).** Protocolo 7, programa 0.5.2, base del servidor versión 4.
+  - **Desde acá la etapa se hace de una** (pedido del dueño del 2026-10-29): todos los pasos seguidos, con agentes en paralelo para las piezas que no se pisan, y una sola tanda de pruebas a mano al final.
+  - **Roles:** `UsuarioInfo` y `Presentado` llevan `Rol` (ninguno, admin, dueño). El dueño nombra o saca admins con clic derecho en una persona conectada (`NombrarAdmin`); hacer admin pide confirmación, sacarlo no. Todos reciben `UsuarioRol`. Un admin crea, cambia y borra canales y escribe en los de "solo admins" (`Persona::manda`); no nombra admins ni libera nombres. Sacarle el admin a alguien desconectado llega con "Configuración del servidor" (4.10).
+  - **Liberar un nombre:** el dueño, desde el ▾ del servidor ("Liberar un nombre…"), suelta el nombre de una identidad que no está conectada y no es la suya (`LiberarNombre`); si no es de nadie, `nombre_libre`. Le vuelve un aviso de seguridad como confirmación.
+  - **Avisos de seguridad** (`AvisoDeSeguridad`: tipo, hora, quién, detalle):
+    - un admin borra un canal: al dueño le llega al momento o, si no está, queda pendiente para su próxima entrada;
+    - una identidad entra desde un equipo que el servidor no le conocía: queda pendiente con la marca de ese equipo y se entrega en la próxima entrada desde **otro** equipo (al equipo nuevo no le llega). La sesión vieja ya ve "entró desde otro equipo" (4.2).
+    - Pendientes: tabla `avisos`, tope de 100 por identidad, se borran con la identidad.
+    - En el programa: una ventana "Avisos de seguridad" que junta los que llegan (espera si hay otro diálogo abierto; el Escape que cierra otro diálogo no la cierra), el aviso de Windows (sin el texto si los avisos son privados o Ventrik está bloqueado) y el sonido 26, que ahora suena (no para la confirmación de liberar un nombre).
+  - **Registro de seguridad** (tabla `seguridad`): entradas nuevas, equipos nuevos, admins nombrados y sacados, canales borrados, nombres liberados e IP bloqueadas. Tope de 1.500 por tipo (unos 10.000 en total): así una lluvia de fallas desde muchas IP no borra los canales borrados. Se anota la IP bloqueada y no cada falla, así el ritmo de escrituras lo limita la protección por IP. Se mira desde "Configuración del servidor" (4.10).
+  - **Consola del servidor:** nuevos renglones para admin nombrado o sacado, canal borrado, nombre liberado y equipo nuevo.
+  - **Diálogos:** después de un nombre inválido el campo vuelve a quedar activo para corregirlo.
+  - **Pruebas:** permisos de admin; sala con roles; protocolo de los mensajes nuevos; avisos pendientes y registro con tope en la base; servidor de verdad: nombrar y sacar admins (y que quede guardado al reiniciar), aviso al dueño al momento y al volver, equipo nuevo, liberar nombres; pantallas: la ventana de avisos a todos los tamaños, el clic derecho del dueño, "Liberar un nombre…" y su banco. `fuzz_protocolo` y `fuzz_sala` suman los mensajes nuevos.
 - **Etapa 4, paso 4.4: contraseña maestra y bloqueo automático (probado a mano en la PC y en la HP el 2026-10-29).** `check.ps1` en TODO OK y fuzzing de 10 minutos sin fallas (`fuzz_identidad`: 70.445 casos en 64 bits y 41.422 en 32).
   - **Archivo:** `identidad.dat` sigue siendo "VKMI" v1 con DPAPI por fuera. La capa 1 lleva adentro un sobre "VKMM" (Argon2id ajustado a la PC y AES-256-GCM, el mismo formato que la copia) con `[versión, largo, DER]`. La marca va en los datos asociados, así una copia `.vkid` no pasa por la capa maestra ni al revés. Una capa desconocida o una cabecera mala es "dañada": nunca se crea otra identidad encima.
   - **La llave en memoria:** al desbloquear o al activar queda la llave derivada (`LlaveDeSobre`: la cabecera y 32 bytes) mientras Ventrik está desbloqueado. Sirve para volver a sellar sin pedir la contraseña: al bloquear y al importar una copia con la maestra activa (la importada queda protegida igual). Cada sellado usa un nonce al azar con la sal de la cabecera. Vale lo mismo que tener la identidad en memoria y se borra junto con ella.
@@ -723,6 +736,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
 - **Pendientes:** lo provisorio se marca con `VENTRIK_PENDIENTE("texto sin acentos")` (src/common/pendiente.h). Avisa al compilar sin frenar /WX, y check.ps1 lo lista.
 - **Tus preferencias** también están en las memorias:
   - plan antes de cada paso;
+  - cada etapa de una (desde el 2026-10-29): todos sus pasos seguidos, con agentes en paralelo, las pruebas automáticas en esta PC y una sola tanda a mano al final, junto con la de XP;
   - medir antes de cambiar;
   - no pedir pruebas largas;
   - comprobar uno mismo todo lo posible;

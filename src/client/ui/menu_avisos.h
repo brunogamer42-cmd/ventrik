@@ -16,6 +16,7 @@ struct EleccionDeServidor {
   bool abrir_avisos = false;
   bool marcar_todo = false;
   bool desconectar = false;
+  bool liberar_nombre = false;
 };
 
 struct EleccionDeAvisos {
@@ -29,7 +30,7 @@ std::optional<cliente::AjusteDeAvisos> menu_silenciar(Idioma idioma, Clave etiqu
 void titulo_de_menu(std::string_view titulo);
 void nota_de_menu(std::string_view nota);
 std::optional<cliente::Avisar> menu_avisarme(Idioma idioma, Clave etiqueta, cliente::Avisar actual);
-EleccionDeServidor menu_servidor(Idioma idioma, const cliente::AvisosDelServidor& avisos, bool conectado, bool dueno,
+EleccionDeServidor menu_servidor(Idioma idioma, const cliente::AvisosDelServidor& avisos, bool conectado, protocolo::Rol rol,
                                  std::uint64_t ahora);
 std::optional<cliente::AvisosDelServidor> menu_de_canal(Idioma idioma, const cliente::AvisosDelServidor& avisos,
                                                         const protocolo::CanalInfo& canal, std::uint64_t ahora);

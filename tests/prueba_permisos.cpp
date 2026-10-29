@@ -20,8 +20,8 @@ Canal canal(std::uint32_t id, const std::string& nombre, TipoCanal tipo = TipoCa
 const std::vector<Canal> kCanales = {canal(kCanalGeneral, "General"), canal(2, "Juegos"),
                                      canal(3, "Charla", TipoCanal::texto),
                                      canal(4, "Anuncios", TipoCanal::texto, true)};
-const Persona kDueno{true, kCanalGeneral};
-const Persona kInvitado{false, 2};
+const Persona kDueno{true, false, kCanalGeneral};
+const Persona kInvitado{false, false, 2};
 }
 
 TEST_CASE("Solo se entra a canales de voz, y se lee el propio o cualquiera de texto") {
@@ -75,6 +75,16 @@ TEST_CASE("Solo el dueño cambia un canal, sin usar el nombre de otro y con la m
   CHECK(puede_cambiar(kDueno, kCanales, CambiarCanal{2, "Juegos", true}) == MotivoNegado::tipo_de_canal);
   CHECK(puede_cambiar(kDueno, kCanales, CambiarCanal{2, "a\xE2\x80\xAE" "b", false}) ==
         MotivoNegado::texto_invalido);
+}
+
+TEST_CASE("Un admin crea, cambia y borra canales y escribe donde solo escriben los admins") {
+  const Persona admin{false, true, 2};
+  CHECK_FALSE(puede_crear(admin, kCanales, "Nuevo"));
+  CHECK_FALSE(puede_cambiar(admin, kCanales, CambiarCanal{3, "Charla 2", true}));
+  CHECK_FALSE(puede_borrar(admin, kCanales, 2));
+  CHECK(puede_borrar(admin, kCanales, kCanalGeneral) == MotivoNegado::sin_permiso);
+  CHECK_FALSE(puede_escribir(admin, kCanales, 4));
+  CHECK(puede_escribir(kInvitado, kCanales, 4) == MotivoNegado::sin_permiso);
 }
 
 TEST_CASE("Solo el dueño borra, y General no se borra") {

@@ -63,18 +63,20 @@ struct CanalInfo {
   std::uint32_t contador = 0;
 };
 
+enum class Rol : std::uint8_t { ninguno = 0, admin = 1, dueno = 2 };
+
 struct UsuarioInfo {
   std::uint32_t id = 0;
   std::string nombre;
   std::uint32_t canal = 0;
   std::uint8_t silencio = 0;
-  bool admin = false;
+  Rol rol = Rol::ninguno;
 };
 
 struct Presentado {
   static constexpr TipoMensaje kTipo = TipoMensaje::presentado;
   std::uint32_t tu_id = 0;
-  bool dueno = false;
+  Rol rol = Rol::ninguno;
   std::string servidor;
   std::vector<CanalInfo> canales;
   std::vector<UsuarioInfo> usuarios;
@@ -245,6 +247,7 @@ enum class MotivoNegado : std::uint8_t {
   lleno = 5,
   nombre_en_uso = 6,
   tipo_de_canal = 7,
+  nombre_libre = 8,
 };
 
 struct Negado {
@@ -255,6 +258,41 @@ struct Negado {
 
 struct Desplazado {
   static constexpr TipoMensaje kTipo = TipoMensaje::desplazado;
+};
+
+struct NombrarAdmin {
+  static constexpr TipoMensaje kTipo = TipoMensaje::nombrar_admin;
+  std::uint32_t usuario = 0;
+  bool admin = false;
+};
+
+struct UsuarioRol {
+  static constexpr TipoMensaje kTipo = TipoMensaje::usuario_rol;
+  std::uint32_t id = 0;
+  Rol rol = Rol::ninguno;
+};
+
+struct LiberarNombre {
+  static constexpr TipoMensaje kTipo = TipoMensaje::liberar_nombre;
+  std::string nombre;
+};
+
+enum class Seguridad : std::uint8_t {
+  entrada_nueva = 1,
+  equipo_nuevo = 2,
+  admin_nombrado = 3,
+  admin_quitado = 4,
+  canal_borrado = 5,
+  nombre_liberado = 6,
+  ip_bloqueada = 7,
+};
+
+struct AvisoDeSeguridad {
+  static constexpr TipoMensaje kTipo = TipoMensaje::aviso_de_seguridad;
+  Seguridad tipo = Seguridad::entrada_nueva;
+  std::uint64_t hora_ms = 0;
+  std::string quien;
+  std::string detalle;
 };
 
 struct Ping {
@@ -325,6 +363,10 @@ VENTRIK_MENSAJE(MensajesNuevos)
 VENTRIK_MENSAJE(BorrarCanal)
 VENTRIK_MENSAJE(Negado)
 VENTRIK_MENSAJE(Desplazado)
+VENTRIK_MENSAJE(NombrarAdmin)
+VENTRIK_MENSAJE(UsuarioRol)
+VENTRIK_MENSAJE(LiberarNombre)
+VENTRIK_MENSAJE(AvisoDeSeguridad)
 VENTRIK_MENSAJE(Ping)
 VENTRIK_MENSAJE(Pong)
 VENTRIK_MENSAJE(ClaveVoz)

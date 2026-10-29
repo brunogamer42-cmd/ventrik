@@ -91,6 +91,9 @@ void Avisos::opciones(const OpcionesAvisos& opciones) {
       actualizar(par.second);
     }
   }
+  if (otro && seguridad_) {
+    rehacer_seguridad();
+  }
 }
 
 void Avisos::fuera(bool si) {
@@ -101,6 +104,7 @@ void Avisos::fuera(bool si) {
   if (!si) {
     pendientes_.clear();
     corte_.reset();
+    seguridad_.reset();
     ++version_;
   }
 }
@@ -252,6 +256,20 @@ void Avisos::corte(const std::string& texto) {
   }
 }
 
+void Avisos::seguridad(const std::string& texto) {
+  if (activo(true)) {
+    texto_seguridad_ = texto;
+    seguridad_ = Notificacion{0, false, {}, {}, 0, servidor_};
+    rehacer_seguridad();
+  }
+}
+
+void Avisos::rehacer_seguridad() {
+  seguridad_->titulo = con_datos(texto(idioma_, Clave::aviso_titulo_seguridad), {servidor_});
+  seguridad_->cuerpo = opciones_.privado ? std::string(texto(idioma_, Clave::aviso_seguridad_privado)) : texto_seguridad_;
+  seguridad_->version = ++version_;
+}
+
 void Avisos::visto(std::uint32_t canal) {
   if (pendientes_.erase(canal) != 0) {
     ++version_;
@@ -265,8 +283,10 @@ std::vector<Notificacion> Avisos::lista() const {
       lista.push_back(par.second.aviso);
     }
   }
-  if (corte_) {
-    lista.push_back(*corte_);
+  for (const auto* aparte : {&corte_, &seguridad_}) {
+    if (*aparte) {
+      lista.push_back(**aparte);
+    }
   }
   std::sort(lista.begin(), lista.end(),
             [](const Notificacion& a, const Notificacion& b) { return a.version < b.version; });

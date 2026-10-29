@@ -23,7 +23,10 @@ struct Canal {
 
 struct Persona {
   bool dueno = false;
+  bool admin = false;
   std::uint32_t canal = 0;
+
+  bool manda() const { return dueno || admin; }
 };
 
 using Permiso = std::optional<protocolo::MotivoNegado>;

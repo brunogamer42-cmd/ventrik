@@ -26,6 +26,8 @@ enum class TipoMensaje : std::uint16_t {
   silenciar = 19,
   silenciar_personas = 20,
   destinos_de_susurro = 21,
+  nombrar_admin = 22,
+  liberar_nombre = 23,
   presentado = 30,
   presentacion_rechazada = 31,
   usuario_entro = 32,
@@ -42,6 +44,8 @@ enum class TipoMensaje : std::uint16_t {
   mensajes_nuevos = 43,
   usuario_silencio = 44,
   desplazado = 45,
+  usuario_rol = 46,
+  aviso_de_seguridad = 47,
   medio_subida = 50,
   medio_bajada = 51,
 };
