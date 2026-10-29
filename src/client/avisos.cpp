@@ -83,6 +83,16 @@ void Avisos::desconectado() {
   ++version_;
 }
 
+void Avisos::opciones(const OpcionesAvisos& opciones) {
+  const bool otro = opciones.privado != opciones_.privado;
+  opciones_ = opciones;
+  for (auto& par : pendientes_) {
+    if (otro && par.second.mostrar) {
+      actualizar(par.second);
+    }
+  }
+}
+
 void Avisos::fuera(bool si) {
   if (si == fuera_) {
     return;

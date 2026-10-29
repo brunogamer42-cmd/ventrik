@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-28, con "un solo Ventrik abierto" probado; sigue el paso 4.4.
+Última actualización: 2026-10-29, con el paso 4.4 probado a mano; sigue el paso 4.5.
 
 ## Dónde estamos
 
@@ -627,6 +627,50 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - **Revisión con subagente:** no encontró forma de que un usuario termine sin querer con dos abiertos (copias, renombrados, otra carpeta, 32 y 64 bits, como administrador en los dos órdenes, otra sesión, dos a la vez, mientras uno se cierra; en XP con cuenta limitada `Global\` anda). Falla cerrado en todos los caminos. Arreglado lo que sí encontró: la prueba de la ventana daba OK falso si el primer proceso mostraba el aviso (ahora exige la clase `VentrikVentanaPrincipal`), "muestra el que ya estaba abierto" no dependía de que se hubiera escondido, faltaba esperar después de matar un proceso, el tipo de PowerShell cambió de nombre (`VentanaDeCheck`) para poder correr check.ps1 dos veces en la misma consola, check.ps1 corta al empezar si hay otro Ventrik abierto, y el tipo largo del mutex no se repite.
   - **`--carpeta`** sigue para las pruebas, pero ya no sirve para tener dos identidades abiertas a la vez: `identidad_nueva.bat` necesita el otro Ventrik cerrado. `check.ps1` ya cerraba los Ventrik que corren desde `build\`; ahora además avisa si queda otro abierto, y la prueba de combinaciones lo revisa al empezar (en la HP, `probar_en_xp.bat` dice que lo cierres).
   - **Pruebas:** `Probar-Ventana` (check.ps1) abre un segundo Ventrik con **otra** carpeta: tiene que mostrar el aviso, no crear su carpeta, terminar con 4 al aceptar y mostrar el primero. Se sacó la marca de carpeta (`marca_de`, `despertar_otra`, la propiedad de la ventana) y su prueba.
+- **Etapa 4, paso 4.4: contraseña maestra y bloqueo automático (probado a mano en la PC y en la HP el 2026-10-29).** `check.ps1` en TODO OK y fuzzing de 10 minutos sin fallas (`fuzz_identidad`: 70.445 casos en 64 bits y 41.422 en 32).
+  - **Archivo:** `identidad.dat` sigue siendo "VKMI" v1 con DPAPI por fuera. La capa 1 lleva adentro un sobre "VKMM" (Argon2id ajustado a la PC y AES-256-GCM, el mismo formato que la copia) con `[versión, largo, DER]`. La marca va en los datos asociados, así una copia `.vkid` no pasa por la capa maestra ni al revés. Una capa desconocida o una cabecera mala es "dañada": nunca se crea otra identidad encima.
+  - **La llave en memoria:** al desbloquear o al activar queda la llave derivada (`LlaveDeSobre`: la cabecera y 32 bytes) mientras Ventrik está desbloqueado. Sirve para volver a sellar sin pedir la contraseña: al bloquear y al importar una copia con la maestra activa (la importada queda protegida igual). Cada sellado usa un nonce al azar con la sal de la cabecera. Vale lo mismo que tener la identidad en memoria y se borra junto con ella.
+  - **Bloquear:**
+    - sella la identidad con la llave (`cerrada_`, que está cifrada) y borra la identidad y la llave;
+    - cierra Ajustes y cualquier diálogo de identidad (también "¿Reemplazar?", con su clave), deja de elegir tecla y borra lo escrito;
+    - tapa la ventana con la pantalla de desbloqueo.
+    - Seguís conectado y escuchando. El micrófono queda silenciado en el motor (`silenciar` con `bloqueado_`): no se transmite ni con la tecla ni por voz. Los avisos pasan a privados y los que ya estaban se rehacen sin el texto. Tocar un aviso solo trae la ventana.
+    - La sesión suelta la identidad apenas termina de conectar. Si el bloqueo cae mientras conecta, el hilo de la sesión la tiene hasta que `conectar` vuelve (hasta 15 s).
+    - Entrar a un servidor estando bloqueado (al abrir, con "entrar al último") espera al desbloqueo, sin guardar la contraseña del servidor.
+  - **Cuándo:** `hay_que_bloquear` (función pura), solo con contraseña maestra:
+    - Nunca, que es lo de fábrica;
+    - Al bloquear Windows, que incluye el protector de pantalla y la consola desconectada;
+    - a los 5, 15 o 60 minutos sin tocar la PC (`GetLastInputInfo`, que existe desde Windows 2000).
+    - Cada opción hace solo lo suyo.
+    - De fábrica va en Nunca por la decisión del dueño del 2026-10-25: "con la PC bloqueada sigue transmitiendo, como Discord". La captura mostraba "Al bloquear Windows"; manda lo decidido acá.
+  - **Sin despertares nuevos:** se mira en `atender`, que ya corre con el tic de 1 s. Con un diálogo de Windows abierto (elegir archivo, menú de la bandeja, MessageBox) `atender` no corre, así que la ventana:
+    - cuenta los bloqueos de Windows (`Situacion::bloqueos`);
+    - guarda en cada tic el mayor tiempo sin usar (`Ventana::tomar_sin_usar_ms`).
+    - Al volver del diálogo se bloquea igual. Mientras corre un cálculo de Argon2 no se bloquea: el bloqueo de Windows queda anotado y se aplica al terminar.
+  - **Hilo:** activar, cambiar, quitar y desbloquear usan el mismo hilo de la copia (Argon2 de 1 s, prioridad baja, existe solo mientras calcula). No hay hilo nuevo. Cambiar y quitar piden la contraseña actual.
+  - **Al abrir:** la identidad se carga después del primer cuadro. La pista `Ajuste::maestra` (28, en programa.dat) muestra la pantalla de desbloqueo desde ese primer cuadro. La seguridad no depende de la pista, y `cargar_identidad` la corrige si quedó vieja.
+  - **"¿La olvidaste?":** solo sin conexión, se puede importar una copia o crear una identidad nueva. La bloqueada se aparta como `identidad-vieja-N.dat`.
+  - **ImGui:** `olvidar_lo_escrito` ahora también borra:
+    - el deshacer del campo (`undostate`, que guarda lo borrado con retroceso aunque no se use Ctrl+Z);
+    - el texto pegado (`ClipboardHandlerData`).
+  - **Revisión con subagente.** Lo que encontró y se arregló:
+    - el "¿Reemplazar?" abierto quedaba arriba de la pantalla de bloqueo y desbloqueaba con la sesión conectada;
+    - el bloqueo se perdía con un diálogo de Windows abierto;
+    - "elegir tecla" seguía activo detrás del bloqueo, y la primera letra de la contraseña quedaba como tecla para hablar;
+    - lo que guardaban el deshacer y el portapapeles de ImGui;
+    - la entrada pospuesta guardaba la contraseña del servidor.
+    - Lo que dio por bueno: el nonce al azar, las marcas en los datos asociados, los topes de Argon2 y la coherencia entre activar, cambiar y quitar.
+  - **Pruebas:**
+    - la identidad con maestra se abre solo con ella, y cambiarla o quitarla no la pierde;
+    - un byte cambiado en la capa, o una copia en su lugar, no abre;
+    - la decisión de bloquear, con relojes de mentira;
+    - los avisos que ya estaban se rehacen sin texto;
+    - la pantalla de desbloqueo a todos los tamaños, Enter solo con algo escrito y "¿La olvidaste?" solo sin conexión;
+    - en Seguridad, Activar o Cambiar y Quitar abren su diálogo, y el bloqueo pide la contraseña maestra;
+    - los diálogos a todos los tamaños y quitar pide la actual;
+    - el banco: la pantalla de desbloqueo dibuja en 13 a 15 µs por cuadro con 958 vértices;
+    - "bloqueado no transmite" se apoya en la prueba del motor "Con el micrófono silenciado no se comprime ni se manda nada".
+    - `fuzz_identidad` revisa la capa nueva.
 
 ## Ramas y repositorio
 
@@ -712,7 +756,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
   - **DPAPI** (`cifrado::proteger_con_windows`, src/common/cifrado/dpapi.cpp): `CryptProtectData` con `CRYPTPROTECT_UI_FORBIDDEN` y una entropía distinta por archivo ("ventrik identidad v1", "ventrik equipo v1"), así un archivo no se puede hacer pasar por otro. Lo abierto se copia a un `Secreto` y lo de Windows se borra con `SecureZeroMemory` antes de soltarlo. Existe desde XP (crypt32.dll, que ya estaba en la lista de check.ps1);
   - **"sobre"** (src/common/cifrado/sobre.cpp), el formato de todo archivo cifrado con contraseña (la copia de la identidad y, en el paso 4.9, el respaldo del servidor): marca de 4 letras ("VKID" para la identidad), versión 1, memoria de Argon2 en KiB (u32), vueltas (u8) y sal de 16 bytes; esa cabecera entera son los datos asociados de AES-256-GCM, con nonce al azar de 12 bytes y etiqueta de 16. La clave sale de Argon2id con un solo carril. La marca evita usar un sobre de un tipo como si fuera de otro;
   - **Argon2 ajustado a la PC:** memoria de 64 MiB con 1 GiB libre o más, 32 con 512 MiB y 16 si hay menos; una primera pasada con la sal de verdad mide el tiempo, y si tardó menos de 1 s se repite con las vueltas que falten (hasta 10). En la PC de trabajo da 10 vueltas de 64 MiB (unos 0,7 s);
-  - **`identidad.dat`:** "VKMI", versión 1 y el bloque DPAPI con `[capa u8 (0 = sin contraseña maestra), largo u16, DER]`. El paso 4.4 suma la capa de la contraseña maestra en ese mismo byte. La copia `.vkid` adentro lleva `[versión u8, largo u16, DER]`;
+  - **`identidad.dat`:** "VKMI", versión 1 y el bloque DPAPI con `[capa u8 (0 = sin contraseña maestra), largo u16, DER]`. La capa 1 es la de la contraseña maestra (ver el paso 4.4). La copia `.vkid` adentro lleva `[versión u8, largo u16, DER]`;
   - **se carga después del primer cuadro** (en `atender`, con `cuadros_ > 0`), así no demora la aparición de la ventana: abrir DPAPI y revisar la clave cuesta unos milisegundos en la PC y más en la HP;
   - **"Ya hiciste una copia"** se guarda en programa.dat (ajuste 26, `copia_de_identidad`) como la huella de la identidad copiada: si la identidad cambia, el aviso vuelve solo. No hizo falta otra versión de programa.dat (los ajustes nuevos entran en el bloque que ya existe);
   - **hilo de la copia:** exportar e importar corren Argon2 (hasta 1 s en la PC, unos segundos en la HP) en un `std::thread` con prioridad baja (en un solo núcleo no le compite a la ventana) que existe solo mientras calcula y avisa a la ventana con `kMensajeNovedades` al terminar. Nada de `std::async` ni `packaged_task`: en VS 2017 `std::async` usa un grupo de hilos que queda vivo y `packaged_task` exige copiar lo que guarda (adentro hay `Secreto`). La ruta y la huella viajan con el trabajo, no se leen al terminar. Si se cierra Ventrik mientras calcula, se guarda todo y el proceso termina sin esperar (`TerminateProcess`): el cálculo no tiene nada que guardar, y esperarlo dejaba un proceso sin ventana con el candado tomado;

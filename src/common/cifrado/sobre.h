@@ -56,10 +56,22 @@ std::optional<CabeceraSobre> leer_cabecera_sobre(std::string_view marca, gsl::sp
 
 enum class AperturaSobre { abierto, contrasena, danado, sin_memoria };
 
+struct LlaveDeSobre {
+  std::vector<std::uint8_t> cabecera;
+  Secreto clave;
+};
+
 struct SobreAbierto {
   AperturaSobre resultado = AperturaSobre::danado;
   std::optional<Secreto> contenido;
+  std::optional<LlaveDeSobre> llave;
 };
+
+std::optional<LlaveDeSobre> llave_nueva(std::string_view marca, std::string_view contrasena,
+                                        std::optional<Argon2> fijos = std::nullopt);
+
+std::optional<std::vector<std::uint8_t>> cerrar_con_llave(const LlaveDeSobre& llave,
+                                                          gsl::span<const std::uint8_t> contenido);
 
 std::optional<std::vector<std::uint8_t>> cerrar_sobre(std::string_view marca, gsl::span<const std::uint8_t> contenido,
                                                       std::string_view contrasena,

@@ -31,7 +31,7 @@ enum class Seccion : std::uint8_t {
 };
 constexpr std::size_t kSecciones = 12;
 
-enum class DialogoIdentidad : std::uint8_t { ninguno, exportar, importar, reemplazar, crear };
+enum class DialogoIdentidad : std::uint8_t { ninguno, exportar, importar, reemplazar, crear, activar, cambiar, quitar };
 enum class EstadoDeIdentidad : std::uint8_t { cargando, lista, danada, error };
 
 struct PantallaAjustes {
@@ -62,10 +62,13 @@ struct PantallaAjustes {
   std::string identidad;
   std::string identidad_nueva;
   bool copia_hecha = false;
+  bool con_maestra = false;
+  bool con_conexion = false;
   DialogoIdentidad dialogo_identidad = DialogoIdentidad::ninguno;
   bool abrir_dialogo_identidad = false;
   bool cerrar_dialogo_identidad = false;
   bool enfocar_contrasena = false;
+  Campo actual{};
   Campo contrasena{};
   Campo repetir{};
   std::string error_identidad;
@@ -95,8 +98,10 @@ struct PedidoAjustes {
   bool importar_identidad = false;
   bool confirmar_identidad = false;
   bool cancelar_identidad = false;
+  bool desbloquear = false;
 };
 
 PedidoAjustes dibujar_ajustes(PantallaAjustes& pantalla, const cliente::Guardados& guardados);
+PedidoAjustes dibujar_bloqueo(PantallaAjustes& pantalla, const cliente::Guardados& guardados);
 
 }

@@ -250,6 +250,7 @@ void Sesion::correr() {
   conexion.cancelar = &cancelar_.socket();
   auto resultado = conectar(destino_, huella_, quien_, conexion);
   quien_.contrasena.reset();
+  quien_.identidad.reset();
   publicar(IntentoDeConexion{resultado.estado, resultado.version_pedida, resultado.cifrado,
                              resultado.presentado, resultado.espera});
   if (resultado.estado != EstadoConexion::conectado || !resultado.abierta) {

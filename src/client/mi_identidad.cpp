@@ -7,6 +7,7 @@
 
 #include <mbedtls/md.h>
 
+#include "client/guardados.h"
 #include "common/archivos.h"
 #include "common/cifrado/dpapi.h"
 #include "common/cifrado/inicio.h"
@@ -18,10 +19,12 @@ namespace {
 constexpr std::string_view kMarcaIdentidad = "VKMI";
 constexpr std::string_view kMarcaCopia = "VKID";
 constexpr std::string_view kMarcaEquipo = "VKEQ";
+constexpr std::string_view kMarcaMaestra = "VKMM";
 constexpr std::string_view kPropositoIdentidad = "ventrik identidad v1";
 constexpr std::string_view kPropositoEquipo = "ventrik equipo v1";
 constexpr std::uint8_t kVersion = 1;
 constexpr std::uint8_t kSinContrasenaMaestra = 0;
+constexpr std::uint8_t kConContrasenaMaestra = 1;
 constexpr std::size_t kMaximoDer = 1024;
 constexpr std::size_t kLargoCorto = 19;
 
@@ -49,16 +52,16 @@ std::optional<gsl::span<const std::uint8_t>> sin_marca(std::string_view marca, g
   return cuerpo;
 }
 
-std::optional<cifrado::Secreto> empaquetar(std::uint8_t primero, const std::optional<cifrado::Secreto>& der) {
-  if (!der || der->size() == 0 || der->size() > kMaximoDer) {
+std::optional<cifrado::Secreto> empaquetar(std::uint8_t primero, gsl::span<const std::uint8_t> datos) {
+  if (datos.empty() || datos.size() > kMaximoDer) {
     return std::nullopt;
   }
-  cifrado::Secreto paquete(3 + der->size());
+  cifrado::Secreto paquete(3 + datos.size());
   const auto destino = paquete.bytes();
   destino[0] = primero;
-  destino[1] = static_cast<std::uint8_t>(der->size() & 0xFF);
-  destino[2] = static_cast<std::uint8_t>(der->size() >> 8);
-  std::copy(der->bytes().begin(), der->bytes().end(), destino.begin() + 3);
+  destino[1] = static_cast<std::uint8_t>(datos.size() & 0xFF);
+  destino[2] = static_cast<std::uint8_t>(datos.size() >> 8);
+  std::copy(datos.begin(), datos.end(), destino.begin() + 3);
   return paquete;
 }
 
@@ -77,6 +80,19 @@ std::optional<cifrado::Clave> clave_de(const std::optional<gsl::span<const std::
   return der ? cifrado::Clave::desde_der(*der) : std::nullopt;
 }
 
+CopiaAbierta abrir(std::string_view marca, gsl::span<const std::uint8_t> sobre, std::string_view contrasena) {
+  cifrado::SobreAbierto abierto = cifrado::abrir_sobre(marca, sobre, contrasena);
+  CopiaAbierta resultado{abierto.resultado, std::nullopt, std::nullopt};
+  if (abierto.contenido) {
+    resultado.clave = leer_contenido_de_copia(abierto.contenido->bytes());
+    resultado.resultado = resultado.clave ? cifrado::AperturaSobre::abierto : cifrado::AperturaSobre::danado;
+  }
+  if (resultado.clave) {
+    resultado.llave = std::move(abierto.llave);
+  }
+  return resultado;
+}
+
 }  // namespace
 
 MiIdentidad cargar_o_crear_mi_identidad(const std::wstring& carpeta) {
@@ -85,14 +101,12 @@ MiIdentidad cargar_o_crear_mi_identidad(const std::wstring& carpeta) {
   for (int intento = 0; intento < 2; ++intento) {
     cifrado::Secreto contenido;
     switch (leer_archivo(archivo, kMaximoArchivoIdentidad, contenido)) {
-      case LecturaArchivo::leido: {
-        auto clave = leer_archivo_de_identidad(contenido.bytes());
-        return clave ? MiIdentidad{EstadoIdentidad::lista, std::move(clave)} : MiIdentidad{EstadoIdentidad::danada, {}};
-      }
+      case LecturaArchivo::leido:
+        return leer_archivo_de_identidad(contenido.bytes());
       case LecturaArchivo::demasiado_grande:
-        return {EstadoIdentidad::danada, {}};
+        return {EstadoIdentidad::danada, {}, {}};
       case LecturaArchivo::error:
-        return {EstadoIdentidad::error, {}};
+        return {EstadoIdentidad::error, {}, {}};
       case LecturaArchivo::no_existe:
         break;
     }
@@ -101,52 +115,81 @@ MiIdentidad cargar_o_crear_mi_identidad(const std::wstring& carpeta) {
     const EscrituraNueva escrito =
         armado && crear_carpetas(carpeta) ? escribir_archivo_nuevo(archivo, *armado) : EscrituraNueva::error;
     if (escrito == EscrituraNueva::escrito) {
-      return {EstadoIdentidad::creada, std::move(nueva)};
+      return {EstadoIdentidad::creada, std::move(nueva), {}};
     }
     if (escrito == EscrituraNueva::error) {
-      return {EstadoIdentidad::error, {}};
+      return {EstadoIdentidad::error, {}, {}};
     }
   }
-  return {EstadoIdentidad::error, {}};
+  return {EstadoIdentidad::error, {}, {}};
 }
 
-bool guardar_mi_identidad(const std::wstring& carpeta, const cifrado::Clave& clave) {
-  const auto armado = armar_archivo_de_identidad(clave);
+bool guardar_mi_identidad(const std::wstring& carpeta, const cifrado::Clave& clave,
+                          const cifrado::LlaveDeSobre* maestra) {
+  const auto armado = armar_archivo_de_identidad(clave, maestra);
   return armado && crear_carpetas(carpeta) && escribir_archivo_completo(carpeta + L"\\identidad.dat", *armado);
 }
 
-std::optional<std::vector<std::uint8_t>> armar_archivo_de_identidad(const cifrado::Clave& clave) {
-  const auto paquete = empaquetar(kSinContrasenaMaestra, clave.der());
+std::optional<std::vector<std::uint8_t>> armar_archivo_de_identidad(const cifrado::Clave& clave,
+                                                                    const cifrado::LlaveDeSobre* maestra) {
+  std::optional<cifrado::Secreto> paquete;
+  if (maestra != nullptr) {
+    const auto cerrada = cerrar_con_maestra(clave, *maestra);
+    paquete = cerrada ? empaquetar(kConContrasenaMaestra, *cerrada) : std::nullopt;
+  } else if (const auto der = clave.der()) {
+    paquete = empaquetar(kSinContrasenaMaestra, der->bytes());
+  }
   const auto protegido = paquete ? cifrado::proteger_con_windows(paquete->bytes(), kPropositoIdentidad) : std::nullopt;
   return protegido ? std::optional<std::vector<std::uint8_t>>(con_marca(kMarcaIdentidad, *protegido)) : std::nullopt;
 }
 
-std::optional<cifrado::Clave> leer_archivo_de_identidad(gsl::span<const std::uint8_t> archivo) {
+MiIdentidad leer_archivo_de_identidad(gsl::span<const std::uint8_t> archivo) {
   const auto cuerpo = sin_marca(kMarcaIdentidad, archivo);
   const auto abierto = cuerpo ? cifrado::abrir_con_windows(*cuerpo, kPropositoIdentidad) : std::nullopt;
-  return abierto ? clave_de(desempaquetar(kSinContrasenaMaestra, abierto->bytes())) : std::nullopt;
+  const std::uint8_t tipo = abierto && abierto->size() > 0 ? abierto->bytes()[0] : kSinContrasenaMaestra;
+  const auto contenido = abierto ? desempaquetar(tipo, abierto->bytes()) : std::nullopt;
+  if (contenido && tipo == kConContrasenaMaestra && cifrado::leer_cabecera_sobre(kMarcaMaestra, *contenido)) {
+    return {EstadoIdentidad::con_contrasena, {}, std::vector<std::uint8_t>(contenido->begin(), contenido->end())};
+  }
+  auto clave = tipo == kSinContrasenaMaestra ? clave_de(contenido) : std::nullopt;
+  return {clave ? EstadoIdentidad::lista : EstadoIdentidad::danada, std::move(clave), {}};
 }
 
 std::optional<std::vector<std::uint8_t>> armar_copia(gsl::span<const std::uint8_t> der, std::string_view contrasena,
                                                      std::optional<cifrado::Argon2> fijos) {
-  cifrado::Secreto copia_der(der.size());
-  std::copy(der.begin(), der.end(), copia_der.bytes().begin());
-  const auto paquete = empaquetar(kVersion, std::optional<cifrado::Secreto>(std::move(copia_der)));
+  const auto paquete = empaquetar(kVersion, der);
   return paquete ? cifrado::cerrar_sobre(kMarcaCopia, paquete->bytes(), contrasena, fijos) : std::nullopt;
 }
 
 CopiaAbierta abrir_copia(gsl::span<const std::uint8_t> copia, std::string_view contrasena) {
-  cifrado::SobreAbierto abierto = cifrado::abrir_sobre(kMarcaCopia, copia, contrasena);
-  CopiaAbierta resultado{abierto.resultado, std::nullopt};
-  if (abierto.contenido) {
-    resultado.clave = leer_contenido_de_copia(abierto.contenido->bytes());
-    resultado.resultado = resultado.clave ? cifrado::AperturaSobre::abierto : cifrado::AperturaSobre::danado;
-  }
-  return resultado;
+  return abrir(kMarcaCopia, copia, contrasena);
 }
 
 std::optional<cifrado::Clave> leer_contenido_de_copia(gsl::span<const std::uint8_t> contenido) {
   return clave_de(desempaquetar(kVersion, contenido));
+}
+
+std::optional<cifrado::LlaveDeSobre> nueva_maestra(std::string_view contrasena, std::optional<cifrado::Argon2> fijos) {
+  return cifrado::llave_nueva(kMarcaMaestra, contrasena, fijos);
+}
+
+std::optional<std::vector<std::uint8_t>> cerrar_con_maestra(const cifrado::Clave& clave,
+                                                            const cifrado::LlaveDeSobre& maestra) {
+  const auto der = clave.der();
+  const auto paquete = der ? empaquetar(kVersion, der->bytes()) : std::nullopt;
+  return paquete ? cifrado::cerrar_con_llave(maestra, paquete->bytes()) : std::nullopt;
+}
+
+CopiaAbierta abrir_con_maestra(gsl::span<const std::uint8_t> cerrada, std::string_view contrasena) {
+  return abrir(kMarcaMaestra, cerrada, contrasena);
+}
+
+bool hay_que_bloquear(std::uint8_t eleccion, bool windows_bloqueado, std::uint32_t sin_usar_ms) {
+  if (eleccion == kBloqueoConWindows) {
+    return windows_bloqueado;
+  }
+  return eleccion < kMinutosDeBloqueo.size() && kMinutosDeBloqueo[eleccion] != 0 &&
+         sin_usar_ms / 60000 >= kMinutosDeBloqueo[eleccion];
 }
 
 std::optional<cifrado::Secreto> secreto_de_equipo(const std::wstring& carpeta) {

@@ -1448,6 +1448,22 @@ ui::PantallaAjustes pantalla_ajustes() {
   return pantalla;
 }
 
+ui::PantallaAjustes pantalla_segura(bool con_maestra) {
+  auto pantalla = pantalla_ajustes();
+  pantalla.seccion = ui::Seccion::seguridad;
+  pantalla.estado_identidad = ui::EstadoDeIdentidad::lista;
+  pantalla.identidad = "CTBC-P44I-2FC4-QX7M";
+  pantalla.con_maestra = con_maestra;
+  return pantalla;
+}
+
+ui::PedidoAjustes bloqueo(SinPantalla& sin_pantalla, ui::PantallaAjustes& pantalla, const Guardados& guardados,
+                          ImVec2 mouse, bool clic = false) {
+  ui::PedidoAjustes pedido;
+  sin_pantalla.cuadro([&] { pedido = ui::dibujar_bloqueo(pantalla, guardados); }, mouse, clic);
+  return pedido;
+}
+
 }
 
 TEST_CASE("Ajustes se dibuja sin errores en todas sus secciones, a cualquier tamaño y escala") {
@@ -1644,4 +1660,172 @@ TEST_CASE("banco de ajustes" * doctest::skip()) {
                                        1000
                                 << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
   }
+}
+
+TEST_CASE("La pantalla de la contraseña maestra se dibuja sin errores a cualquier tamaño, al abrir y bloqueado") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.0f, ImVec2(1376, 768)),
+                                       std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    SinPantalla sin_pantalla(escala, tamano);
+    const Guardados guardados = muchos();
+    for (const bool conectado : {false, true}) {
+      for (const bool calculando : {false, true}) {
+        auto pantalla = pantalla_ajustes();
+        pantalla.con_conexion = conectado;
+        pantalla.calculando = calculando;
+        pantalla.error_identidad = "La contraseña no es correcta.";
+        for (float y = 5; y < tamano.y; y += 61) {
+          for (float x = 5; x < tamano.x; x += 97) {
+            const auto pedido = bloqueo(sin_pantalla, pantalla, guardados, ImVec2(x, y));
+            CHECK_FALSE(pedido.desbloquear);
+            CHECK_FALSE(pedido.guardados);
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("En la pantalla de la contraseña maestra, Enter desbloquea solo con algo escrito") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  const Guardados guardados = muchos();
+  auto pantalla = pantalla_ajustes();
+  const auto desbloquea = [&] {
+    bool desbloquear = false;
+    for (int i = 0; i < 3; ++i) {
+      desbloquear = bloqueo(sin_pantalla, pantalla, guardados, ImVec2(5, 5)).desbloquear || desbloquear;
+    }
+    return desbloquear;
+  };
+  pantalla.enfocar_contrasena = true;
+  desbloquea();
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  CHECK_FALSE(desbloquea());
+  pantalla.enfocar_contrasena = true;
+  desbloquea();
+  sin_pantalla.teclear("secreta");
+  desbloquea();
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  CHECK(desbloquea());
+  CHECK(std::string(pantalla.contrasena.data()) == "secreta");
+}
+
+TEST_CASE("Olvidar la contraseña maestra ofrece importar una copia o crear otra identidad, solo sin conexión") {
+  for (const bool conectado : {false, true}) {
+    SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+    const Guardados guardados = muchos();
+    auto pantalla = pantalla_ajustes();
+    pantalla.con_conexion = conectado;
+    bool importar = false;
+    for (float y = 190; y < 600 && pantalla.dialogo_identidad == ui::DialogoIdentidad::ninguno; y += 12) {
+      for (float x = 470; x < 910 && pantalla.dialogo_identidad == ui::DialogoIdentidad::ninguno; x += 20) {
+        for (const bool clic : {false, true, false}) {
+          const auto pedido = bloqueo(sin_pantalla, pantalla, guardados, ImVec2(x, y), clic);
+          importar = importar || pedido.importar_identidad;
+          CHECK_FALSE(pedido.desbloquear);
+        }
+      }
+    }
+    CHECK(importar == !conectado);
+    CHECK((pantalla.dialogo_identidad == ui::DialogoIdentidad::crear) == !conectado);
+  }
+}
+
+TEST_CASE("En Seguridad, Activar o Cambiar y Quitar abren su diálogo, y el bloqueo automático pide la contraseña maestra") {
+  for (const bool con_maestra : {false, true}) {
+    SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+    const Guardados guardados = muchos();
+    auto pantalla = pantalla_segura(con_maestra);
+    std::vector<ui::DialogoIdentidad> abiertos;
+    bool cambio = false;
+    for (float y = 150; y < 262; y += 12) {
+      for (float x = 1000; x < 1330; x += 14) {
+        for (const bool clic : {false, true, false}) {
+          cambio = sin_pantalla.cuadro(pantalla, guardados, ImVec2(x, y), clic).guardados.has_value() || cambio;
+        }
+        if (pantalla.dialogo_identidad == ui::DialogoIdentidad::ninguno) {
+          continue;
+        }
+        if (std::find(abiertos.begin(), abiertos.end(), pantalla.dialogo_identidad) == abiertos.end()) {
+          abiertos.push_back(pantalla.dialogo_identidad);
+        }
+        for (int i = 0; i < 4 && pantalla.dialogo_identidad != ui::DialogoIdentidad::ninguno; ++i) {
+          sin_pantalla.apretar(ImGuiKey_Escape);
+          sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+          sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+        }
+        REQUIRE(pantalla.dialogo_identidad == ui::DialogoIdentidad::ninguno);
+      }
+    }
+    std::sort(abiertos.begin(), abiertos.end());
+    if (con_maestra) {
+      CHECK(abiertos == std::vector<ui::DialogoIdentidad>{ui::DialogoIdentidad::cambiar, ui::DialogoIdentidad::quitar});
+    } else {
+      CHECK(abiertos == std::vector<ui::DialogoIdentidad>{ui::DialogoIdentidad::activar});
+      CHECK_FALSE(cambio);
+    }
+  }
+}
+
+TEST_CASE("Los diálogos de la contraseña maestra se dibujan a cualquier tamaño y piden lo necesario") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    SinPantalla sin_pantalla(escala, tamano);
+    const Guardados guardados = muchos();
+    for (const auto cual : {ui::DialogoIdentidad::activar, ui::DialogoIdentidad::cambiar, ui::DialogoIdentidad::quitar}) {
+      for (const bool calculando : {false, true}) {
+        auto pantalla = pantalla_segura(cual != ui::DialogoIdentidad::activar);
+        pantalla.dialogo_identidad = cual;
+        pantalla.abrir_dialogo_identidad = true;
+        pantalla.calculando = calculando;
+        pantalla.error_identidad = calculando ? "" : "La contraseña no es correcta.";
+        for (int i = 0; i < 3; ++i) {
+          CHECK_FALSE(sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5)).confirmar_identidad);
+        }
+        CHECK(pantalla.dialogo_identidad == cual);
+        for (int i = 0; i < 2; ++i) {
+          sin_pantalla.apretar(ImGuiKey_Escape);
+          sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+          sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+        }
+        CHECK((pantalla.dialogo_identidad == ui::DialogoIdentidad::ninguno) == !calculando);
+      }
+    }
+  }
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  const Guardados guardados = muchos();
+  auto pantalla = pantalla_segura(true);
+  const auto confirma = [&] {
+    bool confirmar = false;
+    for (int i = 0; i < 3; ++i) {
+      confirmar = sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5)).confirmar_identidad || confirmar;
+    }
+    return confirmar;
+  };
+  pantalla.dialogo_identidad = ui::DialogoIdentidad::quitar;
+  pantalla.abrir_dialogo_identidad = true;
+  confirma();
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  CHECK_FALSE(confirma());
+  pantalla.enfocar_contrasena = true;
+  confirma();
+  sin_pantalla.teclear("la de antes");
+  confirma();
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  CHECK(confirma());
+  CHECK(std::string(pantalla.actual.data()) == "la de antes");
+}
+
+TEST_CASE("banco de la contraseña maestra" * doctest::skip()) {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  const Guardados guardados = muchos();
+  auto pantalla = pantalla_ajustes();
+  for (int i = 0; i < 30; ++i) {
+    bloqueo(sin_pantalla, pantalla, guardados, ImVec2(600, 400));
+  }
+  const auto desde = std::chrono::steady_clock::now();
+  for (int i = 0; i < 1000; ++i) {
+    bloqueo(sin_pantalla, pantalla, guardados, ImVec2(600, 400));
+  }
+  MESSAGE("contraseña maestra: "
+          << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde).count() / 1000
+          << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
 }

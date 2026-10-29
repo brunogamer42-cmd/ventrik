@@ -57,7 +57,7 @@ class Avisos {
   void conectado(std::string servidor, std::uint32_t tu_id, std::string tu_nombre);
   void desconectado();
   void fuera(bool si);
-  void opciones(const OpcionesAvisos& opciones) { opciones_ = opciones; }
+  void opciones(const OpcionesAvisos& opciones);
   void idioma(Idioma idioma) { idioma_ = idioma; }
   void ajustes(AvisosDelServidor ajustes) { ajustes_ = std::move(ajustes); }
   void reloj(std::uint64_t ahora_ms) { ahora_ms_ = ahora_ms; }

@@ -35,7 +35,7 @@ struct MaximoDeAjuste {
   std::size_t texto;
 };
 
-constexpr std::array<MaximoDeAjuste, 22> kMaximos = {
+constexpr std::array<MaximoDeAjuste, 24> kMaximos = {
     {{Ajuste::ruido, static_cast<std::uint8_t>(Ruido::alta), 0},
      {Ajuste::eco, static_cast<std::uint8_t>(Eco::prendido), 0},
      {Ajuste::volumen_automatico, 1, 0},
@@ -57,7 +57,9 @@ constexpr std::array<MaximoDeAjuste, 22> kMaximos = {
      {Ajuste::avisos_minimizada, 1, 0},
      {Ajuste::sonar_por, 0, kMaximoNombreDeDispositivo},
      {Ajuste::no_molestar, kNoMolestarSiempre, 0},
-     {Ajuste::copia_de_identidad, 0, 80}}};
+     {Ajuste::copia_de_identidad, 0, 80},
+     {Ajuste::bloqueo, static_cast<std::uint8_t>(kMinutosDeBloqueo.size() - 1), 0},
+     {Ajuste::maestra, 1, 0}}};
 constexpr std::array<std::size_t, 3> kSonidosApagados = {8, 9, 22};
 
 bool es_valido(const MaximoDeAjuste& regla, const std::vector<std::uint8_t>& valor) {

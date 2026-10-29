@@ -117,14 +117,104 @@ TEST_CASE("El archivo de identidad se arma con DPAPI y vuelve a dar la misma cla
   const auto der = der_de(*clave);
   CHECK(std::search(archivo->begin(), archivo->end(), der.begin(), der.end()) == archivo->end());
   const auto leida = ventrik::cliente::leer_archivo_de_identidad(*archivo);
-  REQUIRE(leida);
-  CHECK(leida->huella() == clave->huella());
+  CHECK(leida.estado == EstadoIdentidad::lista);
+  REQUIRE(leida.clave);
+  CHECK(leida.clave->huella() == clave->huella());
   for (const std::size_t i : {std::size_t{0}, std::size_t{4}, std::size_t{5}, archivo->size() / 2, archivo->size() - 1}) {
     auto alterado = *archivo;
     alterado[i] ^= 0x01;
-    CHECK_FALSE(ventrik::cliente::leer_archivo_de_identidad(alterado));
+    const auto rota = ventrik::cliente::leer_archivo_de_identidad(alterado);
+    CHECK(rota.estado == EstadoIdentidad::danada);
+    CHECK_FALSE(rota.clave);
   }
-  CHECK_FALSE(ventrik::cliente::leer_archivo_de_identidad(gsl::span<const std::uint8_t>(*archivo).first(5)));
+  CHECK(ventrik::cliente::leer_archivo_de_identidad(gsl::span<const std::uint8_t>(*archivo).first(5)).estado ==
+        EstadoIdentidad::danada);
+}
+
+TEST_CASE("Con contraseña maestra la identidad se abre solo con ella, y cambiarla o quitarla no la pierde") {
+  const Carpeta carpeta;
+  const auto creada = ventrik::cliente::cargar_o_crear_mi_identidad(carpeta.ruta());
+  REQUIRE(creada.clave);
+  const auto huella = creada.clave->huella();
+  const auto der = der_de(*creada.clave);
+  const auto primera = ventrik::cliente::nueva_maestra("maestra uno", kRapido);
+  REQUIRE(primera);
+  REQUIRE(ventrik::cliente::guardar_mi_identidad(carpeta.ruta(), *creada.clave, &*primera));
+
+  const auto bloqueada = ventrik::cliente::cargar_o_crear_mi_identidad(carpeta.ruta());
+  REQUIRE(bloqueada.estado == EstadoIdentidad::con_contrasena);
+  CHECK_FALSE(bloqueada.clave);
+  CHECK(std::search(bloqueada.cerrada.begin(), bloqueada.cerrada.end(), der.begin(), der.end()) ==
+        bloqueada.cerrada.end());
+  const auto mal = ventrik::cliente::abrir_con_maestra(bloqueada.cerrada, "maestra dos");
+  CHECK(mal.resultado == AperturaSobre::contrasena);
+  CHECK_FALSE(mal.clave);
+  CHECK_FALSE(mal.llave);
+  const auto abierta = ventrik::cliente::abrir_con_maestra(bloqueada.cerrada, "maestra uno");
+  REQUIRE(abierta.resultado == AperturaSobre::abierto);
+  REQUIRE(abierta.clave);
+  REQUIRE(abierta.llave);
+  CHECK(abierta.clave->huella() == huella);
+
+  const auto otra_vez = ventrik::cliente::cerrar_con_maestra(*abierta.clave, *abierta.llave);
+  REQUIRE(otra_vez);
+  const auto reabierta = ventrik::cliente::abrir_con_maestra(*otra_vez, "maestra uno");
+  REQUIRE(reabierta.clave);
+  CHECK(reabierta.clave->huella() == huella);
+  CHECK(ventrik::cliente::abrir_con_maestra(*otra_vez, "maestra dos").resultado == AperturaSobre::contrasena);
+
+  const auto segunda = ventrik::cliente::nueva_maestra("maestra dos", kRapido);
+  REQUIRE(segunda);
+  REQUIRE(ventrik::cliente::guardar_mi_identidad(carpeta.ruta(), *abierta.clave, &*segunda));
+  const auto cambiada = ventrik::cliente::cargar_o_crear_mi_identidad(carpeta.ruta());
+  REQUIRE(cambiada.estado == EstadoIdentidad::con_contrasena);
+  CHECK(ventrik::cliente::abrir_con_maestra(cambiada.cerrada, "maestra uno").resultado == AperturaSobre::contrasena);
+  const auto con_la_nueva = ventrik::cliente::abrir_con_maestra(cambiada.cerrada, "maestra dos");
+  REQUIRE(con_la_nueva.clave);
+  CHECK(con_la_nueva.clave->huella() == huella);
+
+  REQUIRE(ventrik::cliente::guardar_mi_identidad(carpeta.ruta(), *abierta.clave));
+  const auto sin_maestra = ventrik::cliente::cargar_o_crear_mi_identidad(carpeta.ruta());
+  REQUIRE(sin_maestra.estado == EstadoIdentidad::lista);
+  REQUIRE(sin_maestra.clave);
+  CHECK(sin_maestra.clave->huella() == huella);
+  CHECK(sin_maestra.cerrada.empty());
+}
+
+TEST_CASE("La capa de la contraseña maestra alterada en un byte, o una copia en su lugar, no se abre") {
+  const auto clave = Clave::crear_nueva();
+  REQUIRE(clave);
+  const auto maestra = ventrik::cliente::nueva_maestra("maestra", kRapido);
+  REQUIRE(maestra);
+  const auto cerrada = ventrik::cliente::cerrar_con_maestra(*clave, *maestra);
+  REQUIRE(cerrada);
+  for (std::size_t i = 0; i < cerrada->size(); i += 7) {
+    auto alterada = *cerrada;
+    alterada[i] ^= 0x01;
+    const auto abierta = ventrik::cliente::abrir_con_maestra(alterada, "maestra");
+    CHECK(abierta.resultado != AperturaSobre::abierto);
+    CHECK_FALSE(abierta.clave);
+  }
+  const auto copia = ventrik::cliente::armar_copia(der_de(*clave), "maestra", kRapido);
+  REQUIRE(copia);
+  CHECK(ventrik::cliente::abrir_con_maestra(*copia, "maestra").resultado == AperturaSobre::danado);
+  CHECK(ventrik::cliente::abrir_copia(*cerrada, "maestra").resultado == AperturaSobre::danado);
+}
+
+TEST_CASE("El bloqueo automático decide con el bloqueo de Windows o con los minutos sin usar la PC") {
+  using ventrik::cliente::hay_que_bloquear;
+  constexpr std::uint32_t kMinuto = 60000;
+  CHECK_FALSE(hay_que_bloquear(0, true, 24 * 60 * kMinuto));
+  CHECK(hay_que_bloquear(1, true, 0));
+  CHECK_FALSE(hay_que_bloquear(1, false, 24 * 60 * kMinuto));
+  for (const auto& [eleccion, minutos] : {std::make_pair(2, 5u), std::make_pair(3, 15u), std::make_pair(4, 60u)}) {
+    const auto cual = static_cast<std::uint8_t>(eleccion);
+    CHECK_FALSE(hay_que_bloquear(cual, false, minutos * kMinuto - 1));
+    CHECK(hay_que_bloquear(cual, false, minutos * kMinuto));
+    CHECK_FALSE(hay_que_bloquear(cual, true, 0));
+  }
+  CHECK_FALSE(hay_que_bloquear(5, true, 24 * 60 * kMinuto));
+  CHECK_FALSE(hay_que_bloquear(255, true, 24 * 60 * kMinuto));
 }
 
 TEST_CASE("La identidad se crea una vez y después se reusa") {

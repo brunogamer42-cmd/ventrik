@@ -90,9 +90,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   contenido_de_copia(entrada);
   sobre(entrada);
   publica_y_firma(entrada);
-  if (const auto mia = ventrik::cliente::leer_archivo_de_identidad(entrada)) {
-    exigir(ventrik::cifrado::huella_de_publica(mia->publica()).has_value());
+  const auto mia = ventrik::cliente::leer_archivo_de_identidad(entrada);
+  if (mia.clave) {
+    exigir(ventrik::cifrado::huella_de_publica(mia.clave->publica()).has_value());
   }
+  exigir((mia.estado == ventrik::cliente::EstadoIdentidad::con_contrasena) == !mia.cerrada.empty());
+  exigir(mia.cerrada.empty() || ventrik::cifrado::leer_cabecera_sobre("VKMM", mia.cerrada).has_value());
   if (const auto equipo = ventrik::cliente::leer_archivo_de_equipo(entrada)) {
     exigir(equipo->size() == ventrik::cliente::kBytesSecretoDeEquipo);
   }

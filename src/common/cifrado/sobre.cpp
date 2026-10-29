@@ -152,8 +152,8 @@ std::optional<CabeceraSobre> leer_cabecera_sobre(std::string_view marca, gsl::sp
   return resultado;
 }
 
-std::optional<std::vector<std::uint8_t>> cerrar_sobre(std::string_view marca, gsl::span<const std::uint8_t> contenido,
-                                                      std::string_view contrasena, std::optional<Argon2> fijos) {
+std::optional<LlaveDeSobre> llave_nueva(std::string_view marca, std::string_view contrasena,
+                                        std::optional<Argon2> fijos) {
   std::array<std::uint8_t, kBytesSal> sal{};
   Secreto clave(kBytesClaveSimetrica);
   if (marca.size() != kBytesMarca || aleatorio(nullptr, sal.data(), sal.size()) != 0) {
@@ -164,13 +164,24 @@ std::optional<std::vector<std::uint8_t>> cerrar_sobre(std::string_view marca, gs
   if (!valores) {
     return std::nullopt;
   }
-  std::vector<std::uint8_t> sobre = cabecera(marca, *valores, sal);
-  const auto sellado = sellar(clave.bytes(), sobre, contenido);
-  if (!sellado) {
+  return LlaveDeSobre{cabecera(marca, *valores, sal), std::move(clave)};
+}
+
+std::optional<std::vector<std::uint8_t>> cerrar_con_llave(const LlaveDeSobre& llave,
+                                                          gsl::span<const std::uint8_t> contenido) {
+  const auto sellado = sellar(llave.clave.bytes(), llave.cabecera, contenido);
+  if (!sellado || llave.cabecera.size() != kBytesCabecera) {
     return std::nullopt;
   }
+  std::vector<std::uint8_t> sobre = llave.cabecera;
   sobre.insert(sobre.end(), sellado->begin(), sellado->end());
   return sobre;
+}
+
+std::optional<std::vector<std::uint8_t>> cerrar_sobre(std::string_view marca, gsl::span<const std::uint8_t> contenido,
+                                                      std::string_view contrasena, std::optional<Argon2> fijos) {
+  const auto llave = llave_nueva(marca, contrasena, fijos);
+  return llave ? cerrar_con_llave(*llave, contenido) : std::nullopt;
 }
 
 SobreAbierto abrir_sobre(std::string_view marca, gsl::span<const std::uint8_t> sobre, std::string_view contrasena) {
@@ -190,6 +201,10 @@ SobreAbierto abrir_sobre(std::string_view marca, gsl::span<const std::uint8_t> s
   }
   resultado.contenido = abrir_sellado(clave.bytes(), leida->asociados, leida->sellado);
   resultado.resultado = resultado.contenido ? AperturaSobre::abierto : AperturaSobre::contrasena;
+  if (resultado.contenido) {
+    resultado.llave = LlaveDeSobre{std::vector<std::uint8_t>(leida->asociados.begin(), leida->asociados.end()),
+                                   std::move(clave)};
+  }
   return resultado;
 }
 

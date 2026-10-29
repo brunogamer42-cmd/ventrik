@@ -932,7 +932,7 @@ Cada capa nueva tiene que cubrir una amenaza que ninguna otra cubre. Las que rep
 | Máximo | Lo anterior, más llave de seguridad o código TOTP para todos, invitaciones de un solo uso, sin historial guardado y rechazo de comprimidos con contraseña. En XP, solo funciona detrás del relay |
 | Personalizado | Cada opción por separado. Si el dueño cambia una opción de otro nivel, el servidor pasa solo a Personalizado |
 
-Cada usuario puede sumar por su cuenta la contraseña maestra, la llave de seguridad y el bloqueo automático, desde Ajustes.
+Cada usuario puede sumar por su cuenta la contraseña maestra, la llave de seguridad y el bloqueo automático, desde Ajustes. El bloqueo automático viene en Nunca y necesita la contraseña maestra: sin elegirlo, con la PC bloqueada Ventrik sigue transmitiendo, como Discord. Bloqueado, seguís conectado y escuchando pero no transmitís, y los avisos llegan sin el texto.
 
 ## Conectarse desde internet
 

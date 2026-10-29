@@ -43,6 +43,7 @@ struct Situacion {
   bool bloqueada = false;
   bool ahorro = false;
   bool oculta = false;
+  std::uint32_t bloqueos = 0;
   bool dibuja() const { return !minimizada && !oculta && !tapada && !juego && !bloqueada; }
 };
 
@@ -72,6 +73,7 @@ class Ventana {
   bool por_procesador() const;
   const Situacion& situacion() const { return situacion_; }
   UsoVentana tomar_uso() { return std::exchange(uso_, {}); }
+  std::uint32_t tomar_sin_usar_ms();
   std::uint32_t arranque_ms() const { return arranque_ms_; }
   int correr(const std::function<bool()>& atender, const std::function<void()>& dibujar);
   void al_terminar_la_sesion(std::function<void()> terminar) { al_terminar_ = std::move(terminar); }
@@ -101,6 +103,7 @@ class Ventana {
   bool presentar_igual_ = true;
   bool bloqueo_ = false;
   bool protector_ = false;
+  std::uint32_t mas_sin_usar_ms_ = 0;
   Situacion situacion_;
   UsoVentana uso_;
   std::uint32_t arranque_ms_ = 0;

@@ -64,10 +64,14 @@ enum class Ajuste : std::uint16_t {
   sonar_por = 24,
   no_molestar = 25,
   copia_de_identidad = 26,
+  bloqueo = 27,
+  maestra = 28,
   sonido_1 = 30,
   propio_1 = 60
 };
 constexpr std::array<std::uint16_t, 4> kSeguirAlSoltarMs = {0, 200, 500, 1000};
+constexpr std::uint8_t kBloqueoConWindows = 1;
+constexpr std::array<std::uint32_t, 5> kMinutosDeBloqueo = {0, 0, 5, 15, 60};
 enum class Eco : std::uint8_t { apagado, automatico, prendido };
 enum class Bajar : std::uint8_t { nada, un_poco, bastante, mucho };
 

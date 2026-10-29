@@ -106,6 +106,11 @@ float escala_de_pantalla() {
   return puntos > 0 ? static_cast<float>(puntos) / 96.0f : 1.0f;
 }
 
+std::uint32_t sin_usar_ms() {
+  LASTINPUTINFO ultima = {sizeof(ultima), 0};
+  return GetLastInputInfo(&ultima) ? GetTickCount() - ultima.dwTime : 0;
+}
+
 bool hay_un_juego_adelante(HWND propia) {
   const HWND adelante = GetForegroundWindow();
   const HMONITOR monitor = MonitorFromWindow(propia, MONITOR_DEFAULTTONEAREST);
@@ -663,6 +668,10 @@ int Ventana::correr(const std::function<bool()>& atender, const std::function<vo
   }
 }
 
+std::uint32_t Ventana::tomar_sin_usar_ms() {
+  return std::max(std::exchange(mas_sin_usar_ms_, 0u), sin_usar_ms());
+}
+
 LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LPARAM lparam) {
   if (ImGui_ImplWin32_WndProcHandler(ventana, mensaje, wparam, lparam)) {
     return 1;
@@ -688,11 +697,17 @@ LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LP
         yo->situacion_.con_foco = wparam != FALSE;
       }
       break;
+    case WM_TIMER:
+      if (yo != nullptr && wparam == kTic) {
+        yo->mas_sin_usar_ms_ = std::max(yo->mas_sin_usar_ms_, sin_usar_ms());
+      }
+      break;
     case WM_WTSSESSION_CHANGE:
       if (yo != nullptr) {
         yo->uso_.aviso_de_sesion = static_cast<std::uint32_t>(wparam);
         if (wparam == WTS_SESSION_LOCK || wparam == WTS_CONSOLE_DISCONNECT || wparam == WTS_REMOTE_DISCONNECT) {
           yo->bloqueo_ = true;
+          ++yo->situacion_.bloqueos;
         } else if (wparam == WTS_SESSION_UNLOCK || wparam == WTS_CONSOLE_CONNECT || wparam == WTS_REMOTE_CONNECT) {
           yo->bloqueo_ = false;
         }

@@ -8,6 +8,9 @@
 #include <windows.h>
 
 #include <imgui_internal.h>
+namespace ImStb {
+#include <imstb_textedit.h>
+}
 
 #include "common/texto.h"
 #include "common/utf.h"
@@ -122,10 +125,13 @@ void olvidar_lo_escrito() {
   ImGuiContext& contexto = *ImGui::GetCurrentContext();
   ImGuiInputTextState& estado = contexto.InputTextState;
   for (ImVector<char>* texto : {&estado.TextA, &estado.TextToRevertTo, &estado.CallbackTextBackup,
-                                &contexto.InputTextDeactivatedState.TextA}) {
+                                &contexto.InputTextDeactivatedState.TextA, &contexto.ClipboardHandlerData}) {
     if (texto->Data != nullptr) {
       SecureZeroMemory(texto->Data, static_cast<std::size_t>(texto->Capacity));
     }
+  }
+  if (estado.Stb != nullptr) {
+    SecureZeroMemory(&estado.Stb->undostate, sizeof(estado.Stb->undostate));
   }
   estado.ID = 0;
   contexto.InputTextDeactivatedState.ID = 0;

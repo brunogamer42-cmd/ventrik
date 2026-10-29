@@ -108,6 +108,18 @@ TEST_CASE("Con privacidad solo dice el canal y la cantidad, y no pide el texto a
   CHECK_FALSE(avisos.pedir(kAhora, false, false));
 }
 
+TEST_CASE("Al pasar a privado, como al bloquear Ventrik, los avisos que ya estaban se rehacen sin el texto") {
+  Avisos avisos = conectados();
+  avisos.mensaje(chat(5, 2, "Tano", "secreto"), "Partida", true);
+  CHECK(cuerpo(avisos) == "Tano: secreto");
+  const auto antes = avisos.version();
+  OpcionesAvisos privado;
+  privado.privado = true;
+  avisos.opciones(privado);
+  CHECK(cuerpo(avisos) == "1 mensaje nuevo");
+  CHECK(avisos.version() > antes);
+}
+
 TEST_CASE("Un canal no mirado pide sus mensajes y arma el aviso con lo que llega") {
   Avisos avisos = conectados();
   avisos.nuevos(7, "charla", 1);
