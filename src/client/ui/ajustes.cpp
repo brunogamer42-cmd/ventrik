@@ -50,7 +50,7 @@ constexpr std::array<Item, kSecciones> kMenu = {{{Seccion::general, Clave::ajust
                                                  {Seccion::copias, Clave::ajustes_copias, kSinGrupo, 14},
                                                  {Seccion::acerca, Clave::ajustes_acerca, kSinGrupo, 11}}};
 
-constexpr std::array<std::pair<Seccion, Clave>, 37> kBuscables = {{
+constexpr std::array<std::pair<Seccion, Clave>, 38> kBuscables = {{
     {Seccion::general, Clave::ajustes_iniciar_con_windows},
     {Seccion::general, Clave::ajustes_entrar_al_ultimo},
     {Seccion::general, Clave::ajustes_al_cerrar},
@@ -87,7 +87,8 @@ constexpr std::array<std::pair<Seccion, Clave>, 37> kBuscables = {{
     {Seccion::seguridad, Clave::maestra},
     {Seccion::seguridad, Clave::bloqueo},
     {Seccion::seguridad, Clave::seguridad_copia},
-    {Seccion::seguridad, Clave::seguridad_exportar}}};
+    {Seccion::seguridad, Clave::seguridad_exportar},
+    {Seccion::seguridad, Clave::llave}}};
 
 struct Grupo {
   std::size_t primero;
@@ -143,7 +144,7 @@ struct DatosDeDialogo {
   bool repetir;
 };
 
-constexpr std::array<DatosDeDialogo, 8> kDialogos = {{
+constexpr std::array<DatosDeDialogo, 9> kDialogos = {{
     {kSinGrupo, kSinGrupo, kSinGrupo, kSinGrupo, false, false, false},
     {Clave::seguridad_exportar_titulo, Clave::seguridad_exportar_ayuda, Clave::seguridad_guardar_copia,
      Clave::seguridad_protegiendo, false, true, true},
@@ -159,6 +160,7 @@ constexpr std::array<DatosDeDialogo, 8> kDialogos = {{
      true, true, true},
     {Clave::maestra_quitar_titulo, Clave::maestra_quitar_ayuda, Clave::maestra_quitar, Clave::maestra_comprobando, true,
      false, false},
+    {Clave::llave_titulo, Clave::llave_dialogo_ayuda, Clave::llave_seguir, Clave::llave_tocando, false, false, false},
 }};
 
 std::wstring en_minusculas(std::string_view texto) {
@@ -1114,12 +1116,13 @@ class Dibujo {
     const std::string_view problema = t(estado == EstadoDeIdentidad::error ? Clave::seguridad_error : Clave::seguridad_danada);
     const float abajo = sin_identidad ? alto_envuelto(problema, interior, medida::letra_chica) + px(8) : px(44);
     const bool con_aviso = !pantalla_.aviso_identidad.empty();
-    const float alto = px(64) + 3 * fila + px(16) + abajo + (con_aviso ? px(26) : 0) + px(kRelleno);
+    const bool con_llave = pantalla_.llaves > 0;
+    const float alto = px(64) + 4 * fila + px(16) + abajo + (con_aviso ? px(26) : 0) + px(kRelleno);
     panel(desde, ImVec2(desde.x + ancho, desde.y + alto));
     float y = titulo(desde, Clave::ajustes_seguridad);
     const float boton_y = (fila - px(36)) / 2;
     float derecha = x + interior - px(12);
-    ImGui::BeginDisabled(estado != EstadoDeIdentidad::lista || pantalla_.calculando);
+    ImGui::BeginDisabled(estado != EstadoDeIdentidad::lista || pantalla_.calculando || con_llave);
     if (con_maestra) {
       if (boton_a_la_izquierda("##quitar_maestra", t(Clave::maestra_quitar), Estilo::contorneado, derecha, y + boton_y)) {
         abrir_dialogo(DialogoIdentidad::quitar);
@@ -1132,7 +1135,8 @@ class Dibujo {
       abrir_dialogo(DialogoIdentidad::activar);
     }
     ImGui::EndDisabled();
-    y = fila_de_seguridad(x, y, interior, Clave::maestra, Clave::maestra_ayuda, derecha);
+    y = fila_de_seguridad(x, y, interior, Clave::maestra, con_llave ? Clave::maestra_con_llave : Clave::maestra_ayuda,
+                          derecha);
     const float ancho_lista = px(250);
     derecha = x + interior - px(12) - ancho_lista;
     ImGui::BeginDisabled(!con_maestra);
@@ -1146,9 +1150,21 @@ class Dibujo {
     y = fila_de_seguridad(x, y, interior, Clave::bloqueo, con_maestra ? Clave::bloqueo_ayuda : Clave::bloqueo_sin_maestra,
                           derecha - px(12));
     derecha = x + interior - px(12);
+    ImGui::BeginDisabled(!pantalla_.llaves_posibles || con_llave || estado != EstadoDeIdentidad::lista ||
+                         pantalla_.calculando);
+    pedido_.agregar_llave =
+        boton_a_la_izquierda("##agregar_llave", t(Clave::llave_agregar), Estilo::contorneado, derecha, y + boton_y);
+    ImGui::EndDisabled();
+    y = fila_de_seguridad(x, y, interior, Clave::llave,
+                          !pantalla_.llaves_posibles ? Clave::llave_sin_windows
+                          : con_llave                ? Clave::llave_ayuda_lista
+                                                     : Clave::llave_ayuda,
+                          derecha);
+    derecha = x + interior - px(12);
     ImGui::BeginDisabled(estado == EstadoDeIdentidad::cargando || pantalla_.calculando);
     pedido_.importar_identidad = boton_a_la_izquierda("##importar_identidad", t(Clave::seguridad_importar),
                                                       Estilo::esquineros, derecha, y + boton_y);
+    ImGui::BeginDisabled(con_llave);
     if (boton_a_la_izquierda("##exportar_identidad",
                              t(sin_identidad ? Clave::seguridad_crear_otra : Clave::seguridad_exportar),
                              Estilo::principal, derecha, y + boton_y)) {
@@ -1159,7 +1175,9 @@ class Dibujo {
       }
     }
     ImGui::EndDisabled();
-    y = fila_de_seguridad(x, y, interior, Clave::seguridad_copia, Clave::seguridad_copia_ayuda, derecha);
+    ImGui::EndDisabled();
+    y = fila_de_seguridad(x, y, interior, Clave::seguridad_copia,
+                          con_llave ? Clave::seguridad_copia_con_llave : Clave::seguridad_copia_ayuda, derecha);
     y += px(16);
     if (sin_identidad) {
       escribir_envuelto(ImVec2(x, y), problema, color::rojo, interior, medida::letra_chica);
@@ -1212,7 +1230,10 @@ class Dibujo {
     }
     const DatosDeDialogo& datos = kDialogos[static_cast<std::size_t>(cual)];
     const int campos = static_cast<int>(datos.actual) + static_cast<int>(datos.nueva) + static_cast<int>(datos.repetir);
-    const std::string texto_ayuda = con_datos(t(datos.ayuda), {pantalla_.identidad, pantalla_.identidad_nueva});
+    const bool de_llave = cual == DialogoIdentidad::llave;
+    const std::string texto_ayuda =
+        de_llave ? con_datos(t(datos.ayuda), {std::to_string(pantalla_.llaves_nuevas)})
+                 : con_datos(t(datos.ayuda), {pantalla_.identidad, pantalla_.identidad_nueva});
     const std::string_view estado =
         pantalla_.calculando ? t(datos.calculando) : std::string_view(pantalla_.error_identidad);
     const float ancho = px(440);
@@ -1279,10 +1300,21 @@ class Dibujo {
     const bool cancelar = boton("##no_identidad", no, Estilo::contorneado, ImVec2(ancho_no, px(medida::alto_principal))) ||
                           (ImGui::IsKeyPressed(ImGuiKey_Escape) && !pantalla_.calculando);
     ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no - px(10) - ancho_si, y + px(6)));
+    ImGui::BeginDisabled(de_llave && pantalla_.llaves_nuevas == 0);
     confirmar = boton("##si_identidad", texto_si, Estilo::principal, ImVec2(ancho_si, px(medida::alto_principal))) ||
                 confirmar;
     ImGui::EndDisabled();
-    if (confirmar && !pantalla_.calculando && contrasenas_validas()) {
+    if (de_llave) {
+      const std::string_view otra = t(pantalla_.llaves_nuevas == 0 ? Clave::llave_probar : Clave::llave_otra);
+      const float ancho_otra = ancho_boton(otra, Estilo::contorneado);
+      ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no - ancho_si - px(20) - ancho_otra, y + px(6)));
+      ImGui::BeginDisabled(pantalla_.llaves_nuevas >= cliente::kMaximoLlaves);
+      pedido_.agregar_llave =
+          boton("##otra_llave", otra, Estilo::contorneado, ImVec2(ancho_otra, px(medida::alto_principal)));
+      ImGui::EndDisabled();
+    }
+    ImGui::EndDisabled();
+    if (confirmar && !pantalla_.calculando && (!de_llave || pantalla_.llaves_nuevas > 0) && contrasenas_validas()) {
       pedido_.confirmar_identidad = true;
     }
     if (cancelar) {

@@ -58,6 +58,20 @@ struct SegundoPasoGuardado {
   std::uint64_t desde_ms = 0;
 };
 
+constexpr std::size_t kMaximoLlavesPorUsuario = 8;
+
+struct LlaveGuardada {
+  ClaveDeUsuario llave{};
+  std::uint32_t contador = 0;
+  bool confirmada = false;
+};
+
+struct LlavesDeUsuario {
+  ClaveDeUsuario clave{};
+  std::uint32_t generacion = 0;
+  std::vector<LlaveGuardada> llaves;
+};
+
 struct AvisosPendientes {
   std::vector<protocolo::AvisoDeSeguridad> lista;
   std::int64_t hasta = 0;
@@ -112,6 +126,8 @@ class Base {
   std::optional<std::vector<SegundoPasoGuardado>> segundos_pasos();
   bool guardar_segundo_paso(const SegundoPasoGuardado& guardado);
   bool quitar_segundo_paso(const ClaveDeUsuario& clave);
+  std::optional<std::vector<LlavesDeUsuario>> llaves();
+  bool guardar_llaves(const LlavesDeUsuario& llaves);
   bool leer_seguridad(std::optional<ventrik::Seguridad>& leida);
   bool guardar_seguridad(const ventrik::Seguridad& seguridad);
   bool quitar_dueno();

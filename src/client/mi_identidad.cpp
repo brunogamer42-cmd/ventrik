@@ -11,6 +11,7 @@
 #include "common/archivos.h"
 #include "common/cifrado/dpapi.h"
 #include "common/cifrado/inicio.h"
+#include "common/cifrado/llave.h"
 #include "common/protocol/bytes.h"
 
 namespace ventrik::cliente {
@@ -20,8 +21,11 @@ constexpr std::string_view kMarcaIdentidad = "VKMI";
 constexpr std::string_view kMarcaCopia = "VKID";
 constexpr std::string_view kMarcaEquipo = "VKEQ";
 constexpr std::string_view kMarcaMaestra = "VKMM";
+constexpr std::string_view kMarcaLlaves = "VKLL";
 constexpr std::string_view kPropositoIdentidad = "ventrik identidad v1";
 constexpr std::string_view kPropositoEquipo = "ventrik equipo v1";
+constexpr std::string_view kPropositoLlaves = "ventrik llaves v1";
+constexpr std::size_t kBytesGeneracion = 4;
 constexpr std::uint8_t kVersion = 1;
 constexpr std::uint8_t kSinContrasenaMaestra = 0;
 constexpr std::uint8_t kConContrasenaMaestra = 1;
@@ -84,7 +88,7 @@ CopiaAbierta abrir(std::string_view marca, gsl::span<const std::uint8_t> sobre, 
   cifrado::SobreAbierto abierto = cifrado::abrir_sobre(marca, sobre, contrasena);
   CopiaAbierta resultado{abierto.resultado, std::nullopt, std::nullopt};
   if (abierto.contenido) {
-    resultado.clave = leer_contenido_de_copia(abierto.contenido->bytes());
+    resultado.clave = leer_contenido_de_copia(abierto.contenido->bytes(), &resultado.generacion);
     resultado.resultado = resultado.clave ? cifrado::AperturaSobre::abierto : cifrado::AperturaSobre::danado;
   }
   if (resultado.clave) {
@@ -95,7 +99,7 @@ CopiaAbierta abrir(std::string_view marca, gsl::span<const std::uint8_t> sobre, 
 
 }  // namespace
 
-MiIdentidad cargar_o_crear_mi_identidad(const std::wstring& carpeta) {
+MiIdentidad cargar_o_crear_mi_identidad(const std::wstring& carpeta, bool crear) {
   const std::wstring archivo = carpeta + L"\\identidad.dat";
   borrar_temporales_de(archivo);
   for (int intento = 0; intento < 2; ++intento) {
@@ -108,6 +112,9 @@ MiIdentidad cargar_o_crear_mi_identidad(const std::wstring& carpeta) {
       case LecturaArchivo::error:
         return {EstadoIdentidad::error, {}, {}};
       case LecturaArchivo::no_existe:
+        if (!crear) {
+          return {EstadoIdentidad::danada, {}, {}};
+        }
         break;
     }
     auto nueva = cifrado::Clave::crear_nueva();
@@ -128,6 +135,22 @@ bool guardar_mi_identidad(const std::wstring& carpeta, const cifrado::Clave& cla
                           const cifrado::LlaveDeSobre* maestra) {
   const auto armado = armar_archivo_de_identidad(clave, maestra);
   return armado && crear_carpetas(carpeta) && escribir_archivo_completo(carpeta + L"\\identidad.dat", *armado);
+}
+
+bool borrar_identidad_de_la_pc(const std::wstring& carpeta, const cifrado::Huella& huella) {
+  for (int numero = 1; numero < 100; ++numero) {
+    const std::wstring vieja = carpeta + L"\\identidad-vieja-" + std::to_wstring(numero) + L".dat";
+    cifrado::Secreto contenido;
+    if (leer_archivo(vieja, kMaximoArchivoIdentidad, contenido) == LecturaArchivo::leido) {
+      const MiIdentidad leida = leer_archivo_de_identidad(contenido.bytes());
+      if (leida.clave && leida.clave->huella() == huella) {
+        borrar_con_ceros(vieja);
+      }
+    }
+  }
+  const std::wstring archivo = carpeta + L"\\identidad.dat";
+  borrar_temporales_de(archivo);
+  return borrar_con_ceros(archivo);
 }
 
 std::optional<std::vector<std::uint8_t>> armar_archivo_de_identidad(const cifrado::Clave& clave,
@@ -156,17 +179,111 @@ MiIdentidad leer_archivo_de_identidad(gsl::span<const std::uint8_t> archivo) {
 }
 
 std::optional<std::vector<std::uint8_t>> armar_copia(gsl::span<const std::uint8_t> der, std::string_view contrasena,
-                                                     std::optional<cifrado::Argon2> fijos) {
+                                                     std::optional<cifrado::Argon2> fijos, std::uint32_t generacion) {
   const auto paquete = empaquetar(kVersion, der);
-  return paquete ? cifrado::cerrar_sobre(kMarcaCopia, paquete->bytes(), contrasena, fijos) : std::nullopt;
+  if (!paquete) {
+    return std::nullopt;
+  }
+  cifrado::Secreto con_generacion(paquete->size() + kBytesGeneracion);
+  const auto destino = con_generacion.bytes();
+  std::copy(paquete->bytes().begin(), paquete->bytes().end(), destino.begin());
+  for (std::size_t i = 0; i < kBytesGeneracion; ++i) {
+    destino[paquete->size() + i] = static_cast<std::uint8_t>(generacion >> (8 * i));
+  }
+  return cifrado::cerrar_sobre(kMarcaCopia, con_generacion.bytes(), contrasena, fijos);
 }
 
 CopiaAbierta abrir_copia(gsl::span<const std::uint8_t> copia, std::string_view contrasena) {
   return abrir(kMarcaCopia, copia, contrasena);
 }
 
-std::optional<cifrado::Clave> leer_contenido_de_copia(gsl::span<const std::uint8_t> contenido) {
-  return clave_de(desempaquetar(kVersion, contenido));
+std::optional<cifrado::Clave> leer_contenido_de_copia(gsl::span<const std::uint8_t> contenido,
+                                                      std::uint32_t* generacion) {
+  const bool con_generacion = !desempaquetar(kVersion, contenido) && contenido.size() > kBytesGeneracion;
+  const auto der =
+      desempaquetar(kVersion, con_generacion ? contenido.first(contenido.size() - kBytesGeneracion) : contenido);
+  if (der && con_generacion && generacion != nullptr) {
+    protocolo::Lector cola(contenido.last(kBytesGeneracion));
+    *generacion = cola.leer_u32();
+  }
+  return clave_de(der);
+}
+
+std::optional<std::vector<std::uint8_t>> armar_contenido_de_llaves(const MisLlaves& llaves) {
+  if (llaves.llaves.size() > kMaximoLlaves || !cifrado::huella_de_publica(llaves.identidad)) {
+    return std::nullopt;
+  }
+  protocolo::Escritor escritor;
+  escritor.escribir_u32(llaves.generacion);
+  escritor.escribir_bytes(llaves.identidad);
+  escritor.escribir_u8(static_cast<std::uint8_t>(llaves.llaves.size()));
+  for (const LlaveRegistrada& llave : llaves.llaves) {
+    if (llave.id.empty() || llave.id.size() > cifrado::kMaximoIdDeLlave || llave.permiso.empty() ||
+        llave.permiso.size() > cifrado::kMaximoFirma) {
+      return std::nullopt;
+    }
+    escritor.escribir_bytes(llave.publica);
+    escritor.escribir_u16(static_cast<std::uint16_t>(llave.id.size()));
+    escritor.escribir_bytes(llave.id);
+    escritor.escribir_u8(static_cast<std::uint8_t>(llave.permiso.size()));
+    escritor.escribir_bytes(llave.permiso);
+  }
+  return escritor.ok() ? std::optional<std::vector<std::uint8_t>>(std::move(escritor).soltar()) : std::nullopt;
+}
+
+std::optional<MisLlaves> leer_contenido_de_llaves(gsl::span<const std::uint8_t> contenido) {
+  protocolo::Lector lector(contenido);
+  MisLlaves leidas;
+  leidas.generacion = lector.leer_u32();
+  const auto identidad = lector.leer_bytes(leidas.identidad.size());
+  std::copy(identidad.begin(), identidad.end(), leidas.identidad.begin());
+  const std::size_t cantidad = lector.leer_u8();
+  for (std::size_t i = 0; i < cantidad && cantidad <= kMaximoLlaves && lector.ok(); ++i) {
+    LlaveRegistrada llave;
+    const auto publica = lector.leer_bytes(llave.publica.size());
+    std::copy(publica.begin(), publica.end(), llave.publica.begin());
+    const std::size_t largo_id = lector.leer_u16();
+    const auto id = lector.leer_bytes(largo_id);
+    const std::size_t largo_permiso = lector.leer_u8();
+    const auto permiso = lector.leer_bytes(largo_permiso);
+    if (largo_id == 0 || largo_id > cifrado::kMaximoIdDeLlave || largo_permiso == 0 ||
+        largo_permiso > cifrado::kMaximoFirma || !cifrado::huella_de_publica(llave.publica)) {
+      return std::nullopt;
+    }
+    llave.id.assign(id.begin(), id.end());
+    llave.permiso.assign(permiso.begin(), permiso.end());
+    leidas.llaves.push_back(std::move(llave));
+  }
+  if (!lector.terminado() || cantidad > kMaximoLlaves || !cifrado::huella_de_publica(leidas.identidad)) {
+    return std::nullopt;
+  }
+  return leidas;
+}
+
+std::optional<MisLlaves> leer_archivo_de_llaves(gsl::span<const std::uint8_t> archivo) {
+  const auto cuerpo = sin_marca(kMarcaLlaves, archivo);
+  const auto abierto = cuerpo ? cifrado::abrir_con_windows(*cuerpo, kPropositoLlaves) : std::nullopt;
+  return abierto ? leer_contenido_de_llaves(abierto->bytes()) : std::nullopt;
+}
+
+LlavesCargadas cargar_mis_llaves(const std::wstring& carpeta) {
+  const std::wstring archivo = carpeta + L"\\llaves.dat";
+  borrar_temporales_de(archivo);
+  cifrado::Secreto contenido;
+  const LecturaArchivo lectura = leer_archivo(archivo, kMaximoArchivoIdentidad, contenido);
+  if (lectura == LecturaArchivo::no_existe) {
+    return {};
+  }
+  auto llaves = lectura == LecturaArchivo::leido ? leer_archivo_de_llaves(contenido.bytes()) : std::nullopt;
+  const bool danadas = !llaves;
+  return {std::move(llaves), danadas};
+}
+
+bool guardar_mis_llaves(const std::wstring& carpeta, const MisLlaves& llaves) {
+  const auto contenido = armar_contenido_de_llaves(llaves);
+  const auto protegido = contenido ? cifrado::proteger_con_windows(*contenido, kPropositoLlaves) : std::nullopt;
+  return protegido && crear_carpetas(carpeta) &&
+         escribir_archivo_completo(carpeta + L"\\llaves.dat", con_marca(kMarcaLlaves, *protegido));
 }
 
 std::optional<cifrado::LlaveDeSobre> nueva_maestra(std::string_view contrasena, std::optional<cifrado::Argon2> fijos) {

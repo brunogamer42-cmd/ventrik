@@ -30,6 +30,8 @@ namespace ventrik::servidor {
 struct Opciones {
   red::Direccion escuchar{0, red::kPuertoPredeterminado};
   std::chrono::milliseconds tiempo_para_saludar{10000};
+  std::chrono::milliseconds tiempo_para_la_llave{180000};
+  std::size_t esperando_llave = 8;
   std::size_t pendientes_por_ip = 4;
   std::size_t pendientes_en_total = 64;
   std::size_t conexiones_por_ip = 16;
@@ -109,6 +111,8 @@ enum class Evento {
   segundo_paso_quitado,
   config_cambiada,
   maximo_en_xp,
+  llave_clonada,
+  segundo_paso_permitido,
 };
 
 using Avisar = std::function<void(Evento, const red::Direccion&, const std::string&)>;
@@ -149,6 +153,8 @@ class Servidor {
     std::wstring comparable;
     std::chrono::steady_clock::time_point desde_reemplazos{};
     int reemplazos = 0;
+    std::uint32_t generacion = 0;
+    std::vector<LlaveGuardada> llaves;
   };
 
   void aceptar_nuevas();
@@ -171,6 +177,7 @@ class Servidor {
   void liberar_nombre(Conexion& conexion, const protocolo::Marco& marco);
   void segundo_paso(Conexion& conexion, const protocolo::Marco& marco);
   void quitar_segundo_paso(Conexion& conexion, const protocolo::Marco& marco);
+  void permitir_segundo_paso(Conexion& conexion, const protocolo::Marco& marco);
   void pedir_config_seguridad(Conexion& conexion, const protocolo::Marco& marco);
   void cambiar_config_seguridad(Conexion& conexion, const protocolo::Marco& marco);
   void aplicar_seguridad(const Seguridad& nueva);
@@ -178,9 +185,19 @@ class Servidor {
   bool pide_segundo_paso(const UsuarioGuardado& usuario, bool reclama = false) const;
   bool comprobar_segundo_paso(Conexion& conexion, Registrado& yo, const protocolo::Presentarse& presentacion);
   void revisar_segundo_paso(Conexion& conexion);
+  void revisar_y_difundir(Conexion& conexion);
   void ofrecer_segundo_paso(Conexion& conexion);
   bool guardar_segundo_paso(const SegundoPasoGuardado& guardado);
+  bool restringida(const Conexion& conexion) const;
+  std::optional<protocolo::MotivoPresentacion> revisar_llave(Conexion& conexion,
+                                                             const protocolo::Presentarse& presentacion,
+                                                             gsl::span<const std::uint8_t> valor);
+  void confirmar_llave(Conexion& conexion);
+  void guardar_llaves(const Registrado& registrado);
+  void pedir_avisos(const Conexion& conexion);
+  void entregar_avisos(Conexion& conexion, const AvisosPendientes& pendientes);
   std::vector<Registrado>::iterator registrado_de(const ClaveDeUsuario& clave);
+  void avisar_a(const ClaveDeUsuario& clave, const protocolo::AvisoDeSeguridad& aviso);
   void avisar_al_dueno(const protocolo::AvisoDeSeguridad& aviso);
   bool anotar(const protocolo::AvisoDeSeguridad& aviso, const std::optional<UsuarioGuardado>& usuario = std::nullopt);
   bool guardar_entrada(std::uint32_t id, const UsuarioGuardado& usuario, const Equipo& equipo, bool nueva);

@@ -38,12 +38,25 @@ void clave_del_servidor(gsl::span<const std::uint8_t> datos) {
 }
 
 void contenido_de_copia(gsl::span<const std::uint8_t> datos) {
-  const auto clave = ventrik::cliente::leer_contenido_de_copia(datos);
+  std::uint32_t generacion = 0;
+  const auto clave = ventrik::cliente::leer_contenido_de_copia(datos, &generacion);
   if (!clave) {
+    exigir(generacion == 0);
     return;
   }
   const auto huella = ventrik::cifrado::huella_de_publica(clave->publica());
   exigir(huella && *huella == clave->huella());
+}
+
+void contenido_de_llaves(gsl::span<const std::uint8_t> datos) {
+  const auto llaves = ventrik::cliente::leer_contenido_de_llaves(datos);
+  if (!llaves) {
+    return;
+  }
+  exigir(llaves->llaves.size() <= ventrik::cliente::kMaximoLlaves);
+  exigir(ventrik::cifrado::huella_de_publica(llaves->identidad).has_value());
+  const auto otra_vez = ventrik::cliente::armar_contenido_de_llaves(*llaves);
+  exigir(otra_vez && std::equal(otra_vez->begin(), otra_vez->end(), datos.begin(), datos.end()));
 }
 
 void sobre(gsl::span<const std::uint8_t> datos) {
@@ -116,6 +129,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   const gsl::span<const std::uint8_t> entrada(datos, largo);
   clave_del_servidor(entrada);
   contenido_de_copia(entrada);
+  contenido_de_llaves(entrada);
+  if (const auto llaves = ventrik::cliente::leer_archivo_de_llaves(entrada)) {
+    exigir(llaves->llaves.size() <= ventrik::cliente::kMaximoLlaves);
+  }
   sobre(entrada);
   publica_y_firma(entrada);
   boveda(entrada);

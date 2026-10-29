@@ -211,6 +211,13 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
       exigir(segundo.sellado.empty() || segundo.sellado.size() == ventrik::servidor::kBytesSegundoPasoSellado);
     }
   }
+  if (const auto llaves = base->llaves()) {
+    exigir(llaves->size() <= ventrik::servidor::kMaximoUsuariosGuardados);
+    for (const auto& suyas : *llaves) {
+      exigir(suyas.llaves.size() <= ventrik::servidor::kMaximoLlavesPorUsuario);
+      base->guardar_llaves(suyas);
+    }
+  }
   std::optional<ventrik::Seguridad> seguridad;
   if (base->leer_seguridad(seguridad) && seguridad) {
     exigir(ventrik::es_valida(*seguridad));
@@ -228,6 +235,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   base->guardar_aviso(nuevo.clave, std::nullopt, {ventrik::protocolo::Seguridad::canal_borrado, 1, "Ana", "Juegos"});
   avisos_validos(base->avisos_para(nuevo.clave, {}).lista, ventrik::servidor::kMaximoAvisosPorUsuario);
   base->guardar_segundo_paso({nuevo.clave, std::vector<std::uint8_t>(ventrik::servidor::kBytesSegundoPasoSellado, 3), 9, 1, 1});
+  base->guardar_llaves({nuevo.clave, 3, {{nuevo.clave, 7, true}}});
   base->guardar_texto("nombre", "Taberna");
   base->texto_guardado("nombre");
   base->quitar_dueno();

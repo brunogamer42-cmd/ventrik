@@ -61,6 +61,9 @@ std::string explicar(Idioma idioma, const IntentoDeConexion& intento) {
       return con_datos(texto(idioma, Clave::conectar_segundo_paso_incorrecto), {std::to_string(intento.espera)});
     case EstadoConexion::segundo_paso_bloqueado:
       return std::string(texto(idioma, Clave::conectar_segundo_paso_bloqueado));
+    case EstadoConexion::llave_anulada: return std::string(texto(idioma, Clave::conectar_llave_anulada));
+    case EstadoConexion::llave_clonada: return std::string(texto(idioma, Clave::conectar_llave_clonada));
+    case EstadoConexion::sin_llave: return std::string(texto(idioma, Clave::conectar_sin_llave));
     default: return std::string(texto(idioma, Clave::conectar_error_interno));
   }
 }
@@ -74,11 +77,11 @@ std::string explicar(Idioma idioma, const Fin& fin) {
 }
 
 std::string explicar(Idioma idioma, protocolo::MotivoNegado motivo) {
-  constexpr std::array<Clave, 9> kNegados = {Clave::negado_sin_permiso,    Clave::negado_no_existe,
-                                             Clave::negado_texto_invalido, Clave::negado_demasiado_rapido,
-                                             Clave::negado_lleno,          Clave::negado_nombre_en_uso,
-                                             Clave::negado_tipo_de_canal,  Clave::negado_nombre_libre,
-                                             Clave::negado_codigo_incorrecto};
+  constexpr std::array<Clave, 10> kNegados = {Clave::negado_sin_permiso,       Clave::negado_no_existe,
+                                              Clave::negado_texto_invalido,    Clave::negado_demasiado_rapido,
+                                              Clave::negado_lleno,             Clave::negado_nombre_en_uso,
+                                              Clave::negado_tipo_de_canal,     Clave::negado_nombre_libre,
+                                              Clave::negado_codigo_incorrecto, Clave::negado_falta_segundo_paso};
   const auto indice = static_cast<std::size_t>(motivo) - 1;
   return std::string(texto(idioma, indice < kNegados.size() ? kNegados[indice] : Clave::negado_sin_permiso));
 }
@@ -237,6 +240,8 @@ bool Sesion::procesar(const protocolo::Marco& marco) {
       return publicar_si(protocolo::ConfigurarSegundoPaso{});
     case TipoMensaje::config_seguridad:
       return publicar_si(protocolo::ConfigSeguridad{});
+    case TipoMensaje::estado_segundo_paso:
+      return publicar_si(protocolo::EstadoSegundoPaso{});
     case TipoMensaje::desplazado:
       desplazada_ = protocolo::leer_mensaje<protocolo::Desplazado>(marco.cuerpo).has_value();
       return false;
@@ -265,9 +270,20 @@ void Sesion::correr() {
   }
   OpcionesConexion conexion = opciones_.conexion;
   conexion.cancelar = &cancelar_.socket();
+  if (quien_.tocar_llave) {
+    quien_.tocar_llave = [this, tocar = std::move(quien_.tocar_llave)](const std::vector<std::uint8_t>& id,
+                                                                       gsl::span<const std::uint8_t> desafio) {
+      tocando_ = true;
+      auto tocada = tocar(id, desafio);
+      tocando_ = false;
+      return tocada;
+    };
+  }
   auto resultado = conectar(destino_, huella_, quien_, conexion);
   quien_.contrasena.reset();
   quien_.identidad.reset();
+  quien_.llaves.reset();
+  quien_.tocar_llave = nullptr;
   if (resultado.cambio) {
     huella_ = resultado.cambio->nueva;
   }

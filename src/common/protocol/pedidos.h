@@ -21,8 +21,10 @@ constexpr std::size_t kMaximoUsuariosEnLista = 1024;
 constexpr std::size_t kMaximoMensajesEnHistorial = 256;
 constexpr std::size_t kMaximoOpus = 400;
 constexpr std::size_t kMaximoDatagrama = 2048;
-constexpr std::size_t kMaximoCuerpoPresentacion = 512;
+constexpr std::size_t kMaximoCuerpoPresentacion = 640;
 constexpr std::size_t kBytesClavePublica = 65;
+constexpr std::size_t kBytesDatosDeLlave = 37;
+constexpr std::size_t kBytesDesafioDeLlave = 32;
 constexpr std::size_t kBytesEquipo = 32;
 constexpr std::size_t kMaximoFirma = 72;
 constexpr std::size_t kBytesValorDeConexion = 32;
@@ -44,6 +46,13 @@ constexpr bool es_silencio_valido(std::uint8_t silencio) {
   return silencio == 0 || silencio == kSilencioMicrofono || silencio == (kSilencioMicrofono | kSilencioAudio);
 }
 
+struct EntradaConLlave {
+  std::array<std::uint8_t, kBytesClavePublica> llave{};
+  std::vector<std::uint8_t> permiso;
+  std::array<std::uint8_t, kBytesDatosDeLlave> datos{};
+  std::vector<std::uint8_t> firma;
+};
+
 struct Presentarse {
   static constexpr TipoMensaje kTipo = TipoMensaje::presentarse;
   std::string nombre;
@@ -52,12 +61,20 @@ struct Presentarse {
   std::array<std::uint8_t, kBytesEquipo> equipo{};
   std::string contrasena;
   std::optional<std::uint32_t> segundo_paso;
+  std::uint32_t generacion = 0;
   std::vector<std::uint8_t> firma;
+  std::optional<EntradaConLlave> llave;
 };
 
 std::vector<std::uint8_t> lo_que_se_firma(const Presentarse& mensaje, std::uint16_t protocolo,
                                           gsl::span<const std::uint8_t> huella,
                                           gsl::span<const std::uint8_t> valor_de_conexion);
+
+std::optional<std::array<std::uint8_t, kBytesDesafioDeLlave>> desafio_de_llave(
+    const Presentarse& mensaje, std::uint16_t protocolo, gsl::span<const std::uint8_t> huella,
+    gsl::span<const std::uint8_t> valor_de_llave);
+
+bool es_pedido(std::uint16_t tipo);
 
 enum class TipoCanal : std::uint8_t { voz = 1, texto = 2 };
 
@@ -104,6 +121,8 @@ enum class MotivoPresentacion : std::uint8_t {
   falta_segundo_paso = 11,
   segundo_paso_incorrecto = 12,
   segundo_paso_bloqueado = 13,
+  llave_anulada = 14,
+  llave_clonada = 15,
 };
 
 struct PresentacionRechazada {
@@ -260,6 +279,7 @@ enum class MotivoNegado : std::uint8_t {
   tipo_de_canal = 7,
   nombre_libre = 8,
   codigo_incorrecto = 9,
+  falta_segundo_paso = 10,
 };
 
 struct Negado {
@@ -300,13 +320,29 @@ enum class Seguridad : std::uint8_t {
   segundo_paso_configurado = 8,
   segundo_paso_quitado = 9,
   config_cambiada = 10,
+  segundo_paso_bloqueado = 11,
+  llave_nueva = 12,
+  posible_llave_clonada = 13,
 };
 
-constexpr Seguridad kUltimaSeguridad = Seguridad::config_cambiada;
+constexpr Seguridad kUltimaSeguridad = Seguridad::posible_llave_clonada;
 
 struct SegundoPaso {
   static constexpr TipoMensaje kTipo = TipoMensaje::segundo_paso;
   std::uint32_t codigo = 0;
+};
+
+struct PermitirSegundoPaso {
+  static constexpr TipoMensaje kTipo = TipoMensaje::permitir_segundo_paso;
+  std::uint32_t usuario = 0;
+};
+
+enum class FaltaSegundoPaso : std::uint8_t { nada = 0, activar = 1, pedir_permiso = 2, volver_a_entrar = 3 };
+
+struct EstadoSegundoPaso {
+  static constexpr TipoMensaje kTipo = TipoMensaje::estado_segundo_paso;
+  FaltaSegundoPaso falta = FaltaSegundoPaso::nada;
+  bool todos = false;
 };
 
 struct QuitarSegundoPaso {
@@ -422,6 +458,8 @@ VENTRIK_MENSAJE(LiberarNombre)
 VENTRIK_MENSAJE(AvisoDeSeguridad)
 VENTRIK_MENSAJE(CadenaDeClaves)
 VENTRIK_MENSAJE(SegundoPaso)
+VENTRIK_MENSAJE(PermitirSegundoPaso)
+VENTRIK_MENSAJE(EstadoSegundoPaso)
 VENTRIK_MENSAJE(QuitarSegundoPaso)
 VENTRIK_MENSAJE(ConfigurarSegundoPaso)
 VENTRIK_MENSAJE(PedirConfigSeguridad)

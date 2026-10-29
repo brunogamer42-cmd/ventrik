@@ -406,7 +406,7 @@ TEST_CASE("Una base de una versión futura o que no es una base no se abre") {
       archivo, gsl::make_span(reinterpret_cast<const std::uint8_t*>(basura.data()), basura.size())));
   CHECK_FALSE(Base::abrir(archivo, "General"));
   REQUIRE(DeleteFileW(archivo.c_str()));
-  armar_base(archivo, "PRAGMA user_version=7");
+  armar_base(archivo, "PRAGMA user_version=8");
   CHECK_FALSE(Base::abrir(archivo, "General"));
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master") == 0);
   CHECK(DeleteFileW(archivo.c_str()));
@@ -556,7 +556,7 @@ TEST_CASE("Las identidades se guardan, se renombran y las que no vuelven en 180 
   }
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM equipos") == 0);
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM usuarios") == 0);
-  CHECK(leer_numero(archivo, "PRAGMA user_version") == 6);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 7);
   for (const auto* final : {L"", L"-wal", L"-shm"}) {
     DeleteFileW((archivo + final).c_str());
   }
@@ -706,7 +706,7 @@ TEST_CASE("Una base de la versión 2 pasa sola a la 5 y suma las tablas de ident
     CHECK(base->canales().size() == 2);
     CHECK(base->usuarios(1800000000000ull)->empty());
   }
-  CHECK(leer_numero(archivo, "PRAGMA user_version") == 6);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 7);
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM pragma_table_info('mensajes') WHERE name = 'sellado'") == 1);
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('usuarios', 'equipos', 'textos', 'avisos', 'seguridad')") == 5);
   for (const auto* final : {L"", L"-wal", L"-shm"}) {
@@ -731,7 +731,7 @@ TEST_CASE("Una base de la versión 4 pasa a la 5: sus mensajes se siguen leyendo
     REQUIRE(base->cifrar_historial(true));
     CHECK(base->historial({kCanalGeneral, 0}, 65536).mensajes.at(0).texto == "de antes");
   }
-  CHECK(leer_numero(archivo, "PRAGMA user_version") == 6);
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 7);
   CHECK_FALSE(en_el_disco(archivo, "de antes"));
   borrar_base(archivo);
 }
@@ -1189,5 +1189,102 @@ TEST_CASE("Un trigger o una vista armados en la base no corren ni sacan el histo
     CHECK(base->cifrar_historial(false));
   }
   CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM robado") == 0);
+  borrar_base(archivo);
+}
+
+TEST_CASE("Una base de la versión 6 pasa a la 7 y suma las tablas de las llaves, sin perder lo que tenía") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  UsuarioGuardado ana;
+  ana.clave.fill(4);
+  ana.nombre = "Ana";
+  ana.creado_ms = ana.visto_ms = 1000;
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    REQUIRE(base->guardar_usuario(ana));
+    REQUIRE(base->guardar_mensaje(kCanalGeneral, 1, "Ana", 1, "hola"));
+  }
+  armar_base(archivo, "DROP TABLE llaves; DROP TABLE generaciones; PRAGMA user_version=6;");
+  CHECK(leer_numero(archivo, "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('llaves', 'generaciones')") == 0);
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    CHECK(base->usuarios(1000)->size() == 1);
+    CHECK(base->historial({kCanalGeneral, 0}, 65536).mensajes.at(0).texto == "hola");
+    CHECK(base->llaves()->empty());
+    REQUIRE(base->guardar_llaves({ana.clave, 3, {}}));
+  }
+  CHECK(leer_numero(archivo, "PRAGMA user_version") == 7);
+  CHECK(leer_numero(archivo, "SELECT generacion FROM generaciones") == 3);
+  borrar_base(archivo);
+}
+
+TEST_CASE("Las llaves se guardan por identidad con su generación, con tope, y se van con la identidad") {
+  auto base = base_en_memoria();
+  UsuarioGuardado ana;
+  ana.clave.fill(4);
+  ana.nombre = "Ana";
+  ana.creado_ms = ana.visto_ms = 1000;
+  LlaveGuardada una;
+  una.llave.fill(7);
+  una.contador = 0xFFFFFFFF;
+  una.confirmada = true;
+  LlaveGuardada otra;
+  otra.llave.fill(8);
+  CHECK_FALSE(base->guardar_llaves({ana.clave, 2, {una}}));
+  REQUIRE(base->guardar_usuario(ana));
+  REQUIRE(base->guardar_llaves({ana.clave, 2, {una, otra}}));
+  auto leidas = base->llaves();
+  REQUIRE(leidas);
+  REQUIRE(leidas->size() == 1);
+  CHECK(leidas->at(0).clave == ana.clave);
+  CHECK(leidas->at(0).generacion == 2);
+  REQUIRE(leidas->at(0).llaves.size() == 2);
+  for (const auto& leida : leidas->at(0).llaves) {
+    const bool es_una = leida.llave == una.llave;
+    CHECK((es_una || leida.llave == otra.llave));
+    CHECK(leida.contador == (es_una ? una.contador : 0));
+    CHECK(leida.confirmada == es_una);
+  }
+  REQUIRE(base->guardar_llaves({ana.clave, 5, {}}));
+  CHECK(base->llaves()->at(0).llaves.empty());
+  CHECK(base->llaves()->at(0).generacion == 5);
+  CHECK_FALSE(base->guardar_llaves({ana.clave, 5, std::vector<LlaveGuardada>(kMaximoLlavesPorUsuario + 1, una)}));
+  REQUIRE(base->guardar_llaves({ana.clave, 5, {una}}));
+  REQUIRE(base->borrar_usuarios({ana.clave}));
+  CHECK(base->llaves()->empty());
+  REQUIRE(base->guardar_usuario(ana));
+  REQUIRE(base->guardar_llaves({ana.clave, 5, {una}}));
+  REQUIRE(base->liberar_nombre("Ana"));
+  CHECK(base->llaves()->empty());
+}
+
+TEST_CASE("Una fila de llave dañada en la base no se lee") {
+  const std::wstring archivo = archivo_temporal();
+  borrar_base(archivo);
+  UsuarioGuardado ana;
+  ana.clave.fill(4);
+  ana.nombre = "Ana";
+  ana.creado_ms = ana.visto_ms = 1000;
+  LlaveGuardada una;
+  una.llave.fill(7);
+  {
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    REQUIRE(base->guardar_usuario(ana));
+    REQUIRE(base->guardar_llaves({ana.clave, 2, {una}}));
+  }
+  for (const char* dano : {"UPDATE llaves SET contador = -1;", "UPDATE llaves SET confirmada = 2;",
+                           "UPDATE llaves SET llave = x'0102';", "UPDATE generaciones SET generacion = 4294967296;"}) {
+    CAPTURE(dano);
+    armar_base(archivo, dano);
+    auto base = Base::abrir(archivo, "General");
+    REQUIRE(base);
+    const auto leidas = base->llaves();
+    REQUIRE(leidas);
+    CHECK(std::all_of(leidas->begin(), leidas->end(), [](const LlavesDeUsuario& suyas) { return suyas.llaves.empty(); }));
+    REQUIRE(base->guardar_llaves({ana.clave, 2, {una}}));
+  }
   borrar_base(archivo);
 }

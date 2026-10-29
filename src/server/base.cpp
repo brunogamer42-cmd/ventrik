@@ -4,6 +4,7 @@
 #include <chrono>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <set>
 #include <utility>
 
@@ -23,7 +24,7 @@ constexpr std::size_t kMaximoPedidosEnCola = 4096;
 constexpr std::size_t kPedidosPorTanda = 64;
 constexpr std::chrono::hours kCadaCuantoLimpiar{1};
 constexpr std::chrono::minutes kCadaCuantoAsentar{1};
-constexpr int kVersionEsquema = 6;
+constexpr int kVersionEsquema = 7;
 constexpr int kMaximoFila = 64 * 1024;
 
 const char kAjustes[] =
@@ -75,7 +76,10 @@ const char kEsquema[] =
     "CREATE TABLE IF NOT EXISTS segundo_paso(clave BLOB PRIMARY KEY, sellado BLOB NOT NULL, paso INTEGER NOT NULL,"
     " fallas INTEGER NOT NULL, desde INTEGER NOT NULL) WITHOUT ROWID;"
     "CREATE TABLE IF NOT EXISTS equipos_nuevos(clave BLOB NOT NULL, equipo BLOB NOT NULL, PRIMARY KEY(clave, equipo))"
-    " WITHOUT ROWID;";
+    " WITHOUT ROWID;"
+    "CREATE TABLE IF NOT EXISTS generaciones(clave BLOB PRIMARY KEY, generacion INTEGER NOT NULL) WITHOUT ROWID;"
+    "CREATE TABLE IF NOT EXISTS llaves(clave BLOB NOT NULL, llave BLOB NOT NULL, contador INTEGER NOT NULL,"
+    " confirmada INTEGER NOT NULL, PRIMARY KEY(clave, llave)) WITHOUT ROWID;";
 
 const char kParaEsteEquipo[] =
     "clave = ?1 AND (salvo IS NULL OR (salvo <> ?2 AND EXISTS (SELECT 1 FROM equipos"
@@ -85,6 +89,8 @@ const char kHuerfanos[] =
     "DELETE FROM equipos WHERE clave NOT IN (SELECT clave FROM usuarios);"
     "DELETE FROM avisos WHERE clave NOT IN (SELECT clave FROM usuarios);"
     "DELETE FROM segundo_paso WHERE clave NOT IN (SELECT clave FROM usuarios);"
+    "DELETE FROM generaciones WHERE clave NOT IN (SELECT clave FROM usuarios);"
+    "DELETE FROM llaves WHERE clave NOT IN (SELECT clave FROM usuarios);"
     "DELETE FROM equipos_nuevos WHERE NOT EXISTS (SELECT 1 FROM equipos WHERE equipos.clave = equipos_nuevos.clave"
     " AND equipos.equipo = equipos_nuevos.equipo);";
 
@@ -339,7 +345,7 @@ std::unique_ptr<Base> Base::abrir(const std::wstring& archivo, const std::string
       sqlite3_db_config(abierta, SQLITE_DBCONFIG_ENABLE_VIEW, 0, nullptr) != SQLITE_OK ||
       guardada < 0 || guardada > kVersionEsquema || !ejecutar(abierta, kEsquema) ||
       (guardada == 1 && !ejecutar(abierta, kMigrarDe1)) || (guardada >= 1 && guardada < 5 && !ejecutar(abierta, kMigrarA5)) ||
-      !ejecutar(abierta, "PRAGMA user_version=6")) {
+      !ejecutar(abierta, "PRAGMA user_version=7")) {
     return nullptr;
   }
   Consulta general(abierta,
@@ -722,7 +728,7 @@ bool Base::borrar_usuarios(const std::vector<ClaveDeUsuario>& claves) {
     bien = usuario.paso() == SQLITE_DONE && equipos.paso() == SQLITE_DONE && avisos.paso() == SQLITE_DONE &&
            segundo.paso() == SQLITE_DONE && limpiar_equipos_nuevos(clave) && bien;
   }
-  return bien;
+  return ejecutar(base_, kHuerfanos) && bien;
 }
 
 bool Base::liberar_nombre(const std::string& nombre) {
@@ -924,6 +930,65 @@ bool Base::quitar_segundo_paso(const ClaveDeUsuario& clave) {
   Consulta consulta(base_, "DELETE FROM segundo_paso WHERE clave = ?1");
   consulta.bytes(1, clave);
   return consulta.paso() == SQLITE_DONE;
+}
+
+std::optional<std::vector<LlavesDeUsuario>> Base::llaves() {
+  if (!es_su_hilo()) {
+    return std::nullopt;
+  }
+  std::map<ClaveDeUsuario, LlavesDeUsuario> por_clave;
+  Consulta generaciones(base_,
+                        "SELECT clave, generacion FROM generaciones WHERE clave IN (SELECT clave FROM usuarios)"
+                        " AND generacion BETWEEN 0 AND 4294967295 LIMIT ?1");
+  generaciones.entero(1, static_cast<std::int64_t>(kMaximoUsuariosGuardados));
+  int paso = SQLITE_ROW;
+  while ((paso = generaciones.paso()) == SQLITE_ROW) {
+    ClaveDeUsuario clave{};
+    if (generaciones.columna_bytes(0, clave)) {
+      por_clave[clave] = {clave, static_cast<std::uint32_t>(generaciones.columna_entero(1)), {}};
+    }
+  }
+  Consulta filas(base_,
+                 "SELECT clave, llave, contador, confirmada FROM llaves WHERE clave IN (SELECT clave FROM generaciones)"
+                 " AND contador BETWEEN 0 AND 4294967295 AND confirmada IN (0, 1) LIMIT ?1");
+  filas.entero(1, static_cast<std::int64_t>(kMaximoUsuariosGuardados * kMaximoLlavesPorUsuario));
+  int paso_llaves = SQLITE_ROW;
+  while (paso == SQLITE_DONE && (paso_llaves = filas.paso()) == SQLITE_ROW) {
+    ClaveDeUsuario clave{};
+    LlaveGuardada llave{{}, static_cast<std::uint32_t>(filas.columna_entero(2)), filas.columna_entero(3) == 1};
+    const auto suyas = filas.columna_bytes(0, clave) ? por_clave.find(clave) : por_clave.end();
+    if (suyas != por_clave.end() && filas.columna_bytes(1, llave.llave) &&
+        suyas->second.llaves.size() < kMaximoLlavesPorUsuario) {
+      suyas->second.llaves.push_back(llave);
+    }
+  }
+  if (paso != SQLITE_DONE || paso_llaves != SQLITE_DONE) {
+    return std::nullopt;
+  }
+  std::vector<LlavesDeUsuario> lista;
+  for (auto& [clave, suyas] : por_clave) {
+    lista.push_back(std::move(suyas));
+  }
+  return lista;
+}
+
+bool Base::guardar_llaves(const LlavesDeUsuario& suyas) {
+  if (!es_su_hilo() || suyas.llaves.size() > kMaximoLlavesPorUsuario) {
+    return false;
+  }
+  Consulta generacion(base_,
+                      "INSERT OR REPLACE INTO generaciones(clave, generacion) SELECT ?1, ?2"
+                      " WHERE EXISTS (SELECT 1 FROM usuarios WHERE clave = ?1)");
+  generacion.bytes(1, suyas.clave).entero(2, suyas.generacion);
+  Consulta viejas(base_, "DELETE FROM llaves WHERE clave = ?1");
+  viejas.bytes(1, suyas.clave);
+  bool bien = generacion.paso() == SQLITE_DONE && sqlite3_changes(base_) == 1 && viejas.paso() == SQLITE_DONE;
+  for (const LlaveGuardada& llave : suyas.llaves) {
+    Consulta nueva(base_, "INSERT INTO llaves(clave, llave, contador, confirmada) VALUES (?1, ?2, ?3, ?4)");
+    nueva.bytes(1, suyas.clave).bytes(2, llave.llave).entero(3, llave.contador).entero(4, llave.confirmada);
+    bien = bien && nueva.paso() == SQLITE_DONE;
+  }
+  return bien;
 }
 
 namespace {

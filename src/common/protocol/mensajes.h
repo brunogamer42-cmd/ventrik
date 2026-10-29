@@ -55,11 +55,14 @@ enum class TipoMensaje : std::uint16_t {
   medio_subida = 50,
   medio_bajada = 51,
   cadena_de_claves = 52,
+  permitir_segundo_paso = 55,
+  estado_segundo_paso = 56,
 };
 
 using Funciones = std::uint64_t;
 
 constexpr Funciones kFuncionPantalla = 1;
+constexpr Funciones kFuncionLlave = 2;
 
 constexpr std::size_t kMaximoCuerpoSaludo = 64;
 

@@ -2,6 +2,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -31,7 +32,7 @@ class Carpeta {
   }
   ~Carpeta() {
     for (const auto* nombre :
-         {L"\\identidad.dat", L"\\equipo.dat", L"\\identidad-vieja-1.dat", L"\\identidad-vieja-2.dat"}) {
+         {L"\\identidad.dat", L"\\equipo.dat", L"\\identidad-vieja-1.dat", L"\\identidad-vieja-2.dat", L"\\llaves.dat"}) {
       DeleteFileW((ruta_ + nombre).c_str());
     }
     RemoveDirectoryW(ruta_.c_str());
@@ -321,6 +322,113 @@ TEST_CASE("La identidad que no se pudo abrir se aparta antes de guardar otra") {
   const auto cargada = ventrik::cliente::cargar_o_crear_mi_identidad(carpeta.ruta());
   REQUIRE(cargada.clave);
   CHECK(cargada.clave->huella() == tercera->huella());
+}
+
+TEST_CASE("La copia guarda la generación de las llaves, y una copia sin generación también se abre") {
+  const auto clave = Clave::crear_nueva();
+  REQUIRE(clave);
+  const auto der = der_de(*clave);
+  const auto copia = ventrik::cliente::armar_copia(der, "contraseña de la copia", kRapido, 0x01020304);
+  REQUIRE(copia);
+  const auto abierta = ventrik::cliente::abrir_copia(*copia, "contraseña de la copia");
+  REQUIRE(abierta.clave);
+  CHECK(abierta.clave->huella() == clave->huella());
+  CHECK(abierta.generacion == 0x01020304);
+  std::vector<std::uint8_t> sin_generacion = {1, static_cast<std::uint8_t>(der.size() & 0xFF),
+                                              static_cast<std::uint8_t>(der.size() >> 8)};
+  sin_generacion.insert(sin_generacion.end(), der.begin(), der.end());
+  std::uint32_t generacion = 9;
+  REQUIRE(ventrik::cliente::leer_contenido_de_copia(sin_generacion, &generacion));
+  CHECK(generacion == 9);
+  for (const std::size_t cola : {1, 3, 5}) {
+    auto con_cola = sin_generacion;
+    con_cola.insert(con_cola.end(), cola, 7);
+    CHECK_FALSE(ventrik::cliente::leer_contenido_de_copia(con_cola));
+  }
+}
+
+TEST_CASE("El archivo de llaves se guarda con DPAPI, vuelve igual y uno dañado o con topes pasados no se lee") {
+  const Carpeta carpeta;
+  const auto identidad = Clave::crear_nueva();
+  const auto llave = Clave::crear_nueva();
+  REQUIRE(identidad);
+  REQUIRE(llave);
+  CHECK_FALSE(ventrik::cliente::cargar_mis_llaves(carpeta.ruta()).llaves);
+  CHECK_FALSE(ventrik::cliente::cargar_mis_llaves(carpeta.ruta()).danadas);
+  ventrik::cliente::MisLlaves mias{7, identidad->publica(), {}};
+  for (std::size_t i = 0; i < ventrik::cliente::kMaximoLlaves; ++i) {
+    mias.llaves.push_back({llave->publica(), std::vector<std::uint8_t>(i == 0 ? 1023 : i + 1, 5),
+                           std::vector<std::uint8_t>(i == 0 ? 72 : 1, 6)});
+  }
+  REQUIRE(ventrik::cliente::guardar_mis_llaves(carpeta.ruta(), mias));
+  const auto archivo = leer_todo(carpeta.archivo(L"llaves.dat"));
+  const auto contenido = ventrik::cliente::armar_contenido_de_llaves(mias);
+  REQUIRE(contenido);
+  CHECK(std::search(archivo.begin(), archivo.end(), contenido->begin(), contenido->end()) == archivo.end());
+  const auto cargadas = ventrik::cliente::cargar_mis_llaves(carpeta.ruta());
+  REQUIRE(cargadas.llaves);
+  CHECK(cargadas.llaves->generacion == 7);
+  CHECK(cargadas.llaves->identidad == identidad->publica());
+  REQUIRE(cargadas.llaves->llaves.size() == ventrik::cliente::kMaximoLlaves);
+  CHECK(cargadas.llaves->llaves[0].id.size() == 1023);
+  CHECK(cargadas.llaves->llaves[0].permiso.size() == 72);
+  CHECK(cargadas.llaves->llaves[3].publica == llave->publica());
+
+  for (const auto& mala : {std::function<void(ventrik::cliente::MisLlaves&)>(
+                               [](auto& llaves) { llaves.llaves.push_back(llaves.llaves.back()); }),
+                           std::function<void(ventrik::cliente::MisLlaves&)>(
+                               [](auto& llaves) { llaves.llaves[1].id.assign(1024, 1); }),
+                           std::function<void(ventrik::cliente::MisLlaves&)>(
+                               [](auto& llaves) { llaves.llaves[1].id.clear(); }),
+                           std::function<void(ventrik::cliente::MisLlaves&)>(
+                               [](auto& llaves) { llaves.llaves[1].permiso.assign(73, 1); }),
+                           std::function<void(ventrik::cliente::MisLlaves&)>(
+                               [](auto& llaves) { llaves.identidad.fill(1); })}) {
+    auto cambiadas = mias;
+    mala(cambiadas);
+    CHECK_FALSE(ventrik::cliente::armar_contenido_de_llaves(cambiadas));
+  }
+  const auto entero = *contenido;
+  for (std::size_t largo = 0; largo < entero.size(); largo += 37) {
+    CHECK_FALSE(ventrik::cliente::leer_contenido_de_llaves(gsl::span<const std::uint8_t>(entero).first(largo)));
+  }
+  auto de_mas = entero;
+  de_mas.push_back(0);
+  CHECK_FALSE(ventrik::cliente::leer_contenido_de_llaves(de_mas));
+  auto con_cantidad_de_mas = entero;
+  con_cantidad_de_mas[4 + 65] = static_cast<std::uint8_t>(ventrik::cliente::kMaximoLlaves + 1);
+  CHECK_FALSE(ventrik::cliente::leer_contenido_de_llaves(con_cantidad_de_mas));
+  auto llave_fuera = entero;
+  llave_fuera[4 + 65 + 1 + 10] ^= 0x01;
+  CHECK_FALSE(ventrik::cliente::leer_contenido_de_llaves(llave_fuera));
+
+  auto danado = archivo;
+  danado[danado.size() / 2] ^= 0x01;
+  REQUIRE(ventrik::escribir_archivo_completo(carpeta.archivo(L"llaves.dat"), danado));
+  const auto con_dano = ventrik::cliente::cargar_mis_llaves(carpeta.ruta());
+  CHECK_FALSE(con_dano.llaves);
+  CHECK(con_dano.danadas);
+}
+
+TEST_CASE("Borrar la identidad de la PC la borra junto con sus copias apartadas y no se crea otra sola") {
+  const Carpeta carpeta;
+  const auto mia = Clave::crear_nueva();
+  const auto otra = Clave::crear_nueva();
+  REQUIRE(mia);
+  REQUIRE(otra);
+  REQUIRE(ventrik::cliente::guardar_apartando_la_vieja(carpeta.ruta(), *mia));
+  REQUIRE(ventrik::cliente::guardar_apartando_la_vieja(carpeta.ruta(), *otra));
+  REQUIRE(ventrik::cliente::guardar_apartando_la_vieja(carpeta.ruta(), *mia));
+  REQUIRE(GetFileAttributesW(carpeta.archivo(L"identidad-vieja-1.dat").c_str()) != INVALID_FILE_ATTRIBUTES);
+  REQUIRE(GetFileAttributesW(carpeta.archivo(L"identidad-vieja-2.dat").c_str()) != INVALID_FILE_ATTRIBUTES);
+  REQUIRE(ventrik::cliente::borrar_identidad_de_la_pc(carpeta.ruta(), mia->huella()));
+  CHECK(GetFileAttributesW(carpeta.archivo(L"identidad.dat").c_str()) == INVALID_FILE_ATTRIBUTES);
+  CHECK(GetFileAttributesW(carpeta.archivo(L"identidad-vieja-1.dat").c_str()) == INVALID_FILE_ATTRIBUTES);
+  CHECK(GetFileAttributesW(carpeta.archivo(L"identidad-vieja-2.dat").c_str()) != INVALID_FILE_ATTRIBUTES);
+  const auto sin_crear = ventrik::cliente::cargar_o_crear_mi_identidad(carpeta.ruta(), false);
+  CHECK(sin_crear.estado == EstadoIdentidad::danada);
+  CHECK_FALSE(sin_crear.clave);
+  CHECK(GetFileAttributesW(carpeta.archivo(L"identidad.dat").c_str()) == INVALID_FILE_ATTRIBUTES);
 }
 
 TEST_CASE("La identidad corta son los primeros cuatro grupos de la huella") {

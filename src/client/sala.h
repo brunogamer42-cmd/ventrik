@@ -55,6 +55,7 @@ class Sala {
   std::vector<Orden> elegir_voz(std::uint32_t canal);
   std::vector<Orden> salir_de_la_voz();
   std::vector<Orden> elegir_texto(std::uint32_t canal);
+  std::vector<Orden> volver_a_pedir();
   std::optional<Orden> enviar(const std::string& texto);
   std::optional<Orden> pedir_mas_viejos();
   std::optional<Orden> pedir_mas_nuevos();

@@ -909,6 +909,9 @@ class Dibujo {
         abrir(Dialogo::admin, usuario.id, usuario.nombre, false);
       }
     }
+    if (ImGui::MenuItem(con_datos(t(Clave::servidor_permitir_segundo_paso), {usuario.nombre}).c_str())) {
+      pedido_.ordenes.emplace_back(protocolo::PermitirSegundoPaso{usuario.id});
+    }
     ImGui::EndPopup();
   }
 

@@ -2,11 +2,13 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "client/mi_identidad.h"
 #include "common/cifrado/cadena.h"
 #include "common/cifrado/clave.h"
 #include "common/cifrado/codigo_dueno.h"
@@ -19,6 +21,14 @@
 #include "common/version.h"
 
 namespace ventrik::cliente {
+struct LlaveTocada {
+  std::vector<std::uint8_t> datos;
+  std::vector<std::uint8_t> firma;
+};
+
+using TocarLlave =
+    std::function<std::optional<LlaveTocada>(const std::vector<std::uint8_t>& id, gsl::span<const std::uint8_t> desafio)>;
+
 struct Presentacion {
   std::string nombre;
   std::optional<cifrado::CodigoDueno> codigo_dueno;
@@ -26,6 +36,9 @@ struct Presentacion {
   std::shared_ptr<const cifrado::Secreto> equipo;
   std::shared_ptr<const cifrado::Secreto> contrasena;
   std::optional<std::uint32_t> segundo_paso;
+  std::uint32_t generacion = 0;
+  std::shared_ptr<const MisLlaves> llaves;
+  TocarLlave tocar_llave;
 };
 
 struct OpcionesConexion {
@@ -60,6 +73,9 @@ enum class EstadoConexion {
   falta_segundo_paso,
   segundo_paso_incorrecto,
   segundo_paso_bloqueado,
+  llave_anulada,
+  llave_clonada,
+  sin_llave,
   error_interno,
 };
 

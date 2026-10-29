@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstring>
 #include <limits>
 
 #include <intrin.h>
@@ -42,6 +43,7 @@ const std::uint16_t kFirmas[] = {MBEDTLS_TLS1_3_SIG_ECDSA_SECP256R1_SHA256,
 
 constexpr char kEtiquetaVoz[] = "EXPERIMENTAL ventrik voz";
 constexpr char kEtiquetaIdentidad[] = "EXPERIMENTAL ventrik identidad";
+constexpr char kEtiquetaLlave[] = "EXPERIMENTAL ventrik llave";
 constexpr std::size_t kPresupuestoPorLlamada = 32 * 1024;
 constexpr int kLecturasPorLlamada = 64;
 
@@ -248,9 +250,10 @@ bool SesionTls::exportar(gsl::span<const std::uint8_t> contexto, gsl::span<std::
                                                    contexto.size(), 1) == 0;
 }
 
-bool SesionTls::valor_para_identidad(gsl::span<std::uint8_t> salida) {
-  return ok_ && mbedtls_ssl_export_keying_material(&ssl_, salida.data(), salida.size(), kEtiquetaIdentidad,
-                                                   sizeof(kEtiquetaIdentidad) - 1, nullptr, 0, 0) == 0;
+bool SesionTls::valor_para_identidad(gsl::span<std::uint8_t> salida, bool para_llave) {
+  const char* etiqueta = para_llave ? kEtiquetaLlave : kEtiquetaIdentidad;
+  return ok_ && mbedtls_ssl_export_keying_material(&ssl_, salida.data(), salida.size(), etiqueta,
+                                                   std::strlen(etiqueta), nullptr, 0, 0) == 0;
 }
 
 Trafico trafico() {

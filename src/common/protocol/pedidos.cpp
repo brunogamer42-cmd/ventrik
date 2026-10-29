@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <functional>
 
+#include <mbedtls/platform_util.h>
+
+#include "common/cifrado/clave.h"
 #include "common/texto.h"
 
 namespace ventrik::protocolo {
@@ -214,11 +217,6 @@ bool sigue(Sentido sentido, std::uint64_t anterior, std::uint64_t id) {
   return sentido == Sentido::nuevos ? id > anterior : id < anterior;
 }
 
-bool es_pedido(std::uint16_t tipo) {
-  return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
-         tipo <= static_cast<std::uint16_t>(TipoMensaje::cambiar_config_seguridad);
-}
-
 bool son_ids_validos(const std::vector<std::uint32_t>& usuarios) {
   return (usuarios.empty() || usuarios.front() != 0) &&
          std::adjacent_find(usuarios.begin(), usuarios.end(), std::greater_equal<>()) == usuarios.end();
@@ -244,6 +242,36 @@ void leer_seguridad(Lector& lector, ventrik::Seguridad& seguridad) {
   }
 }
 
+void escribir_firma(Escritor& escritor, const std::vector<std::uint8_t>& firma) {
+  if (firma.empty() || firma.size() > kMaximoFirma) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u8(static_cast<std::uint8_t>(firma.size()));
+  escritor.escribir_bytes(firma);
+}
+
+void leer_firma(Lector& lector, std::vector<std::uint8_t>& firma, std::size_t largo) {
+  const auto bytes = lector.leer_bytes(largo);
+  if (largo == 0 || largo > kMaximoFirma) {
+    lector.marcar_error();
+    return;
+  }
+  firma.assign(bytes.begin(), bytes.end());
+}
+
+template <std::size_t N>
+void leer_fijos(Lector& lector, std::array<std::uint8_t, N>& destino) {
+  const auto bytes = lector.leer_bytes(N);
+  std::copy(bytes.begin(), bytes.end(), destino.begin());
+}
+
+}
+
+bool es_pedido(std::uint16_t tipo) {
+  return (tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
+          tipo <= static_cast<std::uint16_t>(TipoMensaje::cambiar_config_seguridad)) ||
+         tipo == static_cast<std::uint16_t>(TipoMensaje::permitir_segundo_paso);
 }
 
 void escribir_sin_firma(Escritor& escritor, const Presentarse& mensaje) {
@@ -261,30 +289,55 @@ void escribir_sin_firma(Escritor& escritor, const Presentarse& mensaje) {
     escritor.marcar_error();
   }
   escritor.escribir_u32(mensaje.segundo_paso.value_or(kSinCodigo));
+  escritor.escribir_u32(mensaje.generacion);
+}
+
+std::vector<std::uint8_t> con_etiqueta(std::string_view etiqueta, const Presentarse& mensaje, std::uint16_t protocolo,
+                                       gsl::span<const std::uint8_t> huella, gsl::span<const std::uint8_t> valor) {
+  Escritor escritor;
+  escritor.escribir_bytes(
+      gsl::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(etiqueta.data()), etiqueta.size()));
+  escritor.escribir_u16(protocolo);
+  escritor.escribir_bytes(huella);
+  escritor.escribir_bytes(valor);
+  escribir_sin_firma(escritor, mensaje);
+  return escritor.ok() ? std::move(escritor).soltar() : std::vector<std::uint8_t>();
 }
 
 std::vector<std::uint8_t> lo_que_se_firma(const Presentarse& mensaje, std::uint16_t protocolo,
                                           gsl::span<const std::uint8_t> huella,
                                           gsl::span<const std::uint8_t> valor_de_conexion) {
-  constexpr char kEtiqueta[] = "ventrik presentarse v5";
-  Escritor escritor;
-  escritor.escribir_bytes(gsl::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(kEtiqueta),
-                                                        sizeof(kEtiqueta) - 1));
-  escritor.escribir_u16(protocolo);
-  escritor.escribir_bytes(huella);
-  escritor.escribir_bytes(valor_de_conexion);
-  escribir_sin_firma(escritor, mensaje);
-  return escritor.ok() ? std::move(escritor).soltar() : std::vector<std::uint8_t>();
+  return con_etiqueta("ventrik presentarse v5", mensaje, protocolo, huella, valor_de_conexion);
+}
+
+std::optional<std::array<std::uint8_t, kBytesDesafioDeLlave>> desafio_de_llave(
+    const Presentarse& mensaje, std::uint16_t protocolo, gsl::span<const std::uint8_t> huella,
+    gsl::span<const std::uint8_t> valor_de_llave) {
+  auto firmado = mensaje.llave ? con_etiqueta("ventrik entrar con llave v1", mensaje, protocolo, huella, valor_de_llave)
+                               : std::vector<std::uint8_t>();
+  const bool armado = !firmado.empty();
+  if (armado) {
+    firmado.insert(firmado.end(), mensaje.llave->llave.begin(), mensaje.llave->llave.end());
+  }
+  const auto desafio = armado ? cifrado::resumir(firmado) : std::nullopt;
+  mbedtls_platform_zeroize(firmado.data(), firmado.size());
+  return desafio;
 }
 
 void escribir(Escritor& escritor, const Presentarse& mensaje) {
   escribir_sin_firma(escritor, mensaje);
-  if (mensaje.firma.empty() || mensaje.firma.size() > kMaximoFirma) {
-    escritor.marcar_error();
+  if (!mensaje.llave) {
+    escribir_firma(escritor, mensaje.firma);
     return;
   }
-  escritor.escribir_u8(static_cast<std::uint8_t>(mensaje.firma.size()));
-  escritor.escribir_bytes(mensaje.firma);
+  if (!mensaje.firma.empty()) {
+    escritor.marcar_error();
+  }
+  escritor.escribir_u8(0);
+  escritor.escribir_bytes(mensaje.llave->llave);
+  escribir_firma(escritor, mensaje.llave->permiso);
+  escritor.escribir_bytes(mensaje.llave->datos);
+  escribir_firma(escritor, mensaje.llave->firma);
 }
 
 void leer(Lector& lector, Presentarse& mensaje) {
@@ -307,16 +360,24 @@ void leer(Lector& lector, Presentarse& mensaje) {
   if (codigo != kSinCodigo) {
     mensaje.segundo_paso = codigo;
   }
+  mensaje.generacion = lector.leer_u32();
   const std::size_t largo_firma = lector.leer_u8();
-  const auto firma = lector.leer_bytes(largo_firma);
-  if (!lector.ok() || largo_firma == 0 || largo_firma > kMaximoFirma ||
-      (codigo != kSinCodigo && codigo >= kTopeCodigoSegundoPaso)) {
+  if (largo_firma != 0) {
+    leer_firma(lector, mensaje.firma, largo_firma);
+  } else {
+    EntradaConLlave llave;
+    leer_fijos(lector, llave.llave);
+    leer_firma(lector, llave.permiso, lector.leer_u8());
+    leer_fijos(lector, llave.datos);
+    leer_firma(lector, llave.firma, lector.leer_u8());
+    mensaje.llave = std::move(llave);
+  }
+  if (!lector.ok() || (codigo != kSinCodigo && codigo >= kTopeCodigoSegundoPaso)) {
     lector.marcar_error();
     return;
   }
   std::copy(clave.begin(), clave.end(), mensaje.clave.begin());
   std::copy(equipo.begin(), equipo.end(), mensaje.equipo.begin());
-  mensaje.firma.assign(firma.begin(), firma.end());
 }
 
 void escribir(Escritor& escritor, const Presentado& mensaje) {
@@ -347,7 +408,7 @@ void escribir(Escritor& escritor, const PresentacionRechazada& mensaje) {
 void leer(Lector& lector, PresentacionRechazada& mensaje) {
   const std::uint8_t motivo = lector.leer_u8();
   if (motivo < static_cast<std::uint8_t>(MotivoPresentacion::nombre_invalido) ||
-      motivo > static_cast<std::uint8_t>(MotivoPresentacion::segundo_paso_bloqueado)) {
+      motivo > static_cast<std::uint8_t>(MotivoPresentacion::llave_clonada)) {
     lector.marcar_error();
     return;
   }
@@ -625,7 +686,7 @@ void leer(Lector& lector, Negado& mensaje) {
     return;
   }
   if (!es_pedido(pedido) || motivo < static_cast<std::uint8_t>(MotivoNegado::sin_permiso) ||
-      motivo > static_cast<std::uint8_t>(MotivoNegado::codigo_incorrecto)) {
+      motivo > static_cast<std::uint8_t>(MotivoNegado::falta_segundo_paso)) {
     lector.marcar_error();
     return;
   }
@@ -703,6 +764,27 @@ void leer(Lector& lector, SegundoPaso& mensaje) {
   if (mensaje.codigo >= kTopeCodigoSegundoPaso) {
     lector.marcar_error();
   }
+}
+
+void escribir(Escritor& escritor, const PermitirSegundoPaso& mensaje) { escritor.escribir_u32(mensaje.usuario); }
+
+void leer(Lector& lector, PermitirSegundoPaso& mensaje) { mensaje.usuario = lector.leer_u32(); }
+
+void escribir(Escritor& escritor, const EstadoSegundoPaso& mensaje) {
+  if (mensaje.falta > FaltaSegundoPaso::volver_a_entrar) {
+    escritor.marcar_error();
+  }
+  escritor.escribir_u8(static_cast<std::uint8_t>(mensaje.falta));
+  escritor.escribir_booleano(mensaje.todos);
+}
+
+void leer(Lector& lector, EstadoSegundoPaso& mensaje) {
+  const std::uint8_t falta = lector.leer_u8();
+  mensaje.todos = lector.leer_booleano();
+  if (falta > static_cast<std::uint8_t>(FaltaSegundoPaso::volver_a_entrar)) {
+    lector.marcar_error();
+  }
+  mensaje.falta = static_cast<FaltaSegundoPaso>(falta);
 }
 
 void escribir(Escritor& escritor, const QuitarSegundoPaso& mensaje) {

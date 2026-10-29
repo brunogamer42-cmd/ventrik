@@ -41,6 +41,7 @@
 #include "client/salida_de_windows.h"
 #include "client/sesion.h"
 #include "client/vigia.h"
+#include "client/webauthn.h"
 #include "client/ui/ajustes.h"
 #include "client/ui/aviso_ventana.h"
 #include "client/ui/hostear.h"
@@ -77,7 +78,7 @@ bool desde_windows_7() {
                                                 VER_MINORVERSION, VER_GREATER_EQUAL)) != FALSE;
 }
 
-enum class Tarea : std::uint8_t { exportar, importar, desbloquear, activar, cambiar, quitar };
+enum class Tarea : std::uint8_t { exportar, importar, desbloquear, activar, cambiar, quitar, crear_llave };
 
 struct TrabajoDeCopia {
   Tarea tarea = Tarea::exportar;
@@ -86,11 +87,24 @@ struct TrabajoDeCopia {
   cifrado::Secreto contrasena;
   cifrado::Secreto nueva;
   cifrado::Secreto entrada;
+  std::uint32_t generacion = 0;
   std::optional<std::vector<std::uint8_t>> armada;
   cliente::CopiaAbierta abierta;
   std::optional<cifrado::LlaveDeSobre> llave;
+  std::wstring nombre;
+  std::vector<cliente::IdDeLlave> excluir;
+  cliente::RespuestaDeWebAuthn<cifrado::LlaveCreada> creada;
   std::atomic<bool> listo{false};
 };
+
+constexpr HRESULT kCanceladoPorLaPersona = _HRESULT_TYPEDEF_(0x80090036L);
+
+Clave explicar_webauthn(HRESULT error) {
+  return error == kCanceladoPorLaPersona || error == HRESULT_FROM_WIN32(ERROR_CANCELLED) ? Clave::llave_cancelada
+         : error == NTE_EXISTS                                                       ? Clave::llave_repetida
+         : error == NTE_NOT_SUPPORTED || error == NTE_BAD_DATA                       ? Clave::llave_sin_es256
+                                                                                     : Clave::llave_error;
+}
 
 using cifrado::copiar;
 using cifrado::secreto_de;
@@ -144,7 +158,9 @@ class Programa {
     borrar_contrasenas();
     cerrar();
     soltar_clics_de_windows();
-    if (copia_ && !copia_->listo) {
+    if ((copia_ && !copia_->listo) || std::any_of(tocando_.begin(), tocando_.end(), [](const auto& sesion) {
+          return sesion->tocando_llave();
+        })) {
       TerminateProcess(GetCurrentProcess(), 0);
     }
     if (hilo_de_copia_.joinable()) {
@@ -186,6 +202,9 @@ class Programa {
     }
     if (sin_guardar_) {
       guardar();
+    }
+    if (sesion_ && sesion_->tocando_llave()) {
+      tocando_.push_back(std::move(sesion_));
     }
     sesion_.reset();
     sala_.reset();
@@ -534,7 +553,13 @@ class Programa {
     if (pedido.confirmar_identidad) {
       confirmar_identidad();
     }
+    if (pedido.agregar_llave) {
+      empezar_llave();
+    }
     if (pedido.cancelar_identidad) {
+      if (!llaves_nuevas_.empty() || std::exchange(copia_para_llaves_, false)) {
+        soltar_llaves();
+      }
       olvidar_copia();
     }
     if (pedido.guardar || (sin_guardar_ && !ImGui::IsAnyItemActive())) {
@@ -690,7 +715,13 @@ class Programa {
 
   void cargar_identidad() {
     identidad_cargada_ = true;
-    cliente::MiIdentidad cargada = cliente::cargar_o_crear_mi_identidad(carpeta_);
+    cliente::LlavesCargadas llaves = cliente::cargar_mis_llaves(carpeta_);
+    if (llaves.llaves) {
+      mis_llaves_ = std::make_shared<const cliente::MisLlaves>(std::move(*llaves.llaves));
+    }
+    ajustes_.llaves_posibles = cliente::autenticadores_disponibles() != cliente::Autenticadores::ninguno;
+    cliente::MiIdentidad cargada = cliente::cargar_o_crear_mi_identidad(
+        carpeta_, !llaves.danadas && (!mis_llaves_ || mis_llaves_->llaves.empty()));
     estado_identidad_ = cargada.estado;
     identidad_ = cargada.clave ? std::make_shared<const cifrado::Clave>(std::move(*cargada.clave)) : nullptr;
     cerrada_ = std::move(cargada.cerrada);
@@ -741,15 +772,29 @@ class Programa {
     cambiar_bloqueo(true);
   }
 
+  bool en_llave() const { return !identidad_ && cerrada_.empty() && mis_llaves_ && !mis_llaves_->llaves.empty(); }
+
+  std::optional<cifrado::Huella> mi_huella() const {
+    return identidad_ ? std::optional<cifrado::Huella>(identidad_->huella())
+           : mis_llaves_ ? cifrado::huella_de_publica(mis_llaves_->identidad)
+                         : std::nullopt;
+  }
+
+  std::uint32_t generacion() const { return std::max<std::uint32_t>(1, mis_llaves_ ? mis_llaves_->generacion : 0); }
+
   void aplicar_identidad() {
-    const bool lista = identidad_ != nullptr;
+    const bool con_llave = en_llave();
+    const bool lista = identidad_ != nullptr || con_llave;
+    const auto huella = lista ? mi_huella() : std::nullopt;
     ajustes_.estado_identidad = !identidad_cargada_ ? EstadoDeIdentidad::cargando
                                 : lista             ? EstadoDeIdentidad::lista
                                 : estado_identidad_ == cliente::EstadoIdentidad::danada ? EstadoDeIdentidad::danada
                                                                                         : EstadoDeIdentidad::error;
-    ajustes_.identidad = lista ? cliente::identidad_corta(identidad_->huella()) : std::string();
-    ajustes_.copia_hecha = lista && cliente::ajuste_texto(guardados_, cliente::Ajuste::copia_de_identidad) ==
-                                        identidad_->huella().a_texto();
+    ajustes_.identidad = huella ? cliente::identidad_corta(*huella) : std::string();
+    ajustes_.copia_hecha =
+        con_llave || (huella && cliente::ajuste_texto(guardados_, cliente::Ajuste::copia_de_identidad) == huella->a_texto());
+    ajustes_.llaves = con_llave ? mis_llaves_->llaves.size() : 0;
+    ajustes_.llaves_nuevas = llaves_nuevas_.size();
     ajustes_.con_maestra = maestra_.has_value();
     pantalla_.copia = !identidad_cargada_    ? Copia::sin_saber
                       : !lista               ? Copia::problema
@@ -794,7 +839,60 @@ class Programa {
       ruta_de_copia_ = *ruta;
       ajustes_.aviso_identidad.clear();
       abrir_dialogo_identidad(DialogoIdentidad::exportar);
+    } else if (std::exchange(copia_para_llaves_, false)) {
+      soltar_llaves();
+      cerrar_dialogo_identidad();
     }
+  }
+
+  void empezar_llave() {
+    if (identidad_ && !copia_ && llaves_nuevas_.size() < cliente::kMaximoLlaves) {
+      if (ajustes_.dialogo_identidad != DialogoIdentidad::llave) {
+        abrir_dialogo_identidad(DialogoIdentidad::llave);
+      }
+      empezar_copia(Tarea::crear_llave, {});
+    }
+  }
+
+  void terminar_llave(const TrabajoDeCopia& hecho) {
+    const auto& creada = hecho.creada.valor;
+    const bool repetida = creada && std::any_of(llaves_nuevas_.begin(), llaves_nuevas_.end(), [&](const auto& llave) {
+                            return llave.publica == creada->publica;
+                          });
+    const auto permiso = creada && !repetida && identidad_
+                             ? identidad_->firmar(cifrado::lo_que_firma_el_permiso(identidad_->publica(),
+                                                                                    creada->publica, hecho.generacion))
+                             : std::nullopt;
+    if (permiso) {
+      llaves_nuevas_.push_back({creada->publica, creada->id, *permiso});
+    } else {
+      ajustes_.error_identidad =
+          texto(ajustes_.idioma, repetida ? Clave::llave_repetida : explicar_webauthn(hecho.creada.error));
+    }
+    aplicar_identidad();
+  }
+
+  void soltar_llaves() {
+    llaves_nuevas_.clear();
+    avisar_identidad(Clave::llave_no_agregada, true);
+    aplicar_identidad();
+  }
+
+  void pasar_a_llaves() {
+    const auto huella = mi_huella();
+    cliente::MisLlaves nuevas{generacion(), identidad_ ? identidad_->publica() : cifrado::ClavePublica{},
+                              llaves_nuevas_};
+    if (!identidad_ || !huella || !cliente::guardar_mis_llaves(carpeta_, nuevas) ||
+        !cliente::borrar_identidad_de_la_pc(carpeta_, *huella)) {
+      avisar_identidad(Clave::seguridad_no_se_guardo, true);
+      return;
+    }
+    mis_llaves_ = std::make_shared<const cliente::MisLlaves>(std::move(nuevas));
+    identidad_.reset();
+    maestra_.reset();
+    cerrada_.clear();
+    recordar_maestra();
+    avisar_identidad(Clave::llave_lista, false);
   }
 
   void importar_identidad() {
@@ -848,6 +946,12 @@ class Programa {
         }
         cerrar_dialogo_identidad();
         break;
+      case DialogoIdentidad::llave:
+        if (!llaves_nuevas_.empty()) {
+          copia_para_llaves_ = true;
+          despues_del_cuadro_ = [this] { exportar_identidad(); };
+        }
+        break;
       case DialogoIdentidad::ninguno:
         break;
     }
@@ -862,6 +966,11 @@ class Programa {
     trabajo->contrasena = secreto_de(con_actual ? ajustes_.actual.data() : ajustes_.contrasena.data());
     trabajo->nueva = secreto_de(tarea == Tarea::cambiar ? ajustes_.contrasena.data() : "");
     trabajo->entrada = std::move(entrada);
+    trabajo->generacion = generacion();
+    trabajo->nombre = a_utf16("Ventrik " + ajustes_.identidad);
+    for (const auto& llave : llaves_nuevas_) {
+      trabajo->excluir.push_back(llave.id);
+    }
     borrar_contrasenas();
     ajustes_.error_identidad.clear();
     try {
@@ -869,7 +978,11 @@ class Programa {
         const std::string_view contrasena = texto_de(trabajo->contrasena);
         switch (trabajo->tarea) {
           case Tarea::exportar:
-            trabajo->armada = cliente::armar_copia(trabajo->entrada.bytes(), contrasena);
+            trabajo->armada =
+                cliente::armar_copia(trabajo->entrada.bytes(), contrasena, std::nullopt, trabajo->generacion);
+            break;
+          case Tarea::crear_llave:
+            trabajo->creada = cliente::crear_llave(ventana, trabajo->nombre, trabajo->excluir);
             break;
           case Tarea::importar:
             trabajo->abierta = cliente::abrir_copia(trabajo->entrada.bytes(), contrasena);
@@ -903,6 +1016,10 @@ class Programa {
 
   void terminar_copia(TrabajoDeCopia& hecho) {
     ajustes_.calculando = false;
+    if (hecho.tarea == Tarea::crear_llave) {
+      terminar_llave(hecho);
+      return;
+    }
     if (hecho.tarea != Tarea::exportar && hecho.tarea != Tarea::importar) {
       terminar_maestra(hecho);
       return;
@@ -913,11 +1030,18 @@ class Programa {
         cliente::poner_texto(guardados_, cliente::Ajuste::copia_de_identidad, hecho.huella->a_texto());
         guardar();
       }
-      avisar_identidad(bien ? Clave::seguridad_exportada : Clave::seguridad_no_se_guardo, !bien);
+      if (bien && std::exchange(copia_para_llaves_, false)) {
+        pasar_a_llaves();
+      } else {
+        avisar_identidad(bien ? Clave::seguridad_exportada : Clave::seguridad_no_se_guardo, !bien);
+      }
+      copia_para_llaves_ = false;
+      llaves_nuevas_.clear();
       cerrar_dialogo_identidad();
       aplicar_identidad();
       return;
     }
+    generacion_de_copia_ = hecho.abierta.generacion;
     const cifrado::AperturaSobre resultado = hecho.abierta.resultado;
     if (resultado != cifrado::AperturaSobre::abierto || !hecho.abierta.clave) {
       ajustes_.error_identidad = texto(ajustes_.idioma, resultado == cifrado::AperturaSobre::contrasena
@@ -928,7 +1052,7 @@ class Programa {
       ajustes_.enfocar_contrasena = true;
       return;
     }
-    if (identidad_ && hecho.abierta.clave->huella() != identidad_->huella()) {
+    if (const auto mia = mi_huella(); mia && hecho.abierta.clave->huella() != *mia) {
       ajustes_.identidad_nueva = cliente::identidad_corta(hecho.abierta.clave->huella());
       por_reemplazar_ = std::move(hecho.abierta.clave);
       abrir_dialogo_identidad(DialogoIdentidad::reemplazar);
@@ -986,6 +1110,13 @@ class Programa {
     }
     identidad_ = std::make_shared<const cifrado::Clave>(std::move(nueva));
     estado_identidad_ = cliente::EstadoIdentidad::lista;
+    const bool misma = mis_llaves_ && mis_llaves_->identidad == identidad_->publica();
+    const std::uint32_t anterior = std::max(generacion_de_copia_, misma ? mis_llaves_->generacion : 0);
+    cliente::MisLlaves sin_llaves{desde_copia ? anterior + 1 : 0, identidad_->publica(), {}};
+    if (cliente::guardar_mis_llaves(carpeta_, sin_llaves)) {
+      mis_llaves_ = std::make_shared<const cliente::MisLlaves>(std::move(sin_llaves));
+    }
+    generacion_de_copia_ = 0;
     if (bloqueado_) {
       cerrada_.clear();
       al_desbloquear_ = nullptr;
@@ -1043,6 +1174,9 @@ class Programa {
       terminar_copia(*hecho);
       cambio = true;
     }
+    tocando_.erase(std::remove_if(tocando_.begin(), tocando_.end(),
+                                  [](const auto& sesion) { return !sesion->tocando_llave(); }),
+                   tocando_.end());
     const Situacion& situacion = ventana_.situacion();
     const std::uint32_t sin_usar = ventana_.tomar_sin_usar_ms();
     const bool windows_bloqueado = situacion.bloqueada || situacion.bloqueos != bloqueos_vistos_;
@@ -1338,16 +1472,23 @@ class Programa {
                            con_datos(texto(pantalla_.idioma, Clave::segundo_paso_cuenta),
                                      {pendiente_.nombre, servidor_.nombre_servidor}),
                            oferta->secreto);
+    } else if (const auto* estado = std::get_if<protocolo::EstadoSegundoPaso>(&novedad)) {
+      using protocolo::FaltaSegundoPaso;
+      if (estado->falta == FaltaSegundoPaso::nada) {
+        ordenar(sala_->volver_a_pedir());
+      } else if (estado->falta != FaltaSegundoPaso::activar || estado->todos) {
+        mostrar_seguridad(std::string(texto(
+            pantalla_.idioma, estado->falta == FaltaSegundoPaso::volver_a_entrar ? Clave::segundo_paso_falta_volver
+                              : estado->falta == FaltaSegundoPaso::activar     ? Clave::segundo_paso_falta_activar_todos
+                              : estado->todos ? Clave::segundo_paso_falta_permiso_todos
+                                              : Clave::segundo_paso_falta_permiso_admins)));
+      }
     } else if (const auto* aviso = std::get_if<protocolo::AvisoDeSeguridad>(&novedad)) {
       if (aviso->tipo == protocolo::Seguridad::segundo_paso_configurado) {
         olvidar_segundo_paso(servidor_);
       }
-      auto& lista = servidor_.seguridad;
-      if (lista.size() >= kTopeAvisosDeSeguridad) {
-        lista.erase(lista.begin());
-      }
-      lista.push_back(cliente::explicar(pantalla_.idioma, *aviso));
-      avisos_.seguridad(lista.back());
+      mostrar_seguridad(cliente::explicar(pantalla_.idioma, *aviso));
+      avisos_.seguridad(servidor_.seguridad.back());
       alerta_ = alerta_ || (aviso->tipo != protocolo::Seguridad::nombre_liberado &&
                             aviso->tipo != protocolo::Seguridad::segundo_paso_quitado &&
                             aviso->tipo != protocolo::Seguridad::segundo_paso_configurado);
@@ -1379,6 +1520,14 @@ class Programa {
       hostear_.xp = config->xp;
       config_recibida_ = true;
     }
+  }
+
+  void mostrar_seguridad(std::string linea) {
+    auto& lista = servidor_.seguridad;
+    if (lista.size() >= kTopeAvisosDeSeguridad) {
+      lista.erase(lista.begin());
+    }
+    lista.push_back(std::move(linea));
   }
 
   void abrir_aviso(const cliente::Notificacion& aviso) {
@@ -1480,6 +1629,16 @@ class Programa {
     intento_con_codigo_ = quien.segundo_paso.has_value();
     quien.identidad = identidad_;
     quien.equipo = equipo_;
+    quien.generacion = mis_llaves_ ? mis_llaves_->generacion : 0;
+    if (en_llave()) {
+      quien.llaves = mis_llaves_;
+      quien.tocar_llave = [ventana = ventana_.hwnd()](const cliente::IdDeLlave& id, gsl::span<const std::uint8_t> desafio) {
+        auto firmada = cliente::firmar_con_llave(ventana, {id}, desafio);
+        return firmada.valor ? std::optional<cliente::LlaveTocada>(
+                                   cliente::LlaveTocada{std::move(firmada.valor->datos), std::move(firmada.valor->firma)})
+                             : std::nullopt;
+      };
+    }
     canal_del_aviso_ = 0;
     pantalla_.intento = {direccion, desde_formulario, Fase::conectando, {}};
     pendiente_ = {direccion, huella.bytes(), quien.nombre, 0, {}, 0};
@@ -1802,6 +1961,11 @@ class Programa {
   cifrado::Secreto copia_leida_;
   std::shared_ptr<TrabajoDeCopia> copia_;
   std::thread hilo_de_copia_;
+  std::shared_ptr<const cliente::MisLlaves> mis_llaves_;
+  std::vector<cliente::LlaveRegistrada> llaves_nuevas_;
+  bool copia_para_llaves_ = false;
+  std::uint32_t generacion_de_copia_ = 0;
+  std::vector<std::unique_ptr<cliente::Sesion>> tocando_;
   bool en_ajustes_ = false;
   PantallaHostear hostear_;
   bool en_hostear_ = false;

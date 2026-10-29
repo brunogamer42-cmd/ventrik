@@ -11,6 +11,7 @@
 
 #include "client/sesion.h"
 #include "common/cifrado/codigo_dueno.h"
+#include "common/cifrado/totp.h"
 #include "identidad_de_prueba.h"
 #include "servidor_de_prueba.h"
 #include <doctest/doctest.h>
@@ -80,6 +81,28 @@ class Cliente {
   ventrik::cliente::Sesion sesion_;
   std::vector<ventrik::cliente::Novedad> recibidas_;
 };
+
+inline std::uint64_t paso_totp_de_ahora() {
+  return static_cast<std::uint64_t>(
+             std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) /
+         ventrik::cifrado::kSegundosPasoTotp;
+}
+
+inline std::uint32_t codigo_totp_de(const ventrik::protocolo::ConfigurarSegundoPaso& oferta, std::uint64_t paso) {
+  const auto codigo = ventrik::cifrado::codigo_totp(oferta.secreto, paso);
+  REQUIRE(codigo);
+  return *codigo;
+}
+
+inline ventrik::protocolo::ConfigurarSegundoPaso activar_segundo_paso(Cliente& cliente) {
+  const auto oferta = cliente.esperar<ventrik::protocolo::ConfigurarSegundoPaso>();
+  REQUIRE(oferta);
+  cliente.ordenar(ventrik::protocolo::SegundoPaso{codigo_totp_de(*oferta, paso_totp_de_ahora())});
+  REQUIRE(cliente.esperar<ventrik::protocolo::AvisoDeSeguridad>([](const ventrik::protocolo::AvisoDeSeguridad& aviso) {
+    return aviso.tipo == ventrik::protocolo::Seguridad::segundo_paso_configurado;
+  }));
+  return *oferta;
+}
 
 inline std::uint16_t hablar(ventrik::cliente::PuenteVoz& puente, std::uint8_t flujo = 0) {
   static std::uint16_t numero = 7;

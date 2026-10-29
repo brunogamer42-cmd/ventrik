@@ -45,7 +45,7 @@ using Novedad = std::variant<IntentoDeConexion, protocolo::UsuarioEntro, protoco
                              protocolo::MensajeChat, protocolo::MensajesNuevos,
                              protocolo::Historial, protocolo::Negado, protocolo::UsuarioRol,
                              protocolo::AvisoDeSeguridad, protocolo::ConfigurarSegundoPaso,
-                             protocolo::ConfigSeguridad, PingMedido, Fin>;
+                             protocolo::ConfigSeguridad, protocolo::EstadoSegundoPaso, PingMedido, Fin>;
 
 using Orden = std::variant<protocolo::EntrarACanal, protocolo::EnviarChat,
                            protocolo::PedirHistorial, protocolo::CrearCanal,
@@ -53,7 +53,7 @@ using Orden = std::variant<protocolo::EntrarACanal, protocolo::EnviarChat,
                            protocolo::BorrarCanal, protocolo::Silenciar, protocolo::SilenciarPersonas,
                            protocolo::DestinosDeSusurro, protocolo::NombrarAdmin, protocolo::LiberarNombre,
                            protocolo::SegundoPaso, protocolo::QuitarSegundoPaso, protocolo::PedirConfigSeguridad,
-                           protocolo::CambiarConfigSeguridad>;
+                           protocolo::CambiarConfigSeguridad, protocolo::PermitirSegundoPaso>;
 
 struct OpcionesSesion {
   OpcionesConexion conexion;
@@ -81,6 +81,7 @@ class Sesion {
   void voz(std::shared_ptr<PuenteVoz> puente);
   std::vector<Novedad> esperar_novedades(std::chrono::milliseconds tiempo);
   std::uint32_t despertares() const { return despertares_.load(std::memory_order_relaxed); }
+  bool tocando_llave() const { return tocando_.load(); }
 
  private:
   void correr();
@@ -110,6 +111,7 @@ class Sesion {
   cifrado::SesionTls* tls_ = nullptr;
   std::atomic<bool> ahorrando_{false};
   std::atomic<std::uint32_t> despertares_{0};
+  std::atomic<bool> tocando_{false};
   std::thread hilo_;
 };
 

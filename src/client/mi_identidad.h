@@ -28,25 +28,54 @@ struct MiIdentidad {
   std::vector<std::uint8_t> cerrada;
 };
 
-MiIdentidad cargar_o_crear_mi_identidad(const std::wstring& carpeta);
+MiIdentidad cargar_o_crear_mi_identidad(const std::wstring& carpeta, bool crear = true);
 bool guardar_mi_identidad(const std::wstring& carpeta, const cifrado::Clave& clave,
                           const cifrado::LlaveDeSobre* maestra = nullptr);
+bool borrar_identidad_de_la_pc(const std::wstring& carpeta, const cifrado::Huella& huella);
 
 std::optional<std::vector<std::uint8_t>> armar_archivo_de_identidad(const cifrado::Clave& clave,
                                                                     const cifrado::LlaveDeSobre* maestra = nullptr);
 MiIdentidad leer_archivo_de_identidad(gsl::span<const std::uint8_t> archivo);
 
 std::optional<std::vector<std::uint8_t>> armar_copia(gsl::span<const std::uint8_t> der, std::string_view contrasena,
-                                                     std::optional<cifrado::Argon2> fijos = std::nullopt);
+                                                     std::optional<cifrado::Argon2> fijos = std::nullopt,
+                                                     std::uint32_t generacion = 0);
 
 struct CopiaAbierta {
   cifrado::AperturaSobre resultado = cifrado::AperturaSobre::danado;
   std::optional<cifrado::Clave> clave;
   std::optional<cifrado::LlaveDeSobre> llave;
+  std::uint32_t generacion = 0;
 };
 
 CopiaAbierta abrir_copia(gsl::span<const std::uint8_t> copia, std::string_view contrasena);
-std::optional<cifrado::Clave> leer_contenido_de_copia(gsl::span<const std::uint8_t> contenido);
+std::optional<cifrado::Clave> leer_contenido_de_copia(gsl::span<const std::uint8_t> contenido,
+                                                      std::uint32_t* generacion = nullptr);
+
+constexpr std::size_t kMaximoLlaves = 4;
+
+struct LlaveRegistrada {
+  cifrado::ClavePublica publica{};
+  std::vector<std::uint8_t> id;
+  std::vector<std::uint8_t> permiso;
+};
+
+struct MisLlaves {
+  std::uint32_t generacion = 0;
+  cifrado::ClavePublica identidad{};
+  std::vector<LlaveRegistrada> llaves;
+};
+
+struct LlavesCargadas {
+  std::optional<MisLlaves> llaves;
+  bool danadas = false;
+};
+
+std::optional<std::vector<std::uint8_t>> armar_contenido_de_llaves(const MisLlaves& llaves);
+std::optional<MisLlaves> leer_contenido_de_llaves(gsl::span<const std::uint8_t> contenido);
+std::optional<MisLlaves> leer_archivo_de_llaves(gsl::span<const std::uint8_t> archivo);
+LlavesCargadas cargar_mis_llaves(const std::wstring& carpeta);
+bool guardar_mis_llaves(const std::wstring& carpeta, const MisLlaves& llaves);
 
 std::optional<cifrado::LlaveDeSobre> nueva_maestra(std::string_view contrasena,
                                                    std::optional<cifrado::Argon2> fijos = std::nullopt);

@@ -229,6 +229,12 @@ std::vector<Orden> Sala::elegir_texto(std::uint32_t id) {
   return {protocolo::MirarCanal{id}, pedir(texto_, 0, Sentido::viejos, kMensajesAlEntrar)};
 }
 
+std::vector<Orden> Sala::volver_a_pedir() {
+  const std::uint32_t canal = texto_.canal;
+  texto_ = Chat{};
+  return canal != 0 ? elegir_texto(canal) : revisar();
+}
+
 std::optional<Orden> Sala::enviar(const std::string& texto) {
   if (!puede_escribir() || !es_chat_valido(texto)) {
     return std::nullopt;

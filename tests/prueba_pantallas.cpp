@@ -17,6 +17,7 @@ struct IUnknown;
 #include <imgui_internal.h>
 
 #include "client/horas.h"
+#include "client/mi_identidad.h"
 #include "client/sala.h"
 #include "client/ui/ajustes.h"
 #include "client/ui/aviso_ventana.h"
@@ -1815,6 +1816,134 @@ TEST_CASE("Los diálogos de la contraseña maestra se dibujan a cualquier tamañ
   CHECK(std::string(pantalla.actual.data()) == "la de antes");
 }
 
+TEST_CASE("La fila de la llave: apagada sin Windows 10 (1903), Agregar llave la pide, y con la llave puesta no se exporta ni hay contraseña maestra") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  const Guardados guardados = muchos();
+  for (const int caso : {0, 1, 2}) {
+    CAPTURE(caso);
+    auto pantalla = pantalla_segura(false);
+    pantalla.llaves_posibles = caso != 0;
+    pantalla.llaves = caso == 2 ? 2 : 0;
+    bool agregar = false;
+    bool exportar = false;
+    bool dialogo = false;
+    for (float y = 130; y < 420; y += 10) {
+      for (float x = 900; x < 1340; x += 14) {
+        for (const bool clic : {false, true, false}) {
+          const auto pedido = sin_pantalla.cuadro(pantalla, guardados, ImVec2(x, y), clic);
+          agregar = agregar || pedido.agregar_llave;
+          exportar = exportar || pedido.exportar_identidad;
+        }
+        dialogo = dialogo || pantalla.dialogo_identidad != ui::DialogoIdentidad::ninguno;
+        for (int i = 0; i < 4 && pantalla.dialogo_identidad != ui::DialogoIdentidad::ninguno; ++i) {
+          sin_pantalla.apretar(ImGuiKey_Escape);
+          sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+          sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+        }
+      }
+    }
+    CHECK(agregar == (caso == 1));
+    CHECK(exportar == (caso != 2));
+    CHECK(dialogo == (caso != 2));
+  }
+}
+
+TEST_CASE("El diálogo de la llave se dibuja a cualquier tamaño: Seguir pide una llave lista y Agregar otra tiene tope") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    SinPantalla sin_pantalla(escala, tamano);
+    const Guardados guardados = muchos();
+    for (const std::size_t llaves : {std::size_t{0}, std::size_t{1}, ventrik::cliente::kMaximoLlaves}) {
+      for (const bool calculando : {false, true}) {
+        auto pantalla = pantalla_segura(false);
+        pantalla.dialogo_identidad = ui::DialogoIdentidad::llave;
+        pantalla.abrir_dialogo_identidad = true;
+        pantalla.llaves_nuevas = llaves;
+        pantalla.calculando = calculando;
+        pantalla.error_identidad = calculando ? "" : std::string(200, 'e');
+        for (int i = 0; i < 3; ++i) {
+          sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+        }
+        CHECK(pantalla.dialogo_identidad == ui::DialogoIdentidad::llave);
+      }
+    }
+  }
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  const Guardados guardados = muchos();
+  for (const std::size_t llaves : {std::size_t{0}, std::size_t{1}, ventrik::cliente::kMaximoLlaves}) {
+    for (const bool calculando : {false, true}) {
+      CAPTURE(llaves);
+      CAPTURE(calculando);
+      auto pantalla = pantalla_segura(false);
+      pantalla.llaves_nuevas = llaves;
+      pantalla.calculando = calculando;
+      bool confirmar = false;
+      bool otra = false;
+      bool cancelar = false;
+      for (float y = 384; y < 560; y += 6) {
+        for (float x = 468; x < 910; x += 10) {
+          if (pantalla.dialogo_identidad == ui::DialogoIdentidad::ninguno) {
+            pantalla.dialogo_identidad = ui::DialogoIdentidad::llave;
+            pantalla.abrir_dialogo_identidad = true;
+            sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+          }
+          for (const bool clic : {false, true, false}) {
+            const auto pedido = sin_pantalla.cuadro(pantalla, guardados, ImVec2(x, y), clic);
+            confirmar = confirmar || pedido.confirmar_identidad;
+            otra = otra || pedido.agregar_llave;
+            cancelar = cancelar || pedido.cancelar_identidad;
+          }
+        }
+      }
+      CHECK(confirmar == (!calculando && llaves > 0));
+      CHECK(otra == (!calculando && llaves < ventrik::cliente::kMaximoLlaves));
+      CHECK(cancelar == !calculando);
+    }
+  }
+}
+
+TEST_CASE("El diálogo de la llave no se anima con el mouse quieto") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  const Guardados guardados = muchos();
+  for (const bool calculando : {false, true}) {
+    auto pantalla = pantalla_segura(false);
+    pantalla.dialogo_identidad = ui::DialogoIdentidad::llave;
+    pantalla.abrir_dialogo_identidad = true;
+    pantalla.llaves_nuevas = 1;
+    pantalla.calculando = calculando;
+    for (int i = 0; i < 3; ++i) {
+      sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+    }
+    ui::Zonas zonas;
+    zonas.cambiadas(*ImGui::GetDrawData());
+    std::size_t cambios = 0;
+    for (int i = 0; i < 60; ++i) {
+      sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+      cambios += zonas.cambiadas(*ImGui::GetDrawData()).size();
+    }
+    CHECK(cambios == 0);
+  }
+}
+
+TEST_CASE("banco del diálogo de la llave" * doctest::skip()) {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  const Guardados guardados = muchos();
+  auto pantalla = pantalla_segura(false);
+  pantalla.dialogo_identidad = ui::DialogoIdentidad::llave;
+  pantalla.abrir_dialogo_identidad = true;
+  pantalla.llaves_nuevas = 1;
+  pantalla.llaves_posibles = true;
+  for (int i = 0; i < 30; ++i) {
+    sin_pantalla.cuadro(pantalla, guardados, ImVec2(900, 400));
+  }
+  const auto desde = std::chrono::steady_clock::now();
+  for (int i = 0; i < 1000; ++i) {
+    sin_pantalla.cuadro(pantalla, guardados, ImVec2(900, 400));
+  }
+  MESSAGE("diálogo de la llave: "
+          << std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - desde).count() / 1000
+          << " us por cuadro, " << ImGui::GetDrawData()->TotalVtxCount << " vertices");
+}
+
 TEST_CASE("Los avisos de seguridad se ven juntos a cualquier tamaño, esperan a otro diálogo y Entendido los borra") {
   for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.0f, ImVec2(1376, 768)),
                                        std::make_pair(1.5f, ImVec2(1650, 960))}) {
@@ -1899,6 +2028,43 @@ TEST_CASE("El dueño hace admin con clic derecho y confirmación, y saca admin s
     CHECK(std::all_of(nombrados.begin(), nombrados.end(), [](const NombrarAdmin& orden) {
       return (orden.usuario == 2 && orden.admin) || (orden.usuario == 3 && !orden.admin);
     }));
+  }
+}
+
+TEST_CASE("El dueño permite activar el segundo paso con clic derecho en una persona; los demás no tienen ese menú") {
+  using ventrik::protocolo::Rol;
+  for (const Rol mio : {Rol::dueno, Rol::admin}) {
+    SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+    Presentado presentado{1, mio, "Servidor", {{1, "General"}},
+                          {{1, "Ana", 1}, {2, "Beto", 1}, {3, "Carla", 1, 0, Rol::admin}}};
+    ventrik::cliente::Sala sala(presentado);
+    sala.empezar();
+    auto pantalla = pantalla_servidor();
+    std::vector<ui::PedidoServidor> pedidos;
+    const auto tocar = [&](ImVec2 donde, int boton = 0) {
+      sin_pantalla.usar_boton(boton);
+      for (const bool clic : {false, true, false}) {
+        pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, donde, clic));
+      }
+      sin_pantalla.usar_boton(0);
+    };
+    for (float y = 100; y < 500; y += 6) {
+      tocar(ImVec2(100, y), 1);
+      if (hay_ventana_emergente()) {
+        tocar(en_menu(1));
+      }
+      for (int i = 0; i < 3 && hay_ventana_emergente(); ++i) {
+        sin_pantalla.apretar(ImGuiKey_Escape);
+        pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+        pedidos.push_back(sin_pantalla.cuadro(pantalla, sala, ImVec2(5, 5)));
+      }
+    }
+    const auto permitidos = ordenes_de<ventrik::protocolo::PermitirSegundoPaso>(pedidos);
+    CHECK(permitidos.empty() == (mio != Rol::dueno));
+    CHECK(std::all_of(permitidos.begin(), permitidos.end(), [](const ventrik::protocolo::PermitirSegundoPaso& orden) {
+      return orden.usuario == 2 || orden.usuario == 3;
+    }));
+    CHECK(ordenes_de<NombrarAdmin>(pedidos).empty());
   }
 }
 

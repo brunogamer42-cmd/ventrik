@@ -97,13 +97,18 @@ TEST_CASE("Cada nivel prende en el servidor lo que dice la tabla de niveles") {
       opciones.seguridad = esperado;
       ServidorDePrueba servidor(opciones);
       Cliente ana(servidor, "Ana");
-      ana.entrar_con_voz();
+      const bool pide_a_todos = esperado.opciones[Opcion::segundo_paso] == static_cast<std::uint8_t>(ventrik::SegundoPaso::todos);
+      const auto id = ana.entrar().tu_id;
+      if (pide_a_todos) {
+        activar_segundo_paso(ana);
+      }
+      CHECK(ana.no_llega<ConfigurarSegundoPaso>());
+      ana.ordenar(EntrarACanal{ventrik::servidor::kCanalGeneral});
+      REQUIRE(ana.esperar<UsuarioCambioCanal>([id](const UsuarioCambioCanal& cambio) { return cambio.id == id; }));
       const auto puente = std::make_shared<ventrik::cliente::PuenteVoz>();
       ana.voz(puente);
       REQUIRE(esperar_que([&] { return puente->estado == ventrik::cliente::EstadoVoz::lista; }));
       CHECK(puente->voz_fija == (esperado.opciones[Opcion::voz_fija] != 0));
-      const bool pide_a_todos = esperado.opciones[Opcion::segundo_paso] == static_cast<std::uint8_t>(ventrik::SegundoPaso::todos);
-      CHECK(ana.esperar<ConfigurarSegundoPaso>({}, pide_a_todos ? 5000ms : 300ms).has_value() == pide_a_todos);
     }
     auto base = ventrik::servidor::Base::abrir(archivo, "General");
     REQUIRE(base);

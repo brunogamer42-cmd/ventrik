@@ -1,12 +1,22 @@
+#include <algorithm>
+#include <array>
+#include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include <windows.h>
+
 #include "client/webauthn.h"
+#include "cliente_de_prueba.h"
 #include "common/cifrado/clave.h"
 #include "common/cifrado/llave.h"
 #include "identidad_de_prueba.h"
+#include "server/base.h"
 #include <doctest/doctest.h>
 
 namespace cifrado = ventrik::cifrado;
@@ -333,4 +343,423 @@ TEST_CASE("La detección de llaves y Windows Hello no se rompe") {
   CHECK(ventrik::cliente::crear_llave(nullptr, L"prueba", {}).error == E_NOTIMPL);
 #endif
   MESSAGE("autenticadores en esta PC: " << static_cast<int>(primera));
+}
+
+namespace {
+namespace proto = ventrik::protocolo;
+using namespace std::chrono_literals;
+using ventrik::cliente::EstadoConexion;
+using ventrik::servidor::Evento;
+
+class ConLlave {
+ public:
+  explicit ConLlave(std::shared_ptr<const cifrado::Clave> identidad = prueba::identidad_nueva_de_prueba())
+      : identidad_(std::move(identidad)) {}
+
+  ventrik::cliente::Presentacion presentacion(std::string nombre, std::string_view equipo = "casa",
+                                               std::optional<std::uint32_t> codigo = {},
+                                               std::optional<cifrado::CodigoDueno> dueno = {}) const {
+    ventrik::cliente::Presentacion quien{std::move(nombre), dueno, nullptr, prueba::secreto_de(equipo), nullptr, codigo};
+    quien.generacion = generacion;
+    auto llaves = std::make_shared<ventrik::cliente::MisLlaves>();
+    llaves->generacion = generacion;
+    llaves->identidad = identidad_->publica();
+    const cifrado::Clave& firmante = firmante_del_permiso ? *firmante_del_permiso : *identidad_;
+    const auto permiso = firmante.firmar(cifrado::lo_que_firma_el_permiso(
+        identidad_->publica(), llave.publica(), generacion_del_permiso.value_or(generacion)));
+    REQUIRE(permiso);
+    llaves->llaves.push_back({llave.publica(), Bytes{1, 2, 3}, *permiso});
+    quien.llaves = std::move(llaves);
+    quien.tocar_llave = [llave = llave, marcas = marcas, contador = contador, alterar = alterar](
+                            const Bytes&, gsl::span<const std::uint8_t> desafio) {
+      Bytes datos = llave.datos(marcas, contador);
+      const Bytes firma = llave.firmar(datos, Bytes(desafio.begin(), desafio.end()));
+      if (alterar) {
+        alterar(datos);
+      }
+      return std::optional<ventrik::cliente::LlaveTocada>(ventrik::cliente::LlaveTocada{datos, firma});
+    };
+    return quien;
+  }
+
+  EstadoConexion entrar(const prueba::ServidorDePrueba& servidor, std::string nombre = "Ana",
+                        std::string_view equipo = "casa") const {
+    return ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), presentacion(std::move(nombre), equipo))
+        .estado;
+  }
+
+  ventrik::cliente::Presentacion con_identidad(std::string nombre) const {
+    return {std::move(nombre), std::nullopt, identidad_, prueba::secreto_de("casa"), nullptr};
+  }
+
+  LlaveDeMentira llave;
+  std::uint32_t generacion = 1;
+  std::optional<std::uint32_t> generacion_del_permiso;
+  std::uint8_t marcas = kConPin;
+  std::uint32_t contador = 0;
+  std::shared_ptr<const cifrado::Clave> firmante_del_permiso;
+  std::function<void(Bytes&)> alterar;
+
+ private:
+  std::shared_ptr<const cifrado::Clave> identidad_;
+};
+
+std::wstring base_temporal() {
+  std::array<wchar_t, MAX_PATH> carpeta{};
+  REQUIRE(GetTempPathW(static_cast<DWORD>(carpeta.size()), carpeta.data()) > 0);
+  static int numero = 0;
+  const std::wstring archivo = std::wstring(carpeta.data()) + L"ventrik_llave_" + std::to_wstring(GetCurrentProcessId()) +
+                               L"_" + std::to_wstring(++numero) + L".db";
+  DeleteFileW(archivo.c_str());
+  return archivo;
+}
+
+void borrar_base_de_prueba(const std::wstring& archivo) {
+  for (const auto* final : {L"", L"-wal", L"-shm"}) {
+    DeleteFileW((archivo + final).c_str());
+  }
+}
+
+bool anotado(const std::wstring& archivo, proto::Seguridad tipo, std::size_t veces) {
+  auto base = ventrik::servidor::Base::abrir(archivo, "General");
+  REQUIRE(base);
+  const auto registro = base->registro(1000);
+  return static_cast<std::size_t>(std::count_if(registro.begin(), registro.end(), [tipo](const proto::AvisoDeSeguridad& aviso) {
+           return aviso.tipo == tipo;
+         })) == veces;
+}
+
+ventrik::servidor::Opciones sin_bloqueo() {
+  ventrik::servidor::Opciones opciones;
+  opciones.proteccion.fallas_para_bloquear = 1000;
+  opciones.proteccion.rafaga_por_ip = 1000;
+  opciones.espera_maxima = std::chrono::seconds{0};
+  return opciones;
+}
+
+}
+
+TEST_CASE("Entrar con llave: el permiso vale con su identidad y su generación, y no con un salto mayor al tope") {
+  prueba::ServidorDePrueba servidor(sin_bloqueo());
+  ConLlave ana;
+  CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
+  CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
+  ConLlave impostor = ana;
+  impostor.firmante_del_permiso = prueba::identidad_nueva_de_prueba();
+  CHECK(impostor.entrar(servidor) == EstadoConexion::firma_rechazada);
+  ConLlave otra_generacion = ana;
+  otra_generacion.generacion_del_permiso = 2;
+  CHECK(otra_generacion.entrar(servidor) == EstadoConexion::firma_rechazada);
+  ana.generacion = 5;
+  CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
+  ana.generacion = 4;
+  CHECK(ana.entrar(servidor) == EstadoConexion::llave_anulada);
+  ana.generacion = 5 + 17;
+  CHECK(ana.entrar(servidor) == EstadoConexion::llave_anulada);
+  ana.generacion = 5 + 16;
+  CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
+  auto con_identidad = ana.con_identidad("Ana");
+  con_identidad.generacion = 3;
+  CHECK(ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), con_identidad).estado ==
+        EstadoConexion::conectado);
+  con_identidad.generacion = 100;
+  CHECK(ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), con_identidad).estado ==
+        EstadoConexion::conectado);
+  CHECK(ana.entrar(servidor) == EstadoConexion::llave_anulada);
+  ana.generacion = 21 + 16;
+  CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
+  CHECK(servidor.cuantos(Evento::firma_invalida) == 2);
+}
+
+TEST_CASE("Con los datos de la llave alterados, sin la marca de tocada o de otro largo no se entra") {
+  prueba::ServidorDePrueba servidor(sin_bloqueo());
+  ConLlave ana;
+  ana.alterar = [](Bytes& datos) { datos[36] ^= 0x01; };
+  CHECK(ana.entrar(servidor) == EstadoConexion::firma_rechazada);
+  ana.alterar = [](Bytes& datos) { datos[0] ^= 0x01; };
+  CHECK(ana.entrar(servidor) == EstadoConexion::firma_rechazada);
+  ana.alterar = nullptr;
+  ana.marcas = cifrado::kLlaveVerificada;
+  CHECK(ana.entrar(servidor) == EstadoConexion::firma_rechazada);
+  ana.marcas = kConPin;
+  ana.alterar = [](Bytes& datos) { datos.push_back(0); };
+  CHECK(ana.entrar(servidor) == EstadoConexion::sin_llave);
+  ana.alterar = nullptr;
+  CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
+  CHECK(servidor.cuantos(Evento::firma_invalida) == 3);
+}
+
+TEST_CASE("El contador de la llave: 0 vale mientras no subió; si baja se rechaza, se anota y se avisa al dueño y a la identidad") {
+  const std::wstring archivo = base_temporal();
+  const auto codigo = cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  auto opciones = sin_bloqueo();
+  opciones.archivo_base = archivo;
+  opciones.codigo_dueno = codigo;
+  {
+    prueba::ServidorDePrueba servidor(opciones);
+    prueba::Cliente tano(servidor, "Tano", codigo);
+    tano.entrar();
+    ConLlave ana;
+    for (int vez = 0; vez < 2; ++vez) {
+      CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
+    }
+    for (const std::uint32_t contador : {5u, 6u}) {
+      ana.contador = contador;
+      CHECK(ana.entrar(servidor) == EstadoConexion::conectado);
+    }
+    for (const std::uint32_t contador : {6u, 3u, 0u}) {
+      CAPTURE(contador);
+      ana.contador = contador;
+      CHECK(ana.entrar(servidor) == EstadoConexion::llave_clonada);
+    }
+    CHECK(servidor.cuantos(Evento::llave_clonada) == 3);
+    CHECK(tano.esperar<proto::AvisoDeSeguridad>([](const proto::AvisoDeSeguridad& aviso) {
+      return aviso.tipo == proto::Seguridad::posible_llave_clonada && aviso.quien == "Ana";
+    }));
+    ana.contador = 7;
+    prueba::Cliente vuelve(servidor, ana.presentacion("Ana"));
+    vuelve.entrar();
+    CHECK(vuelve.esperar<proto::AvisoDeSeguridad>(
+        [](const proto::AvisoDeSeguridad& aviso) { return aviso.tipo == proto::Seguridad::posible_llave_clonada; }));
+  }
+  CHECK(anotado(archivo, proto::Seguridad::posible_llave_clonada, 3));
+  CHECK(anotado(archivo, proto::Seguridad::llave_nueva, 1));
+  {
+    auto base = ventrik::servidor::Base::abrir(archivo, "General");
+    REQUIRE(base);
+    const auto llaves = base->llaves();
+    REQUIRE(llaves);
+    REQUIRE(llaves->size() == 1);
+    REQUIRE(llaves->at(0).llaves.size() == 1);
+    CHECK(llaves->at(0).llaves.at(0).contador == 7);
+  }
+  borrar_base_de_prueba(archivo);
+}
+
+TEST_CASE("Una llave sin PIN ni huella entra, pero no cuenta como segundo paso; con PIN cuenta") {
+  const auto codigo = cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  ventrik::servidor::Opciones opciones;
+  opciones.codigo_dueno = codigo;
+  opciones.segundo_paso = ventrik::SegundoPaso::admins;
+  prueba::ServidorDePrueba servidor(opciones);
+  ConLlave tano;
+  {
+    prueba::Cliente primera(servidor, tano.presentacion("Tano", "casa", {}, codigo));
+    const auto id = primera.entrar().tu_id;
+    CHECK(primera.esperar<proto::UsuarioRol>(
+        [id](const proto::UsuarioRol& rol) { return rol.id == id && rol.rol == proto::Rol::dueno; }));
+    CHECK(primera.no_llega<proto::ConfigurarSegundoPaso>());
+  }
+  tano.marcas = kPresente;
+  {
+    prueba::Cliente sin_pin(servidor, tano.presentacion("Tano"));
+    CHECK(sin_pin.entrar().rol == proto::Rol::ninguno);
+    sin_pin.ordenar(proto::CrearCanal{"Partidas"});
+    CHECK(sin_pin.esperar<proto::Negado>(
+        [](const proto::Negado& negado) { return negado.motivo == proto::MotivoNegado::sin_permiso; }));
+  }
+  tano.marcas = kConPin;
+  prueba::Cliente con_pin(servidor, tano.presentacion("Tano"));
+  CHECK(con_pin.entrar().rol == proto::Rol::dueno);
+}
+
+TEST_CASE("Una llave nueva no cuenta como segundo paso hasta confirmarla: con TOTP, la primera vez pide también el código") {
+  const auto codigo = cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  ventrik::servidor::Opciones opciones;
+  opciones.codigo_dueno = codigo;
+  opciones.segundo_paso = ventrik::SegundoPaso::admins;
+  prueba::ServidorDePrueba servidor(opciones);
+  const auto identidad = prueba::identidad_nueva_de_prueba();
+  proto::ConfigurarSegundoPaso oferta;
+  {
+    prueba::Cliente primera(servidor, {"Tano", codigo, identidad, prueba::secreto_de("casa"), nullptr});
+    primera.entrar();
+    oferta = prueba::activar_segundo_paso(primera);
+  }
+  ConLlave tano(identidad);
+  CHECK(tano.entrar(servidor, "Tano") == EstadoConexion::falta_segundo_paso);
+  {
+    const auto con_codigo = ventrik::cliente::conectar(
+        servidor.direccion(), servidor.huella(),
+        tano.presentacion("Tano", "casa", prueba::codigo_totp_de(oferta, prueba::paso_totp_de_ahora() + 1)));
+    REQUIRE(con_codigo.estado == EstadoConexion::conectado);
+    CHECK(con_codigo.presentado->rol == proto::Rol::dueno);
+  }
+  const auto sola = ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), tano.presentacion("Tano"));
+  REQUIRE(sola.estado == EstadoConexion::conectado);
+  CHECK(sola.presentado->rol == proto::Rol::dueno);
+}
+
+TEST_CASE("Sin segundo paso, una llave nueva vale desde un equipo conocido o con el permiso que el dueño da desde el programa") {
+  const auto codigo = cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  ventrik::servidor::Opciones opciones;
+  opciones.codigo_dueno = codigo;
+  opciones.segundo_paso = ventrik::SegundoPaso::admins;
+  prueba::ServidorDePrueba servidor(opciones);
+  prueba::Cliente tano(servidor, "Tano", codigo);
+  tano.entrar();
+  prueba::activar_segundo_paso(tano);
+  const auto admin_sin_paso = [&](const std::shared_ptr<const cifrado::Clave>& identidad, const char* nombre) {
+    prueba::Cliente casa(servidor, {nombre, std::nullopt, identidad, prueba::secreto_de("casa"), nullptr});
+    const auto id = casa.entrar().tu_id;
+    tano.ordenar(proto::NombrarAdmin{id, true});
+    REQUIRE(casa.esperar<proto::ConfigurarSegundoPaso>());
+  };
+  const ConLlave dani(prueba::identidad_nueva_de_prueba());
+  const ConLlave beto(prueba::identidad_nueva_de_prueba());
+  admin_sin_paso(dani.con_identidad("Dani").identidad, "Dani");
+  admin_sin_paso(beto.con_identidad("Beto").identidad, "Beto");
+  {
+    prueba::Cliente desde_casa(servidor, dani.presentacion("Dani"));
+    const auto id = desde_casa.entrar().tu_id;
+    CHECK(desde_casa.esperar<proto::UsuarioRol>(
+        [id](const proto::UsuarioRol& rol) { return rol.id == id && rol.rol == proto::Rol::admin; }));
+  }
+  {
+    prueba::Cliente otra(servidor, beto.presentacion("Beto", "otra"));
+    const auto id = otra.entrar().tu_id;
+    CHECK(otra.esperar<proto::EstadoSegundoPaso>([](const proto::EstadoSegundoPaso& estado) {
+      return estado.falta == proto::FaltaSegundoPaso::pedir_permiso && !estado.todos;
+    }));
+    CHECK(otra.no_llega<proto::ConfigurarSegundoPaso>());
+    const auto negado = [](proto::MotivoNegado motivo) {
+      return [motivo](const proto::Negado& recibido) {
+        return recibido.pedido == proto::TipoMensaje::permitir_segundo_paso && recibido.motivo == motivo;
+      };
+    };
+    otra.ordenar(proto::PermitirSegundoPaso{id});
+    CHECK(otra.esperar<proto::Negado>(negado(proto::MotivoNegado::sin_permiso)));
+    tano.ordenar(proto::PermitirSegundoPaso{id + 1000});
+    CHECK(tano.esperar<proto::Negado>(negado(proto::MotivoNegado::no_existe)));
+    tano.ordenar(proto::PermitirSegundoPaso{id});
+    CHECK(otra.esperar<proto::UsuarioRol>(
+        [id](const proto::UsuarioRol& rol) { return rol.id == id && rol.rol == proto::Rol::admin; }));
+    CHECK(otra.esperar<proto::EstadoSegundoPaso>(
+        [](const proto::EstadoSegundoPaso& estado) { return estado.falta == proto::FaltaSegundoPaso::nada; }));
+  }
+  prueba::Cliente vuelve(servidor, beto.presentacion("Beto", "otra"));
+  CHECK(vuelve.entrar().rol == proto::Rol::admin);
+  CHECK(servidor.cuantos(Evento::segundo_paso_permitido) == 1);
+}
+
+TEST_CASE("Con segundo paso para todos, quien no lo hizo no chatea, no recibe chat ni historial y no entra a la voz, hasta activarlo") {
+  const auto codigo = cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  ventrik::servidor::Opciones opciones;
+  opciones.codigo_dueno = codigo;
+  opciones.segundo_paso = ventrik::SegundoPaso::todos;
+  prueba::ServidorDePrueba servidor(opciones);
+  prueba::Cliente tano(servidor, "Tano", codigo);
+  tano.entrar();
+  prueba::activar_segundo_paso(tano);
+  tano.ordenar(proto::CrearCanal{"Charla", proto::TipoCanal::texto});
+  const auto charla = tano.esperar<proto::CanalCreado>();
+  REQUIRE(charla);
+  const std::uint32_t canal = charla->canal.id;
+  tano.ordenar(proto::MirarCanal{canal});
+  prueba::Cliente ana(servidor, "Ana");
+  const auto id = ana.entrar().tu_id;
+  CHECK(ana.esperar<proto::EstadoSegundoPaso>([](const proto::EstadoSegundoPaso& estado) {
+    return estado.falta == proto::FaltaSegundoPaso::activar && estado.todos;
+  }));
+  const auto oferta = ana.esperar<proto::ConfigurarSegundoPaso>();
+  REQUIRE(oferta);
+  const auto negado = [](proto::TipoMensaje pedido) {
+    return [pedido](const proto::Negado& recibido) {
+      return recibido.pedido == pedido && recibido.motivo == proto::MotivoNegado::falta_segundo_paso;
+    };
+  };
+  ana.ordenar(proto::EnviarChat{canal, "hola"});
+  CHECK(ana.esperar<proto::Negado>(negado(proto::TipoMensaje::enviar_chat)));
+  ana.ordenar(proto::PedirHistorial{canal, 0});
+  CHECK(ana.esperar<proto::Negado>(negado(proto::TipoMensaje::pedir_historial)));
+  ana.ordenar(proto::MirarCanal{canal});
+  CHECK(ana.esperar<proto::Negado>(negado(proto::TipoMensaje::mirar_canal)));
+  ana.ordenar(proto::EntrarACanal{ventrik::servidor::kCanalGeneral});
+  CHECK(ana.esperar<proto::Negado>(negado(proto::TipoMensaje::entrar_a_canal)));
+  tano.ordenar(proto::EnviarChat{canal, "secreto"});
+  CHECK(tano.esperar<proto::MensajeChat>());
+  CHECK(ana.no_llega<proto::MensajeChat>(1500ms));
+  CHECK(ana.no_llega<proto::MensajesNuevos>(0ms));
+  ana.ordenar(proto::SegundoPaso{prueba::codigo_totp_de(*oferta, prueba::paso_totp_de_ahora())});
+  CHECK(ana.esperar<proto::EstadoSegundoPaso>(
+      [](const proto::EstadoSegundoPaso& estado) { return estado.falta == proto::FaltaSegundoPaso::nada; }));
+  ana.ordenar(proto::MirarCanal{canal});
+  ana.ordenar(proto::PedirHistorial{canal, 0});
+  const auto historial = ana.esperar<proto::Historial>();
+  REQUIRE(historial);
+  CHECK(historial->mensajes.size() == 1);
+  tano.ordenar(proto::EnviarChat{canal, "listo"});
+  CHECK(ana.esperar<proto::MensajeChat>([](const proto::MensajeChat& mensaje) { return mensaje.texto == "listo"; }));
+  ana.ordenar(proto::EntrarACanal{ventrik::servidor::kCanalGeneral});
+  CHECK(ana.esperar<proto::UsuarioCambioCanal>([id](const proto::UsuarioCambioCanal& cambio) { return cambio.id == id; }));
+}
+
+TEST_CASE("Al pasar a segundo paso para todos en vivo, quien no lo activó sale de la voz y vuelve al activarlo") {
+  const auto codigo = cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  ventrik::servidor::Opciones opciones;
+  opciones.codigo_dueno = codigo;
+  prueba::ServidorDePrueba servidor(opciones);
+  prueba::Cliente tano(servidor, "Tano", codigo);
+  tano.entrar();
+  prueba::Cliente ana(servidor, "Ana");
+  const auto id = ana.entrar_con_voz().tu_id;
+  ventrik::Seguridad todos;
+  REQUIRE(ventrik::cambiar_opcion(todos, ventrik::Opcion::segundo_paso, static_cast<std::uint8_t>(ventrik::SegundoPaso::todos)));
+  tano.ordenar(proto::CambiarConfigSeguridad{todos});
+  CHECK(ana.esperar<proto::UsuarioCambioCanal>(
+      [id](const proto::UsuarioCambioCanal& cambio) { return cambio.id == id && cambio.canal == 0; }));
+  CHECK(ana.esperar<proto::EstadoSegundoPaso>([](const proto::EstadoSegundoPaso& estado) {
+    return estado.falta == proto::FaltaSegundoPaso::activar && estado.todos;
+  }));
+  prueba::activar_segundo_paso(ana);
+  CHECK(ana.esperar<proto::EstadoSegundoPaso>(
+      [](const proto::EstadoSegundoPaso& estado) { return estado.falta == proto::FaltaSegundoPaso::nada; }));
+  ana.ordenar(proto::EntrarACanal{ventrik::servidor::kCanalGeneral});
+  CHECK(ana.esperar<proto::UsuarioCambioCanal>([id](const proto::UsuarioCambioCanal& cambio) {
+    return cambio.id == id && cambio.canal == ventrik::servidor::kCanalGeneral;
+  }));
+}
+
+TEST_CASE("Diez códigos equivocados bloquean el segundo paso: queda anotado y al dueño le llega el aviso") {
+  const std::wstring archivo = base_temporal();
+  const auto codigo = cifrado::CodigoDueno::generar();
+  REQUIRE(codigo);
+  auto opciones = sin_bloqueo();
+  opciones.archivo_base = archivo;
+  opciones.codigo_dueno = codigo;
+  opciones.segundo_paso = ventrik::SegundoPaso::admins;
+  const auto beto = prueba::identidad_nueva_de_prueba();
+  const auto desde_casa = [&beto](std::optional<std::uint32_t> con) {
+    return ventrik::cliente::Presentacion{"Beto", std::nullopt, beto, prueba::secreto_de("casa"), nullptr, con};
+  };
+  {
+    prueba::ServidorDePrueba servidor(opciones);
+    prueba::Cliente tano(servidor, "Tano", codigo);
+    tano.entrar();
+    prueba::activar_segundo_paso(tano);
+    proto::ConfigurarSegundoPaso oferta;
+    {
+      prueba::Cliente casa(servidor, desde_casa({}));
+      const auto id = casa.entrar().tu_id;
+      tano.ordenar(proto::NombrarAdmin{id, true});
+      oferta = prueba::activar_segundo_paso(casa);
+    }
+    const std::uint32_t malo = prueba::codigo_totp_de(oferta, prueba::paso_totp_de_ahora() + 7);
+    for (int falla = 0; falla < 10; ++falla) {
+      CHECK(ventrik::cliente::conectar(servidor.direccion(), servidor.huella(), desde_casa(malo)).estado ==
+            (falla < 9 ? EstadoConexion::segundo_paso_incorrecto : EstadoConexion::segundo_paso_bloqueado));
+    }
+    const auto aviso = tano.esperar<proto::AvisoDeSeguridad>(
+        [](const proto::AvisoDeSeguridad& recibido) { return recibido.tipo == proto::Seguridad::segundo_paso_bloqueado; });
+    REQUIRE(aviso);
+    CHECK(aviso->quien == "Beto");
+  }
+  CHECK(anotado(archivo, proto::Seguridad::segundo_paso_bloqueado, 1));
+  borrar_base_de_prueba(archivo);
 }

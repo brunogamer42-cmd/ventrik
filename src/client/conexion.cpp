@@ -173,7 +173,29 @@ void interpretar_presentacion(const protocolo::Marco& marco, ResultadoConexion& 
     case protocolo::MotivoPresentacion::segundo_paso_bloqueado:
       resultado.estado = EstadoConexion::segundo_paso_bloqueado;
       break;
+    case protocolo::MotivoPresentacion::llave_anulada:
+      resultado.estado = EstadoConexion::llave_anulada;
+      break;
+    case protocolo::MotivoPresentacion::llave_clonada:
+      resultado.estado = EstadoConexion::llave_clonada;
+      break;
   }
+}
+
+bool tocar_llaves(protocolo::Presentarse& presentarse, const Presentacion& quien, std::uint16_t version,
+                  gsl::span<const std::uint8_t> huella, gsl::span<const std::uint8_t> valor) {
+  for (const LlaveRegistrada& llave : quien.llaves->llaves) {
+    presentarse.llave = protocolo::EntradaConLlave{llave.publica, llave.permiso, {}, {}};
+    const auto desafio = protocolo::desafio_de_llave(presentarse, version, huella, valor);
+    const auto tocada = desafio ? quien.tocar_llave(llave.id, *desafio) : std::nullopt;
+    if (tocada && tocada->datos.size() == protocolo::kBytesDatosDeLlave && !tocada->firma.empty() &&
+        tocada->firma.size() <= protocolo::kMaximoFirma) {
+      std::copy(tocada->datos.begin(), tocada->datos.end(), presentarse.llave->datos.begin());
+      presentarse.llave->firma = tocada->firma;
+      return true;
+    }
+  }
+  return false;
 }
 
 }
@@ -185,10 +207,13 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     resultado.estado = EstadoConexion::nombre_invalido;
     return resultado;
   }
-  if (!quien.identidad) {
+  const bool con_llave = !quien.identidad && quien.llaves && !quien.llaves->llaves.empty() && quien.tocar_llave;
+  if (!quien.identidad && !con_llave) {
     resultado.estado = EstadoConexion::sin_identidad;
     return resultado;
   }
+  protocolo::Hola hola = opciones.hola;
+  hola.funciones |= con_llave ? protocolo::kFuncionLlave : 0;
   red::Socket nuevo = red::conectar(destino, opciones.tiempo_para_conectar, opciones.cancelar,
                                     opciones.origen ? &*opciones.origen : nullptr);
   if (!nuevo.valido()) {
@@ -205,7 +230,7 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     return resultado;
   }
   tls.exigir_huella(huella);
-  const auto limite = Reloj::now() + opciones.tiempo_para_saludar;
+  auto limite = Reloj::now() + opciones.tiempo_para_saludar;
 
   for (;;) {
     const auto paso = tls.apreton();
@@ -243,7 +268,7 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   };
 
   protocolo::Escritor cuerpo;
-  protocolo::escribir(cuerpo, opciones.hola);
+  protocolo::escribir(cuerpo, hola);
   std::vector<std::uint8_t> salida;
   if (!cuerpo.ok() ||
       !protocolo::armar_marco(static_cast<std::uint16_t>(protocolo::TipoMensaje::hola),
@@ -252,7 +277,7 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     return fallar();
   }
   auto marco = leer_marco(*abierta, limite, opciones.cancelar, resultado);
-  if (!marco || !interpretar_saludo(*marco, opciones.hola, tls, resultado)) {
+  if (!marco || !interpretar_saludo(*marco, hola, tls, resultado)) {
     return fallar();
   }
   const bool puede_llegar_cadena = abierta->confirmada();
@@ -276,7 +301,8 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   if (quien.codigo_dueno) {
     presentarse.codigo_dueno = quien.codigo_dueno->bytes();
   }
-  presentarse.clave = quien.identidad->publica();
+  presentarse.clave = con_llave ? quien.llaves->identidad : quien.identidad->publica();
+  presentarse.generacion = quien.generacion;
   if (quien.equipo) {
     presentarse.equipo = codigo_de_equipo(*quien.equipo, opciones.atras.empty() ? huella : opciones.atras.front());
   }
@@ -286,7 +312,8 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
   }
   presentarse.segundo_paso = quien.segundo_paso;
   std::array<std::uint8_t, protocolo::kBytesValorDeConexion> valor{};
-  auto firmado = tls.valor_para_identidad(valor)
+  const bool hay_valor = tls.valor_para_identidad(valor, con_llave);
+  auto firmado = hay_valor && !con_llave
                      ? protocolo::lo_que_se_firma(presentarse, resultado.protocolo, de_la_conexion->bytes(), valor)
                      : std::vector<std::uint8_t>();
   const auto borrar = gsl::finally([&presentarse, &firmado, &salida] {
@@ -294,11 +321,17 @@ ResultadoConexion conectar(const red::Direccion& destino, const cifrado::Huella&
     mbedtls_platform_zeroize(firmado.data(), firmado.size());
     mbedtls_platform_zeroize(salida.data(), salida.size());
   });
-  auto firma = firmado.empty() ? std::nullopt : quien.identidad->firmar(firmado);
-  if (!firma) {
+  if (con_llave) {
+    if (!hay_valor || !tocar_llaves(presentarse, quien, resultado.protocolo, de_la_conexion->bytes(), valor)) {
+      resultado.estado = EstadoConexion::sin_llave;
+      return resultado;
+    }
+    limite = Reloj::now() + opciones.tiempo_para_saludar;
+  } else if (auto firma = firmado.empty() ? std::nullopt : quien.identidad->firmar(firmado)) {
+    presentarse.firma = std::move(*firma);
+  } else {
     return resultado;
   }
-  presentarse.firma = std::move(*firma);
   salida.clear();
   if (!protocolo::armar_mensaje(presentarse, salida) ||
       !enviar_todo(*abierta, salida, limite, opciones.cancelar, resultado)) {

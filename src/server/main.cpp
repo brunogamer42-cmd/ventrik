@@ -85,6 +85,8 @@ ventrik::Clave clave_de(ventrik::servidor::Evento evento) {
     case Evento::segundo_paso_quitado: return Clave::servidor_segundo_paso_quitado;
     case Evento::config_cambiada: return Clave::servidor_config_cambiada;
     case Evento::maximo_en_xp: return Clave::servidor_maximo_xp;
+    case Evento::llave_clonada: return Clave::servidor_llave_clonada;
+    case Evento::segundo_paso_permitido: return Clave::servidor_segundo_paso_permitido;
   }
   return Clave::servidor_conectada;
 }

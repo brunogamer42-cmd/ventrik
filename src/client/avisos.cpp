@@ -86,6 +86,10 @@ std::string explicar(Idioma idioma, const protocolo::AvisoDeSeguridad& aviso) {
       return con_datos(texto(idioma, Clave::seguridad_aviso_config_cambiada), {aviso.quien, cuando});
     case protocolo::Seguridad::segundo_paso_quitado:
       return con_datos(texto(idioma, Clave::seguridad_aviso_segundo_paso_quitado), {aviso.detalle});
+    case protocolo::Seguridad::segundo_paso_bloqueado:
+      return con_datos(texto(idioma, Clave::seguridad_aviso_segundo_paso_bloqueado), {aviso.quien, cuando});
+    case protocolo::Seguridad::posible_llave_clonada:
+      return con_datos(texto(idioma, Clave::seguridad_aviso_llave_clonada), {aviso.quien, cuando});
     default:
       return con_datos(texto(idioma, Clave::seguridad_aviso_otro), {cuando});
   }

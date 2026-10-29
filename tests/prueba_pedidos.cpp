@@ -3,6 +3,7 @@
 #include <numeric>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/protocol/pedidos.h"
@@ -57,7 +58,7 @@ Presentarse presentarse(std::optional<std::array<std::uint8_t, 16>> codigo = {})
 Bytes cola_de_presentarse() {
   Bytes cola(kBytesClavePublica, 4);
   cola.insert(cola.end(), kBytesEquipo, 5);
-  cola.insert(cola.end(), {0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 3, 1, 2, 3});
+  cola.insert(cola.end(), {0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0, 3, 1, 2, 3});
   return cola;
 }
 }
@@ -78,7 +79,7 @@ TEST_CASE("Los pedidos nuevos tienen bytes fijos") {
   Bytes con_contrasena_bytes = {3, 0, 'A', 'n', 'a', 0};
   con_contrasena_bytes.insert(con_contrasena_bytes.end(), kBytesClavePublica, 4);
   con_contrasena_bytes.insert(con_contrasena_bytes.end(), kBytesEquipo, 5);
-  con_contrasena_bytes.insert(con_contrasena_bytes.end(), {3, 0, 'a', 'b', 'c', 0xFF, 0xFF, 0xFF, 0xFF, 3, 1, 2, 3});
+  con_contrasena_bytes.insert(con_contrasena_bytes.end(), {3, 0, 'a', 'b', 'c', 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0, 3, 1, 2, 3});
   CHECK(en_bytes(con_contrasena) == con_contrasena_bytes);
   CHECK(en_bytes(PresentacionRechazada{MotivoPresentacion::contrasena_incorrecta, 0x0102}) == Bytes{8, 2, 1});
   CHECK(en_bytes(Desplazado{}).empty());
@@ -151,7 +152,7 @@ TEST_CASE("Los mensajes de admins y de seguridad vuelven iguales, y con un rol o
   CHECK_FALSE(se_escribe(AvisoDeSeguridad{static_cast<Seguridad>(0), 1, "", ""}));
   CHECK_FALSE(se_escribe(AvisoDeSeguridad{Seguridad::canal_borrado, 1, " Tano", ""}));
   Bytes malo = en_bytes(AvisoDeSeguridad{Seguridad::canal_borrado, 1, "Tano", "partidas"});
-  for (const int tipo : {0, 11, 255}) {
+  for (const int tipo : {0, 14, 255}) {
     malo[0] = static_cast<std::uint8_t>(tipo);
     CHECK_FALSE(leer_mensaje<AvisoDeSeguridad>(malo));
   }
@@ -212,7 +213,7 @@ TEST_CASE("Cada mensaje nuevo se lee tal como se escribió, y cortado o con byte
 TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Presentarse>(Bytes{3, 0, 'A', 'n', 'a', 5, 1, 2, 3, 4, 5}));
   CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{0, 0, 0}));
-  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{14, 0, 0}));
+  CHECK_FALSE(leer_mensaje<PresentacionRechazada>(Bytes{16, 0, 0}));
   Bytes sin_firma = {3, 0, 'A', 'n', 'a', 0};
   sin_firma.insert(sin_firma.end(), kBytesClavePublica + kBytesEquipo, 1);
   Bytes contrasena_larga = sin_firma;
@@ -220,7 +221,7 @@ TEST_CASE("Valores que no existen no se aceptan") {
   contrasena_larga.insert(contrasena_larga.end(), kMaximoBytesContrasena + 1, 'a');
   contrasena_larga.insert(contrasena_larga.end(), {3, 1, 2, 3});
   CHECK_FALSE(leer_mensaje<Presentarse>(contrasena_larga));
-  sin_firma.insert(sin_firma.end(), {0, 0, 0xFF, 0xFF, 0xFF, 0xFF});
+  sin_firma.insert(sin_firma.end(), {0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0});
   Bytes firma_larga = sin_firma;
   sin_firma.push_back(0);
   CHECK_FALSE(leer_mensaje<Presentarse>(sin_firma));
@@ -232,7 +233,7 @@ TEST_CASE("Valores que no existen no se aceptan") {
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{30, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{1, 0, 1}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 0}));
-  CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 10}));
+  CHECK_FALSE(leer_mensaje<Negado>(Bytes{14, 0, 11}));
   CHECK_FALSE(leer_mensaje<Negado>(Bytes{28, 0, 1}));
   CHECK_FALSE(leer_mensaje<Presentado>(Bytes{1, 0, 0, 0, 2, 0, 0, 0, 0}));
   CHECK_FALSE(leer_mensaje<Historial>(Bytes{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1}));
@@ -244,7 +245,7 @@ TEST_CASE("El segundo paso: el código va firmado dentro de Presentarse, tiene 6
   Bytes esperado = {3, 0, 'A', 'n', 'a', 0};
   esperado.insert(esperado.end(), kBytesClavePublica, 4);
   esperado.insert(esperado.end(), kBytesEquipo, 5);
-  esperado.insert(esperado.end(), {0, 0, 0x40, 0xE2, 0x01, 0x00, 3, 1, 2, 3});
+  esperado.insert(esperado.end(), {0, 0, 0x40, 0xE2, 0x01, 0x00, 0, 0, 0, 0, 3, 1, 2, 3});
   CHECK(en_bytes(con_codigo) == esperado);
   ida_y_vuelta(con_codigo);
   con_codigo.segundo_paso = 0;
@@ -253,9 +254,9 @@ TEST_CASE("El segundo paso: el código va firmado dentro de Presentarse, tiene 6
   CHECK(lo_que_se_firma(con_codigo, 8, nada, nada) != lo_que_se_firma(presentarse(), 8, nada, nada));
   con_codigo.segundo_paso = kTopeCodigoSegundoPaso;
   CHECK_FALSE(se_escribe(con_codigo));
-  esperado[esperado.size() - 8] = 0x40;
-  esperado[esperado.size() - 7] = 0x42;
-  esperado[esperado.size() - 6] = 0x0F;
+  esperado[esperado.size() - 12] = 0x40;
+  esperado[esperado.size() - 11] = 0x42;
+  esperado[esperado.size() - 10] = 0x0F;
   CHECK_FALSE(leer_mensaje<Presentarse>(esperado));
   CHECK(en_bytes(SegundoPaso{123456}) == Bytes{0x40, 0xE2, 0x01, 0x00});
   ida_y_vuelta(SegundoPaso{0});
@@ -471,4 +472,84 @@ TEST_CASE("Un datagrama lleva el tipo adelante y nada más") {
   CHECK_FALSE(separar_datagrama(Bytes{50}));
   CHECK_FALSE(separar_datagrama(Bytes(kMaximoDatagrama + 1, 0)));
   CHECK(separar_datagrama(Bytes{17, 0})->cuerpo.empty());
+}
+
+TEST_CASE("Presentarse con llave lleva la llave, el permiso, 37 bytes de datos y la firma, en lugar de la firma") {
+  Presentarse con_llave = presentarse();
+  con_llave.firma.clear();
+  con_llave.generacion = 0x01020304;
+  EntradaConLlave llave;
+  llave.llave.fill(6);
+  llave.permiso = {7, 7};
+  llave.datos.fill(8);
+  llave.firma = {9};
+  con_llave.llave = llave;
+  Bytes esperado = {3, 0, 'A', 'n', 'a', 0};
+  esperado.insert(esperado.end(), kBytesClavePublica, 4);
+  esperado.insert(esperado.end(), kBytesEquipo, 5);
+  esperado.insert(esperado.end(), {0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 4, 3, 2, 1, 0});
+  esperado.insert(esperado.end(), kBytesClavePublica, 6);
+  esperado.insert(esperado.end(), {2, 7, 7});
+  esperado.insert(esperado.end(), kBytesDatosDeLlave, 8);
+  esperado.insert(esperado.end(), {1, 9});
+  CHECK(en_bytes(con_llave) == esperado);
+  ida_y_vuelta(con_llave);
+  Presentarse con_las_dos = con_llave;
+  con_las_dos.firma = {1};
+  CHECK_FALSE(se_escribe(con_las_dos));
+  for (auto& [permiso, firma] : {std::pair<Bytes, Bytes>{{}, {9}}, {{7}, {}}, {Bytes(kMaximoFirma + 1, 7), {9}},
+                                 {{7}, Bytes(kMaximoFirma + 1, 9)}}) {
+    Presentarse mala = con_llave;
+    mala.llave->permiso = permiso;
+    mala.llave->firma = firma;
+    CHECK_FALSE(se_escribe(mala));
+  }
+  Bytes permiso_vacio = esperado;
+  permiso_vacio[permiso_vacio.size() - kBytesDatosDeLlave - 5] = 0;
+  CHECK_FALSE(leer_mensaje<Presentarse>(permiso_vacio));
+
+  const std::array<std::uint8_t, 32> nada{};
+  const auto desafio = desafio_de_llave(con_llave, 8, nada, nada);
+  REQUIRE(desafio);
+  CHECK_FALSE(desafio_de_llave(presentarse(), 8, nada, nada));
+  Presentarse otra_llave = con_llave;
+  otra_llave.llave->llave.fill(7);
+  Presentarse otra_generacion = con_llave;
+  ++otra_generacion.generacion;
+  std::array<std::uint8_t, 32> otro_valor{};
+  otro_valor[0] = 1;
+  for (const auto& otro : {desafio_de_llave(otra_llave, 8, nada, nada), desafio_de_llave(otra_generacion, 8, nada, nada),
+                           desafio_de_llave(con_llave, 7, nada, nada), desafio_de_llave(con_llave, 8, otro_valor, nada),
+                           desafio_de_llave(con_llave, 8, nada, otro_valor)}) {
+    REQUIRE(otro);
+    CHECK(*otro != *desafio);
+  }
+  Presentarse misma_otra_firma = con_llave;
+  misma_otra_firma.llave->datos.fill(1);
+  misma_otra_firma.llave->firma = {2, 2};
+  misma_otra_firma.llave->permiso = {3};
+  CHECK(desafio_de_llave(misma_otra_firma, 8, nada, nada) == desafio);
+}
+
+TEST_CASE("Permitir el segundo paso y el estado del segundo paso vuelven iguales, y un estado desconocido no se lee") {
+  CHECK(en_bytes(PermitirSegundoPaso{0x01020304}) == Bytes{4, 3, 2, 1});
+  ida_y_vuelta(PermitirSegundoPaso{8});
+  for (const auto falta : {FaltaSegundoPaso::nada, FaltaSegundoPaso::activar, FaltaSegundoPaso::pedir_permiso,
+                           FaltaSegundoPaso::volver_a_entrar}) {
+    ida_y_vuelta(EstadoSegundoPaso{falta, true});
+    ida_y_vuelta(EstadoSegundoPaso{falta, false});
+  }
+  CHECK(en_bytes(EstadoSegundoPaso{FaltaSegundoPaso::pedir_permiso, true}) == Bytes{2, 1});
+  CHECK_FALSE(leer_mensaje<EstadoSegundoPaso>(Bytes{4, 0}));
+  CHECK_FALSE(se_escribe(EstadoSegundoPaso{static_cast<FaltaSegundoPaso>(4), false}));
+  ida_y_vuelta(Negado{TipoMensaje::permitir_segundo_paso, MotivoNegado::no_existe});
+  ida_y_vuelta(Negado{TipoMensaje::enviar_chat, MotivoNegado::falta_segundo_paso});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::llave_anulada});
+  ida_y_vuelta(PresentacionRechazada{MotivoPresentacion::llave_clonada});
+  for (const auto tipo : {Seguridad::segundo_paso_bloqueado, Seguridad::llave_nueva, Seguridad::posible_llave_clonada}) {
+    ida_y_vuelta(AvisoDeSeguridad{tipo, 5, "Tano", ""});
+  }
+  CHECK_FALSE(leer_mensaje<AvisoDeSeguridad>(Bytes{14, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
+  CHECK_FALSE(leer_mensaje<Negado>(Bytes{56, 0, 1}));
+  CHECK(leer_mensaje<Negado>(Bytes{55, 0, 1}));
 }

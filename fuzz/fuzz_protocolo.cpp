@@ -15,6 +15,7 @@
 
 #include "common/cifrado/clave.h"
 #include "common/cifrado/inicio.h"
+#include "common/cifrado/llave.h"
 #include "common/protocol/bytes.h"
 #include "common/protocol/marcos.h"
 #include "common/protocol/mensajes.h"
@@ -177,7 +178,8 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
                   Silenciar, SilenciarPersonas, DestinosDeSusurro,
                   EnviarChat, MensajeChat, PedirHistorial, Historial, CrearCanal, CambiarCanal,
                   MirarCanal, MensajesNuevos, BorrarCanal, Negado, Desplazado, NombrarAdmin, UsuarioRol, LiberarNombre,
-                  AvisoDeSeguridad, CadenaDeClaves, SegundoPaso, QuitarSegundoPaso, ConfigurarSegundoPaso,
+                  AvisoDeSeguridad, CadenaDeClaves, SegundoPaso, PermitirSegundoPaso, EstadoSegundoPaso,
+                  QuitarSegundoPaso, ConfigurarSegundoPaso,
                   PedirConfigSeguridad, CambiarConfigSeguridad, ConfigSeguridad, Ping, Pong, ClaveVoz, MedioSubida,
                   MedioBajada>(marco.cuerpo);
   if (marco.tipo == static_cast<std::uint16_t>(TipoMensaje::cadena_de_claves)) {
@@ -191,7 +193,17 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
       exigir(!ventrik::cifrado::verificar_firma(presentarse->clave,
                                                 lo_que_se_firma(*presentarse, ventrik::kProtocoloMaximo, nada, nada),
                                                 presentarse->firma));
+      exigir(presentarse->llave.has_value() == presentarse->firma.empty());
+      if (const auto& llave = presentarse->llave) {
+        const auto desafio = desafio_de_llave(*presentarse, ventrik::kProtocoloMaximo, nada, nada);
+        exigir(desafio.has_value());
+        exigir(!ventrik::cifrado::verificar_permiso(presentarse->clave, llave->llave, presentarse->generacion, 0,
+                                                    llave->permiso));
+        exigir(ventrik::cifrado::verificar_llave(llave->llave, 0, *desafio, llave->datos, llave->firma).resultado !=
+               ventrik::cifrado::ResultadoLlave::valida);
+      }
       Presentarse firmado = *presentarse;
+      firmado.llave.reset();
       firmado.clave = clave_fija->publica();
       const auto mensaje = lo_que_se_firma(firmado, ventrik::kProtocoloMaximo, nada, nada);
       const auto firma = clave_fija->firmar(mensaje);
