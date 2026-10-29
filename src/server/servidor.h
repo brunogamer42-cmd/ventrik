@@ -56,6 +56,7 @@ struct Opciones {
   OpcionesVoz voz;
   protocolo::ConfigServidor protocolo;
   std::wstring archivo_base;
+  std::wstring archivo_publico;
   std::string nombre_general;
   std::optional<cifrado::CodigoDueno> codigo_dueno;
   bool quitar_dueno = false;
@@ -97,6 +98,7 @@ enum class Evento {
   canal_borrado,
   nombre_liberado,
   equipo_nuevo,
+  contrasena_rehecha,
 };
 
 using Avisar = std::function<void(Evento, const red::Direccion&, const std::string&)>;
@@ -151,6 +153,12 @@ class Servidor {
   void borrar_canal(Conexion& conexion, const protocolo::Marco& marco);
   void nombrar_admin(Conexion& conexion, const protocolo::Marco& marco);
   void liberar_nombre(Conexion& conexion, const protocolo::Marco& marco);
+  void cambiar_nombre_servidor(Conexion& conexion, const protocolo::Marco& marco);
+  void cambiar_contrasena_servidor(Conexion& conexion, const protocolo::Marco& marco);
+  void sacar_admin_guardado(Conexion& conexion, const protocolo::Marco& marco);
+  void enviar_registro(Conexion& conexion);
+  void guardar_hash(std::string hash, std::uint32_t quien, bool rehecha = false);
+  std::vector<std::uint8_t> datos_publicos() const;
   void avisar_al_dueno(const protocolo::AvisoDeSeguridad& aviso);
   bool anotar(const protocolo::AvisoDeSeguridad& aviso, const std::optional<UsuarioGuardado>& usuario = std::nullopt);
   bool guardar_entrada(std::uint32_t id, const UsuarioGuardado& usuario, const Equipo& equipo, bool nueva);
@@ -215,6 +223,8 @@ class Servidor {
   std::optional<ContrasenaGuardada> contrasena_;
   cifrado::Secreto clave_historial_;
   bool historial_cifrado_ = false;
+  bool rehacer_contrasena_ = false;
+  std::uint64_t version_contrasena_ = 0;
   std::uint64_t proxima_marca_ = 0;
   std::map<std::uint32_t, Espera> esperas_por_ip_;
   std::map<ClaveDeUsuario, Espera> esperas_por_clave_;

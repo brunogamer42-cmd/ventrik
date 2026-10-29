@@ -34,6 +34,7 @@
 #include "client/guardados.h"
 #include "client/horas.h"
 #include "client/mi_identidad.h"
+#include "client/mis_servidores.h"
 #include "client/motor_voz.h"
 #include "client/arranque.h"
 #include "client/prueba_de_audio.h"
@@ -52,6 +53,7 @@
 #include "common/cifrado/tls.h"
 #include "common/archivos.h"
 #include "common/proceso.h"
+#include "common/protocol/hostear.h"
 #include "common/texto.h"
 #include "common/utf.h"
 
@@ -67,17 +69,42 @@ constexpr auto kDuracionDelTono = 1200ms;
 constexpr std::uint32_t kSinSaber = UINT32_MAX;
 constexpr int kSegmentosDePrueba = 20;
 
-bool desde_windows_7() {
+constexpr auto kEsperaParaArrancar = std::chrono::minutes(2);
+constexpr auto kCadaCuantoMirarMios = 2s;
+constexpr std::uint64_t kMemoriaDeServidorLimitado = 2ull * 1024 * 1024 * 1024;
+
+bool desde_windows(DWORD mayor, DWORD menor) {
   OSVERSIONINFOEXW pedido = {};
   pedido.dwOSVersionInfoSize = sizeof(pedido);
-  pedido.dwMajorVersion = 6;
-  pedido.dwMinorVersion = 1;
+  pedido.dwMajorVersion = mayor;
+  pedido.dwMinorVersion = menor;
   return VerifyVersionInfoW(&pedido, VER_MAJORVERSION | VER_MINORVERSION,
                             VerSetConditionMask(VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL),
                                                 VER_MINORVERSION, VER_GREATER_EQUAL)) != FALSE;
 }
 
+bool servidor_limitado() {
+  SYSTEM_INFO sistema = {};
+  GetSystemInfo(&sistema);
+  MEMORYSTATUSEX memoria = {};
+  memoria.dwLength = sizeof(memoria);
+  return sistema.dwNumberOfProcessors <= 1 ||
+         (GlobalMemoryStatusEx(&memoria) != 0 && memoria.ullTotalPhys < kMemoriaDeServidorLimitado);
+}
+
 enum class Tarea : std::uint8_t { exportar, importar, desbloquear, activar, cambiar, quitar };
+enum class Encargo : std::uint8_t { crear, arrancar, exportar, importar, cambiar_clave };
+
+struct EncargoEnCurso {
+  Encargo cual;
+  std::wstring carpeta;
+  cliente::ProcesoDelServidor proceso;
+  std::chrono::steady_clock::time_point desde;
+  cifrado::Secreto arranque;
+  std::wstring archivo;
+  bool configurar = false;
+  bool con_arranque = false;
+};
 
 struct TrabajoDeCopia {
   Tarea tarea = Tarea::exportar;
@@ -127,6 +154,7 @@ class Programa {
     bloqueado_ = cliente::ajuste_o(guardados_, cliente::Ajuste::maestra, 0) == 1;
     aplicar_idioma();
     aplicar_avisos();
+    refrescar_mios();
     if (entrada.size() == 3 || entrada.size() == 4) {
       poner(pantalla_.direccion, entrada[0]);
       poner(pantalla_.huella, entrada[1]);
@@ -142,6 +170,8 @@ class Programa {
   ~Programa() {
     mbedtls_platform_zeroize(pantalla_.contrasena.data(), pantalla_.contrasena.size());
     borrar_contrasenas();
+    ui::borrar_contrasenas(pantalla_.dialogo);
+    ui::borrar_contrasenas(hostear_);
     cerrar();
     soltar_clics_de_windows();
     if (copia_ && !copia_->listo) {
@@ -189,6 +219,7 @@ class Programa {
     }
     sesion_.reset();
     sala_.reset();
+    en_hostear_ = en_hostear_ && !hostear_.configurando;
     listas_de_susurro();
     canal_de_voz_ = 0;
     avisos_.desconectado();
@@ -337,7 +368,7 @@ class Programa {
     }
     ajustes_.dispositivos = cliente::dispositivos_de_audio();
     ajustes_.arranca_con_windows = integrar_ && cliente::arranca_con_windows();
-    ajustes_.hay_bajar_otros = desde_windows_7();
+    ajustes_.hay_bajar_otros = desde_windows(6, 1);
     ajustes_.un_nucleo = calidad_.frecuencia != cliente::Calidad{}.frecuencia;
     listas_de_susurro();
   }
@@ -451,7 +482,382 @@ class Programa {
   void abrir_hostear(PantallaHostear pantalla) {
     ui::borrar_contrasenas(hostear_);
     hostear_ = std::move(pantalla);
+    hostear_.ocupado = ocupado();
     en_hostear_ = true;
+  }
+
+  void abrir_asistente() {
+    PantallaHostear pantalla = asistente(pantalla_.idioma);
+    pantalla.xp = !desde_windows(6, 0);
+    pantalla.limitado = servidor_limitado();
+    if (cliente::exe_del_servidor().empty()) {
+      pantalla.error = texto(pantalla_.idioma, Clave::hostear_falta_servidor);
+    }
+    carpeta_config_.clear();
+    abrir_hostear(std::move(pantalla));
+  }
+
+  const cliente::MiServidorEnDisco* buscar_mio(const std::wstring& carpeta) const {
+    const auto mio = std::find_if(mios_.begin(), mios_.end(),
+                                  [&carpeta](const cliente::MiServidorEnDisco& cual) { return cual.carpeta == carpeta; });
+    return mio == mios_.end() ? nullptr : &*mio;
+  }
+
+  void abrir_configuracion() {
+    const auto es_este = [this](const cliente::MiServidorEnDisco& cual) { return cual.huella == pendiente_.huella; };
+    const auto andando = std::find_if(mios_.begin(), mios_.end(), [&](const cliente::MiServidorEnDisco& cual) {
+      return es_este(cual) && cual.puerto == pendiente_.direccion.puerto && cliente::esta_andando(cual.carpeta);
+    });
+    const auto mio = andando != mios_.end() ? andando : std::find_if(mios_.begin(), mios_.end(), es_este);
+    guardando_contrasena_ = false;
+    confirmar_quitar_ = false;
+    const bool aca = mio != mios_.end();
+    PantallaHostear pantalla = configuracion(servidor_.idioma, servidor_.nombre_servidor, aca);
+    pantalla.huella = cifrado::Huella(pendiente_.huella).a_texto();
+    pantalla.exportada = aca && mio->exportada;
+    pantalla.xp = aca && !desde_windows(6, 0);
+    pantalla.limitado = aca && servidor_limitado();
+    carpeta_config_ = aca ? mio->carpeta : std::wstring();
+    abrir_hostear(std::move(pantalla));
+    ordenar({protocolo::PedirRegistro{}});
+  }
+
+  void refrescar_mios() {
+    mios_ = cliente::leer_mis_servidores(raiz_servidores_);
+    pantalla_.mis_servidores.clear();
+    for (const cliente::MiServidorEnDisco& mio : mios_) {
+      MiServidor tarjeta{mio.nombre, mio.puerto, cliente::esta_andando(mio.carpeta),
+                         encargo_ && encargo_->carpeta == mio.carpeta, mio.huella};
+      const auto nota = notas_.find(mio.carpeta);
+      if (nota != notas_.end()) {
+        std::tie(tarjeta.nota, tarjeta.nota_es_error) = nota->second;
+      }
+      pantalla_.mis_servidores.push_back(std::move(tarjeta));
+    }
+  }
+
+  bool mirar_mios() {
+    if (sala_ || en_ajustes_ || en_hostear_ || bloqueado_ || Reloj::now() < mirar_mios_) {
+      return false;
+    }
+    mirar_mios_ = Reloj::now() + kCadaCuantoMirarMios;
+    bool cambio = false;
+    for (std::size_t i = 0; i < mios_.size(); ++i) {
+      if (i >= pantalla_.mis_servidores.size() ||
+          cliente::esta_andando(mios_[i].carpeta) != pantalla_.mis_servidores[i].andando) {
+        notas_.erase(mios_[i].carpeta);
+        cambio = true;
+      }
+    }
+    if (cambio) {
+      refrescar_mios();
+    }
+    return cambio;
+  }
+
+  void anotar_mio(const std::wstring& carpeta, std::string_view nota, bool error) {
+    notas_[carpeta] = {std::string(nota), error};
+    refrescar_mios();
+  }
+
+  std::string nombre_propio() const {
+    if (es_nombre_valido(guardados_.nombre)) {
+      return guardados_.nombre;
+    }
+    std::array<wchar_t, 257> usuario{};
+    DWORD largo = static_cast<DWORD>(usuario.size());
+    const std::string de_windows = GetUserNameW(usuario.data(), &largo) != 0 ? a_utf8(usuario.data()) : std::string();
+    return es_nombre_valido(de_windows) ? de_windows : std::string(texto(pantalla_.idioma, Clave::hostear_nombre_dueno));
+  }
+
+  bool lanzar(Encargo cual, const std::wstring& carpeta, std::vector<std::wstring> argumentos,
+              const cifrado::Secreto& entrada, cifrado::Secreto arranque = {}, std::wstring archivo = {}) {
+    const std::wstring exe = cliente::exe_del_servidor();
+    if (encargo_ || exe.empty() || (entrada.size() == 0 && cual != Encargo::arrancar)) {
+      return false;
+    }
+    argumentos.insert(argumentos.begin(), {L"--carpeta", carpeta});
+    auto proceso = cliente::ProcesoDelServidor::lanzar(exe, argumentos, entrada.bytes(), carpeta);
+    if (!proceso) {
+      return false;
+    }
+    encargo_.emplace(EncargoEnCurso{cual, carpeta, std::move(*proceso), Reloj::now(), std::move(arranque),
+                                    std::move(archivo)});
+    return true;
+  }
+
+  bool ocupado() const { return encargo_.has_value() && encargo_->cual != Encargo::arrancar; }
+
+  void avisar_hostear(Clave clave, bool error) {
+    hostear_.aviso = texto(hostear_.idioma, clave);
+    hostear_.aviso_es_error = error;
+    hostear_.ocupado = ocupado();
+    hostear_.error.clear();
+  }
+
+  void crear_mi_servidor(Creacion creacion) {
+    const Clave problema = !identidad_                          ? Clave::hostear_sin_identidad
+                           : encargo_                           ? Clave::hostear_espera
+                           : cliente::exe_del_servidor().empty() ? Clave::hostear_falta_servidor
+                                                                : Clave::titulo_ventana;
+    const std::wstring carpeta =
+        problema == Clave::titulo_ventana ? cliente::carpeta_nueva(raiz_servidores_, creacion.nombre) : std::wstring();
+    protocolo::ServidorNuevo nuevo;
+    nuevo.nombre = creacion.nombre;
+    nuevo.seguridad = creacion.seguridad;
+    nuevo.dueno = identidad_ ? identidad_->publica() : cifrado::ClavePublica{};
+    nuevo.nombre_dueno = nombre_propio();
+    nuevo.contrasena = std::move(creacion.contrasena);
+    nuevo.arranque = cifrado::copiar(creacion.arranque.bytes());
+    const bool con_arranque = creacion.arranque.size() > 0;
+    if (!carpeta.empty() && lanzar(Encargo::crear, carpeta, {L"--crear"}, protocolo::armar_servidor_nuevo(nuevo),
+                                   std::move(creacion.arranque))) {
+      encargo_->con_arranque = con_arranque;
+      avisar_hostear(Clave::hostear_creando, false);
+      return;
+    }
+    if (!carpeta.empty()) {
+      cliente::borrar_carpeta_vacia(carpeta);
+    }
+    hostear_.aviso.clear();
+    hostear_.error = texto(hostear_.idioma, problema == Clave::titulo_ventana ? Clave::hostear_no_se_creo : problema);
+  }
+
+  void iniciar_mio(std::wstring carpeta, cifrado::Secreto arranque, bool configurar) {
+    if (cliente::esta_andando(carpeta)) {
+      entrar_a_mio(carpeta, configurar);
+      return;
+    }
+    const bool con_arranque = arranque.size() > 0;
+    if (!lanzar(Encargo::arrancar, carpeta, {L"--sin-consola"},
+                protocolo::armar_entrada(cifrado::texto_de(arranque), {}))) {
+      anotar_mio(carpeta, texto(pantalla_.idioma, encargo_ ? Clave::hostear_espera : Clave::mio_no_arranco), true);
+      return;
+    }
+    encargo_->configurar = configurar;
+    encargo_->con_arranque = con_arranque;
+    anotar_mio(carpeta, {}, false);
+  }
+
+  void entrar_a_mio(std::wstring carpeta, bool configurar) {
+    refrescar_mios();
+    const cliente::MiServidorEnDisco* mio = buscar_mio(carpeta);
+    if (mio == nullptr || !mio->huella) {
+      anotar_mio(carpeta, texto(pantalla_.idioma, Clave::mio_no_arranco), true);
+      return;
+    }
+    configurar_al_entrar_ = configurar ? carpeta : std::wstring();
+    entrar(red::Direccion{0x7F000001, mio->puerto}, cifrado::Huella(*mio->huella), {nombre_propio(), std::nullopt},
+           false);
+  }
+
+  bool atender_encargo() {
+    if (!encargo_) {
+      return false;
+    }
+    const auto salida = encargo_->proceso.salida();
+    const bool listo = encargo_->cual == Encargo::arrancar && cliente::esta_andando(encargo_->carpeta);
+    const bool vencido = encargo_->cual == Encargo::arrancar && Reloj::now() - encargo_->desde > kEsperaParaArrancar;
+    if (!salida && !listo && !vencido) {
+      return false;
+    }
+    EncargoEnCurso hecho = std::move(*encargo_);
+    encargo_.reset();
+    const protocolo::SalidaServidor codigo = salida.value_or(protocolo::SalidaServidor::error);
+    const bool bien = codigo == protocolo::SalidaServidor::bien;
+    hostear_.ocupado = false;
+    switch (hecho.cual) {
+      case Encargo::crear:
+        if (!bien) {
+          cliente::borrar_carpeta_vacia(hecho.carpeta);
+          hostear_.aviso.clear();
+          hostear_.error = texto(hostear_.idioma, Clave::hostear_no_se_creo);
+          break;
+        }
+        ui::borrar_contrasenas(hostear_);
+        en_hostear_ = false;
+        iniciar_mio(hecho.carpeta, std::move(hecho.arranque), false);
+        break;
+      case Encargo::arrancar:
+        if (listo || codigo == protocolo::SalidaServidor::andando) {
+          anotar_mio(hecho.carpeta, {}, false);
+          entrar_a_mio(hecho.carpeta, hecho.configurar);
+        } else if (codigo == protocolo::SalidaServidor::arranque && !vencido) {
+          arrancar_pendiente_ = hecho.carpeta;
+          configurar_pendiente_ = hecho.configurar;
+          anotar_mio(hecho.carpeta, {}, false);
+          pedir_contrasenas(pantalla_.dialogo, PideContrasena::arranque, true);
+          if (hecho.con_arranque) {
+            pantalla_.dialogo.error = texto(pantalla_.idioma, Clave::hostear_error_arranque);
+          }
+        } else {
+          anotar_mio(hecho.carpeta, texto(pantalla_.idioma, Clave::mio_no_arranco), true);
+        }
+        break;
+      case Encargo::exportar: {
+        const std::wstring temporal = hecho.archivo + L".exportando";
+        const cliente::MiServidorEnDisco* mio = buscar_mio(hecho.carpeta);
+        hostear_.exportada = bien && MoveFileExW(temporal.c_str(), hecho.archivo.c_str(),
+                                                 MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+        if (hostear_.exportada && mio != nullptr && mio->huella) {
+          escribir_archivo_completo(hecho.carpeta + protocolo::kArchivoExportada, *mio->huella);
+        }
+        if (!bien) {
+          DeleteFileW(temporal.c_str());
+        }
+        terminar_en_consola(hostear_.exportada, codigo, Clave::hostear_exportado);
+        break;
+      }
+      case Encargo::importar:
+        if (!bien) {
+          cliente::borrar_carpeta_vacia(hecho.carpeta);
+          terminar_en_consola(false, codigo, Clave::hostear_importando);
+          break;
+        }
+        ui::borrar_contrasenas(hostear_);
+        en_hostear_ = false;
+        refrescar_mios();
+        iniciar_mio(hecho.carpeta, {}, false);
+        break;
+      case Encargo::cambiar_clave:
+        terminar_en_consola(bien, codigo, Clave::hostear_clave_cambiada);
+        break;
+    }
+    refrescar_mios();
+    return true;
+  }
+
+  void terminar_en_consola(bool bien, protocolo::SalidaServidor codigo, Clave hecho) {
+    avisar_hostear(bien                                              ? hecho
+                   : codigo == protocolo::SalidaServidor::arranque    ? Clave::hostear_error_arranque
+                   : codigo == protocolo::SalidaServidor::contrasena ? Clave::hostear_error_archivo
+                                                                      : Clave::hostear_error_consola,
+                   !bien);
+  }
+
+  void elegir_exportacion() {
+    const auto ruta = carpeta_config_.empty() ? std::nullopt
+                                              : elegir_archivo(Clave::archivo_exportar_servidor,
+                                                               Clave::archivo_filtro_servidor, L"*.vkservidor", true,
+                                                               Clave::archivo_servidor_nuevo, L".vkservidor");
+    if (ruta) {
+      exportar_a_ = *ruta;
+      pedir_contrasenas(hostear_.dialogo, PideContrasena::exportar, cliente::pide_arranque(carpeta_config_));
+    }
+  }
+
+  void elegir_importacion() {
+    const auto ruta = elegir_archivo(Clave::archivo_importar_servidor, Clave::archivo_filtro_servidor, L"*.vkservidor",
+                                     false, Clave::archivo_servidor_nuevo, L".vkservidor");
+    if (ruta) {
+      importar_de_ = *ruta;
+      pedir_contrasenas(hostear_.dialogo, PideContrasena::importar, false);
+    }
+  }
+
+  void usar_contrasenas(Contrasenas contrasenas) {
+    const auto entrada = protocolo::armar_entrada(cifrado::texto_de(contrasenas.arranque),
+                                                  cifrado::texto_de(contrasenas.contrasena));
+    if (contrasenas.cual == PideContrasena::exportar) {
+      const std::wstring temporal = exportar_a_ + L".exportando";
+      DeleteFileW(temporal.c_str());
+      if (lanzar(Encargo::exportar, carpeta_config_, {L"--sin-consola", L"--exportar", temporal}, entrada, {},
+                 exportar_a_)) {
+        avisar_hostear(Clave::hostear_exportando, false);
+        return;
+      }
+    } else if (contrasenas.cual == PideContrasena::importar) {
+      const std::size_t barra = importar_de_.find_last_of(L"\\/") + 1;
+      const std::wstring archivo = importar_de_.substr(barra, importar_de_.find_last_of(L'.') - barra);
+      const std::wstring carpeta = encargo_ ? std::wstring() : cliente::carpeta_nueva(raiz_servidores_, a_utf8(archivo));
+      if (!carpeta.empty() &&
+          lanzar(Encargo::importar, carpeta, {L"--sin-consola", L"--importar", importar_de_}, entrada)) {
+        avisar_hostear(Clave::hostear_importando, false);
+        return;
+      }
+      if (!carpeta.empty()) {
+        cliente::borrar_carpeta_vacia(carpeta);
+      }
+    } else if (contrasenas.cual == PideContrasena::cambiar_clave) {
+      if (lanzar(Encargo::cambiar_clave, carpeta_config_, {L"--sin-consola", L"--cambiar-clave"}, entrada)) {
+        avisar_hostear(Clave::hostear_cambiando, false);
+        return;
+      }
+    }
+    avisar_hostear(encargo_ ? Clave::hostear_espera : Clave::hostear_error_consola, true);
+  }
+
+  void atender_hostear(PedidoHostear pedido) {
+    if (pedido.crear) {
+      crear_mi_servidor(std::move(*pedido.crear));
+    }
+    const bool en_vivo = hostear_.configurando && sala_ != nullptr;
+    if (pedido.nombre && en_vivo && *pedido.nombre != servidor_.nombre_servidor) {
+      ordenar({protocolo::CambiarNombreServidor{*pedido.nombre}});
+      avisar_hostear(Clave::hostear_guardando, false);
+    }
+    if (pedido.contrasena && en_vivo && (pedido.contrasena->size() > 0 || hostear_.con_contrasena)) {
+      if (pedido.contrasena->size() == 0 && !std::exchange(confirmar_quitar_, true)) {
+        avisar_hostear(Clave::hostear_confirmar_quitar, true);
+      } else {
+        confirmar_quitar_ = false;
+        std::vector<cliente::Orden> orden;
+        orden.emplace_back(protocolo::CambiarContrasenaServidor{std::string(cifrado::texto_de(*pedido.contrasena))});
+        ordenar(std::move(orden));
+        guardando_contrasena_ = true;
+        avisar_hostear(Clave::hostear_guardando, false);
+      }
+    }
+    if (pedido.sacar_admin && en_vivo && *pedido.sacar_admin < hostear_.admins.size()) {
+      ordenar({protocolo::SacarAdminGuardado{hostear_.admins[*pedido.sacar_admin].nombre}});
+    }
+    if (pedido.exportar) {
+      despues_del_cuadro_ = [this] { elegir_exportacion(); };
+    }
+    if (pedido.importar) {
+      despues_del_cuadro_ = [this] { elegir_importacion(); };
+    }
+    if (pedido.cambiar_clave && !carpeta_config_.empty()) {
+      pedir_contrasenas(hostear_.dialogo, PideContrasena::cambiar_clave, cliente::pide_arranque(carpeta_config_),
+                        cliente::esta_andando(carpeta_config_));
+    }
+    if (pedido.contrasenas) {
+      usar_contrasenas(std::move(*pedido.contrasenas));
+    }
+  }
+
+  void atender_configuracion(const cliente::Novedad& novedad) {
+    if (const auto* nombre = std::get_if<protocolo::NombreServidor>(&novedad)) {
+      servidor_.nombre_servidor = nombre->nombre;
+      if (hostear_.configurando) {
+        avisar_hostear(Clave::hostear_nombre_guardado, false);
+      }
+    } else if (const auto* registro = std::get_if<protocolo::RegistroDeSeguridad>(&novedad);
+               registro != nullptr && hostear_.configurando) {
+      hostear_.con_contrasena = registro->con_contrasena;
+      hostear_.admins.clear();
+      for (const protocolo::AdminGuardado& admin : registro->admins) {
+        const auto huella = cifrado::huella_de_publica(admin.clave);
+        hostear_.admins.push_back({admin.nombre, huella ? cliente::identidad_corta(*huella) : std::string()});
+      }
+      hostear_.registro.clear();
+      for (const protocolo::AvisoDeSeguridad& entrada : registro->entradas) {
+        hostear_.registro.push_back({cliente::fecha_y_hora_local(entrada.hora_ms), cliente::explicar(hostear_.idioma, entrada)});
+      }
+      if (std::exchange(guardando_contrasena_, false)) {
+        avisar_hostear(registro->con_contrasena ? Clave::hostear_contrasena_guardada : Clave::hostear_contrasena_quitada,
+                       false);
+      }
+    } else if (const auto* negado = std::get_if<protocolo::Negado>(&novedad);
+               negado != nullptr && hostear_.configurando &&
+               (negado->pedido == protocolo::TipoMensaje::cambiar_nombre_servidor ||
+                negado->pedido == protocolo::TipoMensaje::cambiar_contrasena_servidor ||
+                negado->pedido == protocolo::TipoMensaje::sacar_admin_guardado ||
+                negado->pedido == protocolo::TipoMensaje::pedir_registro)) {
+      guardando_contrasena_ = false;
+      hostear_.aviso.clear();
+      hostear_.error = cliente::explicar(hostear_.idioma, negado->motivo);
+    }
   }
 
   void cuadro_de_bloqueo() {
@@ -737,6 +1143,8 @@ class Programa {
     }
     cerrar_ajustes();
     ui::borrar_contrasenas(hostear_);
+    ui::borrar_contrasenas(pantalla_.dialogo);
+    hostear_.dialogo.cual = pantalla_.dialogo.cual = PideContrasena::ninguna;
     en_hostear_ = false;
     cambiar_bloqueo(true);
   }
@@ -1043,6 +1451,8 @@ class Programa {
       terminar_copia(*hecho);
       cambio = true;
     }
+    cambio = atender_encargo() || cambio;
+    cambio = mirar_mios() || cambio;
     const Situacion& situacion = ventana_.situacion();
     const std::uint32_t sin_usar = ventana_.tomar_sin_usar_ms();
     const bool windows_bloqueado = situacion.bloqueada || situacion.bloqueos != bloqueos_vistos_;
@@ -1091,6 +1501,7 @@ class Programa {
                    avisos_.pidiendo() && !sala_->esperando()) {
           avisos_.negado();
         } else if (sala_) {
+          atender_configuracion(novedad);
           sonar(cliente::sonido_de_gente(*sala_, novedad));
           if (const auto* nuevos = std::get_if<protocolo::MensajesNuevos>(&novedad)) {
             sonar(cliente::sonido_de_nuevos(*sala_, *nuevos, servidor_.avisos, cliente::ahora_ms()));
@@ -1149,7 +1560,12 @@ class Programa {
       return;
     }
     if (en_hostear_) {
-      en_hostear_ = !dibujar_hostear(hostear_).cerrar;
+      PedidoHostear pedido = dibujar_hostear(hostear_);
+      en_hostear_ = !pedido.cerrar;
+      atender_hostear(std::move(pedido));
+      if (!en_hostear_) {
+        refrescar_mios();
+      }
       return;
     }
     if (sala_) {
@@ -1210,7 +1626,7 @@ class Programa {
         abrir_ajustes();
       }
       if (pedido.configurar) {
-        abrir_hostear(configuracion(servidor_.idioma, servidor_.nombre_servidor, false));
+        abrir_configuracion();
       }
       return;
     }
@@ -1248,15 +1664,24 @@ class Programa {
         desconectar();
         break;
       case Accion::hostear:
-        abrir_hostear(asistente(pantalla_.idioma));
-        break;
-      case Accion::configurar_mio:
-        abrir_hostear(configuracion(pantalla_.idioma, pantalla_.mis_servidores[pedido.cual].nombre, true));
+        abrir_asistente();
         break;
       case Accion::iniciar_mio:
+      case Accion::configurar_mio:
+        if (pedido.cual < mios_.size()) {
+          iniciar_mio(mios_[pedido.cual].carpeta, {}, pedido.accion == Accion::configurar_mio);
+        }
+        break;
       case Accion::detener_mio:
+        if (pedido.cual < mios_.size() && cliente::detener_servidor(mios_[pedido.cual].carpeta)) {
+          anotar_mio(mios_[pedido.cual].carpeta, texto(pantalla_.idioma, Clave::mio_deteniendo), false);
+        }
+        break;
       case Accion::ninguna:
         break;
+    }
+    if (auto contrasenas = std::exchange(pantalla_.contrasenas, std::nullopt)) {
+      iniciar_mio(arrancar_pendiente_, std::move(contrasenas->arranque), configurar_pendiente_);
     }
   }
 
@@ -1454,6 +1879,7 @@ class Programa {
 
   void conectado(const cliente::IntentoDeConexion& intento) {
     if (intento.estado != cliente::EstadoConexion::conectado || !intento.presentado) {
+      configurar_al_entrar_.clear();
       if (intento.estado == cliente::EstadoConexion::falta_contrasena ||
           intento.estado == cliente::EstadoConexion::contrasena_incorrecta ||
           intento.estado == cliente::EstadoConexion::esperar || intento.estado == cliente::EstadoConexion::ocupado) {
@@ -1536,6 +1962,10 @@ class Programa {
     silenciados_enviados_.clear();
     susurros_enviados_ = {};
     aplicar_personas();
+    if (!std::exchange(configurar_al_entrar_, std::wstring()).empty() &&
+        intento.presentado->rol == protocolo::Rol::dueno) {
+      abrir_configuracion();
+    }
   }
 
   bool mirar_voz() {
@@ -1696,6 +2126,7 @@ class Programa {
 
   void desconectar() {
     cerrar();
+    configurar_al_entrar_.clear();
     pantalla_.intento = {};
   }
 
@@ -1778,6 +2209,19 @@ class Programa {
   std::unique_ptr<cliente::Vigia> vigia_;
   std::unique_ptr<cliente::Sala> sala_;
   std::unique_ptr<cliente::Sesion> sesion_;
+  const std::wstring raiz_servidores_ = cliente::carpeta_de_mis_servidores(carpeta_, integrar_);
+  std::vector<cliente::MiServidorEnDisco> mios_;
+  std::map<std::wstring, std::pair<std::string, bool>> notas_;
+  std::optional<EncargoEnCurso> encargo_;
+  Reloj::time_point mirar_mios_{};
+  std::wstring carpeta_config_;
+  std::wstring configurar_al_entrar_;
+  std::wstring arrancar_pendiente_;
+  bool configurar_pendiente_ = false;
+  std::wstring exportar_a_;
+  std::wstring importar_de_;
+  bool guardando_contrasena_ = false;
+  bool confirmar_quitar_ = false;
 };
 
 }

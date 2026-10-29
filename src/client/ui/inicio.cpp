@@ -47,6 +47,9 @@ class Dibujo {
     ImGui::EndChild();
     pie();
     avisos();
+    if (auto contrasenas = dibujar_dialogo(pantalla_.idioma, pantalla_.dialogo)) {
+      pantalla_.contrasenas = std::move(contrasenas);
+    }
     return pedido_;
   }
 
@@ -150,9 +153,11 @@ class Dibujo {
     std::vector<std::size_t> visibles;
     for (std::size_t i = 0; i < guardados_.servidores.size(); ++i) {
       const auto& servidor = guardados_.servidores[i];
-      if (buscado.empty() || nombre_para_comparar(red::a_texto(servidor.direccion) + " " + servidor.nombre +
-                                                  " " + servidor.nombre_canal)
-                                     .find(buscado) != std::wstring::npos) {
+      const bool es_mio = std::any_of(pantalla_.mis_servidores.begin(), pantalla_.mis_servidores.end(),
+                                      [&servidor](const MiServidor& mio) { return mio.huella == servidor.huella; });
+      if (!es_mio && (buscado.empty() || nombre_para_comparar(red::a_texto(servidor.direccion) + " " +
+                                                              servidor.nombre + " " + servidor.nombre_canal)
+                                                 .find(buscado) != std::wstring::npos)) {
         visibles.push_back(i);
       }
     }
@@ -294,12 +299,28 @@ class Dibujo {
     dibujo.AddRectFilled(ImVec2(x + px(60), desde.y + px(46)), ImVec2(x + px(66), desde.y + px(52)),
                          tono(mio.andando ? color::verde : color::apagado));
     escribir_cortado(ImVec2(x + px(73), desde.y + px(42)), interior - px(73),
-                     t(mio.andando ? Clave::inicio_mio_andando : Clave::inicio_mio_apagado), color::apagado,
-                     Letra::normal, medida::letra_mini);
-    escribir_cortado(ImVec2(x, desde.y + px(76)), interior,
-                     con_datos(t(Clave::inicio_mio_puerto), {std::to_string(mio.puerto)}), color::texto2);
+                     t(mio.iniciando ? Clave::inicio_mio_iniciando
+                       : mio.andando ? Clave::inicio_mio_andando
+                                     : Clave::inicio_mio_apagado),
+                     color::apagado, Letra::normal, medida::letra_mini);
+    const Intento& intento = pantalla_.intento;
+    const bool es_este = intento.fase != Fase::quieta && !intento.desde_formulario &&
+                         intento.direccion == red::Direccion{0x7F000001, mio.puerto};
+    const std::string nota = es_este && intento.fase == Fase::conectando ? std::string(t(Clave::inicio_conectando))
+                             : es_este                                    ? intento.mensaje
+                             : !mio.nota.empty()                          ? mio.nota
+                                 : con_datos(t(Clave::inicio_mio_puerto), {std::to_string(mio.puerto)});
+    const bool con_error = (es_este && intento.fase == Fase::error) || (!es_este && mio.nota_es_error);
+    ImGui::PushClipRect(ImVec2(x, desde.y + px(70)), ImVec2(x + interior, desde.y + px(104)), true);
+    ImGui::SetCursorScreenPos(ImVec2(x, desde.y + px(72)));
+    escribir_parrafo(nota, con_error ? color::rojo : color::texto2, interior, medida::letra_mini);
+    ImGui::PopClipRect();
+    if (con_error) {
+      cartel(nota);
+    }
     const float y = desde.y + px(107);
     float derecha = hasta.x - px(15);
+    ImGui::BeginDisabled(mio.iniciando);
     if (boton_a_la_izquierda("##configurar", t(Clave::inicio_configurar), Estilo::esquineros, derecha, y, kAltoBoton)) {
       pedido_ = {Accion::configurar_mio, cual};
     }
@@ -312,6 +333,7 @@ class Dibujo {
               mio.andando ? Estilo::principal : Estilo::contorneado, ImVec2(derecha + px(4) - x, px(kAltoBoton)))) {
       pedido_ = {Accion::iniciar_mio, cual};
     }
+    ImGui::EndDisabled();
   }
 
   void avisos() {

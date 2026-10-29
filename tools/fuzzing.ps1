@@ -32,7 +32,7 @@ function Informar([string]$nombre, [bool]$ok, [string]$detalle = '') {
 function Entre-Comillas([string]$texto) { return '"' + $texto + '"' }
 
 $corridas = @()
-foreach ($nombre in 'fuzz_base', 'fuzz_cadena', 'fuzz_firma', 'fuzz_guardados', 'fuzz_identidad', 'fuzz_nombres', 'fuzz_paquete', 'fuzz_protocolo', 'fuzz_respaldo', 'fuzz_sala', 'fuzz_sonido', 'fuzz_textos', 'fuzz_utf', 'fuzz_voz', 'fuzz_voz_servidor') {
+foreach ($nombre in 'fuzz_base', 'fuzz_cadena', 'fuzz_firma', 'fuzz_guardados', 'fuzz_hostear', 'fuzz_identidad', 'fuzz_nombres', 'fuzz_paquete', 'fuzz_protocolo', 'fuzz_respaldo', 'fuzz_sala', 'fuzz_sonido', 'fuzz_textos', 'fuzz_utf', 'fuzz_voz', 'fuzz_voz_servidor') {
     $semillas = Join-Path $raiz ('fuzz\semillas\' + $nombre.Substring(5))
     foreach ($bits in '64', '32') {
         $otros = if ($bits -eq '64') { '32' } else { '64' }
@@ -53,7 +53,7 @@ foreach ($nombre in 'fuzz_base', 'fuzz_cadena', 'fuzz_firma', 'fuzz_guardados', 
         New-Item -ItemType Directory -Force -Path $corpus, $corpusOtro | Out-Null
         $registro = Join-Path $carpeta "$nombre$bits.txt"
         # Tiene que caber lo más grande que se acepta: un mensaje de 64 KiB o una clave de 16 KiB.
-        $largo = switch ($nombre) { 'fuzz_protocolo' { 70000 } 'fuzz_base' { 65536 } 'fuzz_respaldo' { 65536 } 'fuzz_identidad' { 17000 } 'fuzz_paquete' { 200000 } 'fuzz_sonido' { 120000 } default { 4096 } }
+        $largo = switch ($nombre) { 'fuzz_protocolo' { 70000 } 'fuzz_base' { 65536 } 'fuzz_respaldo' { 65536 } 'fuzz_identidad' { 17000 } 'fuzz_hostear' { 5000 } 'fuzz_paquete' { 200000 } 'fuzz_sonido' { 120000 } default { 4096 } }
         $argumentos = @("-max_total_time=$Segundos", "-max_len=$largo", '-timeout=10', '-rss_limit_mb=1536', '-print_final_stats=1',
                         (Entre-Comillas "-artifact_prefix=$fallas\$nombre$bits-"),
                         (Entre-Comillas $corpus), (Entre-Comillas $semillas))

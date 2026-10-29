@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 #include <windows.h>
@@ -22,11 +23,16 @@ Comprobador::~Comprobador() {
   }
 }
 
-void Comprobador::arrancar() {
+bool Comprobador::arrancar() {
   if (!hilo_.joinable()) {
-    hilo_ = std::thread([this] { trabajar(); });
+    try {
+      hilo_ = std::thread([this] { trabajar(); });
+    } catch (const std::system_error&) {
+      return false;
+    }
     SetThreadPriority(hilo_.native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
   }
+  return true;
 }
 
 bool Comprobador::pedir(const Comprobacion& quien, const ContrasenaGuardada& guardada,
@@ -70,7 +76,10 @@ void Comprobador::trabajar() {
     cerrado.unlock();
     const std::string_view contrasena(reinterpret_cast<const char*>(pedido.contrasena.bytes().data()),
                                       pedido.contrasena.size());
-    pedido.quien.resultado = comprobar(pedido.guardada, contrasena);
+    pedido.quien.resultado = pedido.quien.cambio ? Comprobado::coincide : comprobar(pedido.guardada, contrasena);
+    if (pedido.quien.resultado == Comprobado::coincide && (pedido.quien.cambio || pedido.quien.rehacer)) {
+      pedido.quien.hash = guardar_contrasena(contrasena);
+    }
     pedido.contrasena = cifrado::Secreto();
     cerrado.lock();
     en_curso_.reset();

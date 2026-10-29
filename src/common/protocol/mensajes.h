@@ -28,6 +28,8 @@ enum class TipoMensaje : std::uint16_t {
   destinos_de_susurro = 21,
   nombrar_admin = 22,
   liberar_nombre = 23,
+  cambiar_nombre_servidor = 28,
+  cambiar_contrasena_servidor = 29,
   presentado = 30,
   presentacion_rechazada = 31,
   usuario_entro = 32,
@@ -49,6 +51,10 @@ enum class TipoMensaje : std::uint16_t {
   medio_subida = 50,
   medio_bajada = 51,
   cadena_de_claves = 52,
+  nombre_servidor = 53,
+  registro_de_seguridad = 54,
+  pedir_registro = 60,
+  sacar_admin_guardado = 61,
 };
 
 using Funciones = std::uint64_t;

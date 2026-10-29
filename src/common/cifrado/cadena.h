@@ -33,8 +33,8 @@ std::optional<Eslabon> firmar_eslabon(const Clave& vieja, const ClavePublica& nu
 
 bool agregar_eslabon(Cadena& cadena, Eslabon eslabon);
 
-void escribir_cadena(protocolo::Escritor& escritor, const Cadena& cadena);
-void leer_cadena(protocolo::Lector& lector, Cadena& cadena);
+void escribir_cadena(protocolo::Escritor& escritor, const Cadena& cadena, bool vacia_vale = false);
+void leer_cadena(protocolo::Lector& lector, Cadena& cadena, bool vacia_vale = false);
 std::vector<std::uint8_t> escribir_cadena(const Cadena& cadena);
 std::optional<Cadena> leer_cadena(gsl::span<const std::uint8_t> datos);
 

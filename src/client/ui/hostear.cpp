@@ -11,6 +11,7 @@
 
 #include "client/mi_identidad.h"
 #include "common/texto.h"
+#include "common/utf.h"
 
 namespace ventrik::ui {
 namespace {
@@ -131,6 +132,20 @@ constexpr std::array<ParteDelResumen, 6> kResumenDeSeguridad = {{
     {Opcion::voz_fija, 1, Clave::resumen_voz_fija},
 }};
 
+struct DatosDeDialogo {
+  Clave titulo;
+  Clave ayuda;
+  Clave si;
+};
+
+constexpr std::array<DatosDeDialogo, 5> kDialogos = {{
+    {kNada, kNada, kNada},
+    {Clave::dialogo_arranque_titulo, Clave::dialogo_arranque_ayuda, Clave::dialogo_arranque_si},
+    {Clave::dialogo_exportar_titulo, Clave::dialogo_exportar_ayuda, Clave::dialogo_exportar_si},
+    {Clave::dialogo_importar_titulo, Clave::dialogo_importar_ayuda, Clave::hostear_importar},
+    {Clave::dialogo_cambiar_titulo, Clave::dialogo_cambiar_ayuda, Clave::hostear_cambiar_clave},
+}};
+
 cifrado::Secreto tomar(Campo& campo) {
   cifrado::Secreto secreto = cifrado::secreto_de(campo.data());
   SecureZeroMemory(campo.data(), campo.size());
@@ -147,6 +162,7 @@ class Dibujo {
     barra();
     lista();
     contenido();
+    pedido_.contrasenas = dibujar_dialogo(pantalla_.idioma, pantalla_.dialogo);
     if (pedido_.cerrar) {
       borrar_contrasenas(pantalla_);
     }
@@ -561,19 +577,25 @@ class Dibujo {
     const bool aca = !pantalla_.configurando || pantalla_.en_esta_pc;
     float derecha = cx + interior;
     if (aca) {
-      const auto cambiar_clave = [&] {
+      ImGui::BeginDisabled(pantalla_.ocupado);
+      const auto con_servidor = [&](Clave aviso, auto&& dibujar) {
+        if (pantalla_.existe) {
+          dibujar();
+        } else {
+          apagado(t(aviso), dibujar);
+        }
+      };
+      con_servidor(Clave::hostear_cambiar_clave_despues, [&] {
         pedido_.cambiar_clave = boton_a_la_izquierda("##cambiar_clave", t(Clave::hostear_cambiar_clave),
                                                      Estilo::esquineros, derecha, cy, 40);
-      };
-      if (pantalla_.existe) {
-        cambiar_clave();
-      } else {
-        apagado(t(Clave::hostear_cambiar_clave_despues), cambiar_clave);
-      }
+      });
       pedido_.importar =
           boton_a_la_izquierda("##importar_servidor", t(Clave::hostear_importar), Estilo::esquineros, derecha, cy, 40);
-      pedido_.exportar =
-          boton_a_la_izquierda("##exportar_servidor", t(Clave::hostear_exportar), Estilo::contorneado, derecha, cy, 40);
+      con_servidor(Clave::hostear_exportar_despues, [&] {
+        pedido_.exportar = boton_a_la_izquierda("##exportar_servidor", t(Clave::hostear_exportar), Estilo::contorneado,
+                                                derecha, cy, 40);
+      });
+      ImGui::EndDisabled();
     }
     etiqueta(ImVec2(cx, cy + px(2)), Clave::hostear_huella);
     const bool sin_huella = pantalla_.huella.empty();
@@ -709,7 +731,10 @@ class Dibujo {
       y = nota(ImVec2(x, y + px(14)), ancho, pantalla_.error, color::rojo);
     }
     if (!pantalla_.aviso.empty()) {
-      y = nota(ImVec2(x, y + px(14)), ancho, pantalla_.aviso, pantalla_.aviso_es_error ? color::rojo : color::verde);
+      y = nota(ImVec2(x, y + px(14)), ancho, pantalla_.aviso,
+               pantalla_.aviso_es_error ? color::rojo
+               : pantalla_.ocupado      ? color::apagado
+                                        : color::verde);
     }
     if (pantalla_.configurando) {
       return y;
@@ -732,10 +757,12 @@ class Dibujo {
     }
     float derecha = x + ancho;
     if (paso == Paso::revisar) {
+      ImGui::BeginDisabled(pantalla_.ocupado);
       if (boton_a_la_izquierda("##iniciar", t(Clave::hostear_iniciar), Estilo::principal, derecha, y, 38,
                                Icono::reproducir)) {
         iniciar();
       }
+      ImGui::EndDisabled();
       return y + px(38);
     }
     const Paso proximo = junto(paso, 1);
@@ -759,10 +786,8 @@ class Dibujo {
     const bool con_arranque = valor(Opcion::historial_cifrado) != 0 && pantalla_.arranque[0] != '\0';
     if (con_arranque) {
       const std::string_view escrita(pantalla_.arranque.data());
-      const auto letras = static_cast<std::size_t>(std::count_if(
-          escrita.begin(), escrita.end(), [](char c) { return (static_cast<unsigned char>(c) & 0xC0) != 0x80; }));
       const std::string problema =
-          letras < cliente::kMinimoContrasena
+          cantidad_de_letras(escrita) < cliente::kMinimoContrasena
               ? con_datos(t(Clave::seguridad_corta), {std::to_string(cliente::kMinimoContrasena)})
           : escrita != std::string_view(pantalla_.repetir.data()) ? std::string(t(Clave::seguridad_distintas))
                                                                   : std::string();
@@ -807,7 +832,121 @@ void borrar_contrasenas(PantallaHostear& pantalla) {
   for (Campo* campo : {&pantalla.contrasena, &pantalla.arranque, &pantalla.repetir}) {
     SecureZeroMemory(campo->data(), campo->size());
   }
+  borrar_contrasenas(pantalla.dialogo);
+}
+
+void borrar_contrasenas(DialogoDeServidor& dialogo) {
+  for (Campo* campo : {&dialogo.contrasena, &dialogo.repetir, &dialogo.arranque}) {
+    SecureZeroMemory(campo->data(), campo->size());
+  }
   olvidar_lo_escrito();
+}
+
+void pedir_contrasenas(DialogoDeServidor& dialogo, PideContrasena cual, bool con_arranque, bool andando) {
+  borrar_contrasenas(dialogo);
+  dialogo.cual = cual;
+  dialogo.abrir = true;
+  dialogo.con_arranque = con_arranque || cual == PideContrasena::arranque;
+  dialogo.andando = andando;
+  dialogo.error.clear();
+}
+
+std::optional<Contrasenas> dibujar_dialogo(Idioma idioma, DialogoDeServidor& dialogo) {
+  const PideContrasena cual = dialogo.cual;
+  if (cual == PideContrasena::ninguna) {
+    return std::nullopt;
+  }
+  const auto t = [idioma](Clave clave) { return texto(idioma, clave); };
+  if (std::exchange(dialogo.abrir, false)) {
+    ImGui::OpenPopup("##dialogo_servidor");
+  }
+  const DatosDeDialogo& datos = kDialogos[static_cast<std::size_t>(cual)];
+  const bool con_contrasena = cual == PideContrasena::exportar || cual == PideContrasena::importar;
+  const bool con_repetir = cual == PideContrasena::exportar;
+  const std::string ayuda = std::string(t(datos.ayuda)) +
+                            (cual == PideContrasena::cambiar_clave && dialogo.andando
+                                 ? " " + std::string(t(Clave::dialogo_cambiar_andando))
+                                 : std::string());
+  const int campos = static_cast<int>(con_contrasena) + static_cast<int>(con_repetir) +
+                     static_cast<int>(dialogo.con_arranque);
+  const ImVec2 pantalla = ImGui::GetIO().DisplaySize;
+  const float ancho = std::min(px(440), pantalla.x - px(20));
+  const float interior = ancho - px(40);
+  const float alto_ayuda = alto_envuelto(ayuda, interior, medida::letra_chica);
+  const float alto = px(56) + alto_ayuda + px(14) + static_cast<float>(campos) * px(46) +
+                     (dialogo.error.empty() ? 0 : px(24)) + px(56);
+  ImGui::SetNextWindowPos(ImVec2(pantalla.x / 2, pantalla.y / 2), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+  ImGui::SetNextWindowSize(ImVec2(ancho, alto));
+  if (!ImGui::BeginPopupModal("##dialogo_servidor", nullptr,
+                              ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                  ImGuiWindowFlags_NoScrollbar)) {
+    dialogo.cual = PideContrasena::ninguna;
+    borrar_contrasenas(dialogo);
+    return std::nullopt;
+  }
+  const ImVec2 desde = ImGui::GetWindowPos();
+  triangulos(*ImGui::GetWindowDrawList(), desde, ImVec2(desde.x + ancho, desde.y + alto));
+  const float x = desde.x + px(20);
+  float y = desde.y + px(20);
+  escribir_cortado(ImVec2(x, y), interior, t(datos.titulo), color::texto, Letra::titulo, medida::letra_tarjeta);
+  y += px(36);
+  escribir_envuelto(ImVec2(x, y), ayuda, color::texto2, interior, medida::letra_chica);
+  y += alto_ayuda + px(14);
+  bool confirmar = false;
+  bool enfocar = ImGui::IsWindowAppearing();
+  const auto escribir_campo = [&](const char* id, Clave pista, Campo& valor) {
+    if (std::exchange(enfocar, false)) {
+      ImGui::SetKeyboardFocusHere();
+    }
+    ImGui::SetCursorScreenPos(ImVec2(x, y));
+    confirmar = campo(id, t(pista), valor, ImVec2(interior, px(36)), Icono::ninguno,
+                      ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_Password, color::pozo) ||
+                confirmar;
+    y += px(46);
+  };
+  if (con_contrasena) {
+    escribir_campo("##contrasena_archivo", Clave::dialogo_contrasena_archivo, dialogo.contrasena);
+  }
+  if (con_repetir) {
+    escribir_campo("##repetir_archivo", Clave::seguridad_repetir, dialogo.repetir);
+  }
+  if (dialogo.con_arranque) {
+    escribir_campo("##arranque_servidor", Clave::dialogo_arranque_pista, dialogo.arranque);
+  }
+  if (!dialogo.error.empty()) {
+    escribir_cortado(ImVec2(x, y), interior, dialogo.error, color::rojo, Letra::normal, medida::letra_chica);
+    y += px(24);
+  }
+  const std::string_view no = t(Clave::inicio_cancelar);
+  const std::string_view si = t(datos.si);
+  const float ancho_no = ancho_boton(no, Estilo::contorneado);
+  const float ancho_si = ancho_boton(si, Estilo::principal);
+  ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no, y + px(6)));
+  const bool cancelar = boton("##no_servidor", no, Estilo::contorneado, ImVec2(ancho_no, px(medida::alto_principal))) ||
+                        ImGui::IsKeyPressed(ImGuiKey_Escape);
+  ImGui::SetCursorScreenPos(ImVec2(x + interior - ancho_no - px(10) - ancho_si, y + px(6)));
+  confirmar = boton("##si_servidor", si, Estilo::principal, ImVec2(ancho_si, px(medida::alto_principal))) || confirmar;
+  std::optional<Contrasenas> hechas;
+  if (confirmar && !cancelar) {
+    const std::string_view primera(dialogo.contrasena.data());
+    dialogo.error = con_repetir && cantidad_de_letras(primera) < cliente::kMinimoContrasena
+                        ? con_datos(t(Clave::seguridad_corta), {std::to_string(cliente::kMinimoContrasena)})
+                    : con_repetir && primera != std::string_view(dialogo.repetir.data())
+                        ? std::string(t(Clave::seguridad_distintas))
+                    : (con_contrasena && primera.empty()) || (dialogo.con_arranque && dialogo.arranque[0] == '\0')
+                        ? std::string(t(Clave::dialogo_falta))
+                        : std::string();
+    if (dialogo.error.empty()) {
+      hechas = Contrasenas{cual, tomar(dialogo.contrasena), tomar(dialogo.arranque)};
+    }
+  }
+  if (cancelar || hechas) {
+    cerrar_ventana_emergente();
+    dialogo.cual = PideContrasena::ninguna;
+    borrar_contrasenas(dialogo);
+  }
+  ImGui::EndPopup();
+  return hechas;
 }
 
 PedidoHostear dibujar_hostear(PantallaHostear& pantalla) { return Dibujo(pantalla).dibujar(); }

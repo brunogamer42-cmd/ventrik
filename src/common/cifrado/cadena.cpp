@@ -47,8 +47,8 @@ bool agregar_eslabon(Cadena& cadena, Eslabon eslabon) {
   return true;
 }
 
-void escribir_cadena(protocolo::Escritor& escritor, const Cadena& cadena) {
-  if (cadena.empty() || cadena.size() > kMaximoEslabones) {
+void escribir_cadena(protocolo::Escritor& escritor, const Cadena& cadena, bool vacia_vale) {
+  if ((cadena.empty() && !vacia_vale) || cadena.size() > kMaximoEslabones) {
     escritor.marcar_error();
     return;
   }
@@ -66,10 +66,10 @@ void escribir_cadena(protocolo::Escritor& escritor, const Cadena& cadena) {
   }
 }
 
-void leer_cadena(protocolo::Lector& lector, Cadena& cadena) {
+void leer_cadena(protocolo::Lector& lector, Cadena& cadena, bool vacia_vale) {
   cadena.clear();
   const std::size_t cantidad = lector.leer_u8();
-  if (cantidad == 0 || cantidad > kMaximoEslabones) {
+  if ((cantidad == 0 && !vacia_vale) || cantidad > kMaximoEslabones) {
     lector.marcar_error();
     return;
   }

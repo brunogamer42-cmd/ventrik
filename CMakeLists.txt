@@ -142,6 +142,7 @@ add_library(ventrik_comun STATIC
   src/common/protocol/bytes.cpp
   src/common/protocol/marcos.cpp
   src/common/protocol/mensajes.cpp
+  src/common/protocol/hostear.cpp
   src/common/protocol/negociacion.cpp
   src/common/protocol/pedidos.cpp
   src/common/red/red.cpp
@@ -153,7 +154,7 @@ target_include_directories(ventrik_comun PUBLIC src "${VENTRIK_GENERADO}")
 target_link_libraries(ventrik_comun PUBLIC ventrik_opciones ventrik_sistema gsl mbedtls argon2 ws2_32 shell32 crypt32)
 
 if(VENTRIK_VERSION STREQUAL "fuzzing")
-  foreach(fuzzer fuzz_base fuzz_cadena fuzz_firma fuzz_guardados fuzz_identidad fuzz_nombres fuzz_paquete
+  foreach(fuzzer fuzz_base fuzz_cadena fuzz_firma fuzz_guardados fuzz_hostear fuzz_identidad fuzz_nombres fuzz_paquete
           fuzz_protocolo fuzz_respaldo fuzz_sala fuzz_sonido fuzz_textos fuzz_utf fuzz_voz fuzz_voz_servidor)
     add_executable(${fuzzer} fuzz/${fuzzer}.cpp)
     target_link_libraries(${fuzzer} PRIVATE ventrik_comun)
@@ -185,7 +186,7 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
 endif()
 
 add_library(ventrik_servidor_base STATIC
-  src/server/base.cpp src/server/comprobador.cpp src/server/contrasena.cpp src/server/permisos.cpp
+  src/server/base.cpp src/server/comprobador.cpp src/server/contrasena.cpp src/server/crear.cpp src/server/permisos.cpp
   src/server/mudanza.cpp src/server/proteccion.cpp src/server/registro.cpp src/server/respaldo.cpp
   src/server/servidor.cpp src/server/voz.cpp)
 target_link_libraries(ventrik_servidor_base PUBLIC ventrik_comun sqlite)
@@ -203,6 +204,7 @@ add_library(ventrik_cliente_base STATIC
   src/client/arranque.cpp src/client/audio.cpp src/client/avisos.cpp src/client/buffer_voz.cpp src/client/canal_voz.cpp
   src/client/conexion.cpp src/client/cuando_suena.cpp src/client/prueba_de_audio.cpp
   src/client/diagnostico.cpp src/client/guardados.cpp src/client/horas.cpp src/client/limpieza.cpp src/client/mi_identidad.cpp
+  src/client/mis_servidores.cpp
   src/client/motor_voz.cpp src/client/paquete_de_sonidos.cpp src/client/sala.cpp src/client/salida_de_windows.cpp
   src/client/sesion.cpp src/client/silencios.cpp src/client/sonidos.cpp src/client/vigia.cpp src/client/webauthn.cpp)
 target_sources(ventrik_cliente_base PRIVATE src/client/voz_primero.cpp)
@@ -239,6 +241,7 @@ add_executable(ventrik_pruebas
   tests/prueba_entrar.cpp
   tests/prueba_estres.cpp
   tests/prueba_guardados.cpp
+  tests/prueba_hostear.cpp
   tests/prueba_gsl.cpp
   tests/prueba_huella.cpp
   tests/prueba_identidad.cpp

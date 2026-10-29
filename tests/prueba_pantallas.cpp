@@ -2441,3 +2441,120 @@ TEST_CASE("El ▾ del servidor abre la configuración solo para el dueño") {
     CHECK(configurar == dueno);
   }
 }
+
+TEST_CASE("Los diálogos de Hostear se dibujan a cualquier tamaño, Escape los cierra y piden lo necesario") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    SinPantalla sin_pantalla(escala, tamano);
+    for (const auto cual : {ui::PideContrasena::arranque, ui::PideContrasena::exportar, ui::PideContrasena::importar,
+                            ui::PideContrasena::cambiar_clave}) {
+      for (const bool con_arranque : {false, true}) {
+        auto pantalla = configuracion_llena(true);
+        pantalla.paso = ui::Paso::seguridad;
+        ui::pedir_contrasenas(pantalla.dialogo, cual, con_arranque, true);
+        pantalla.dialogo.error = "La contraseña no es correcta.";
+        for (int i = 0; i < 3; ++i) {
+          CHECK_FALSE(hostear(sin_pantalla, pantalla, ImVec2(5, 5)).contrasenas);
+        }
+        CHECK(hay_ventana_emergente());
+        sin_pantalla.apretar(ImGuiKey_Escape);
+        for (int i = 0; i < 2; ++i) {
+          CHECK_FALSE(hostear(sin_pantalla, pantalla, ImVec2(5, 5)).cerrar);
+        }
+        CHECK(pantalla.dialogo.cual == ui::PideContrasena::ninguna);
+        CHECK_FALSE(hay_ventana_emergente());
+      }
+    }
+  }
+  SinPantalla sin_pantalla(1.0f, ImVec2(1376, 768));
+  auto pantalla = configuracion_llena(true);
+  const auto confirma = [&] {
+    std::optional<ui::Contrasenas> hechas;
+    for (int i = 0; i < 3; ++i) {
+      if (auto pedido = hostear(sin_pantalla, pantalla, ImVec2(5, 5)); pedido.contrasenas) {
+        hechas = std::move(pedido.contrasenas);
+      }
+    }
+    return hechas;
+  };
+  ui::pedir_contrasenas(pantalla.dialogo, ui::PideContrasena::exportar, false);
+  confirma();
+  sin_pantalla.teclear("corta");
+  confirma();
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  CHECK_FALSE(confirma());
+  CHECK_FALSE(pantalla.dialogo.error.empty());
+  CHECK(pantalla.dialogo.cual == ui::PideContrasena::exportar);
+
+  ui::pedir_contrasenas(pantalla.dialogo, ui::PideContrasena::arranque, false);
+  confirma();
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  CHECK_FALSE(confirma());
+  CHECK_FALSE(pantalla.dialogo.error.empty());
+
+  ui::pedir_contrasenas(pantalla.dialogo, ui::PideContrasena::importar, false);
+  confirma();
+  sin_pantalla.teclear("del respaldo");
+  confirma();
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  const auto hechas = confirma();
+  REQUIRE(hechas);
+  CHECK(hechas->cual == ui::PideContrasena::importar);
+  CHECK(std::string(ventrik::cifrado::texto_de(hechas->contrasena)) == "del respaldo");
+  CHECK(hechas->arranque.size() == 0);
+  CHECK(pantalla.dialogo.cual == ui::PideContrasena::ninguna);
+  CHECK(std::all_of(pantalla.dialogo.contrasena.begin(), pantalla.dialogo.contrasena.end(),
+                    [](char c) { return c == '\0'; }));
+}
+
+TEST_CASE("En el asistente, Exportar y Cambiar la clave esperan a que el servidor exista, y ocupado no deja iniciar otra vez") {
+  SinPantalla sin_pantalla(1.0f, ImVec2(1280, 1300));
+  auto pantalla = asistente_es();
+  pantalla.paso = ui::Paso::seguridad;
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  for (const float x : {920.0f, 1183.0f}) {
+    CHECK(todos_vacios(tocar_hostear(sin_pantalla, pantalla, ImVec2(x, 388))));
+  }
+  pantalla.paso = ui::Paso::revisar;
+  pantalla.ocupado = true;
+  pantalla.aviso = "Creando el servidor…";
+  hostear(sin_pantalla, pantalla, ImVec2(5, 5));
+  const auto pedidos = tocar_hostear(sin_pantalla, pantalla, ImVec2(1188, 850));
+  CHECK(std::none_of(pedidos.begin(), pedidos.end(),
+                     [](const ui::PedidoHostear& pedido) { return pedido.crear.has_value(); }));
+}
+
+TEST_CASE("En Inicio, la tarjeta de Mi servidor muestra iniciando y los errores, y el diálogo de arranque devuelve la contraseña") {
+  for (const auto& [escala, tamano] : {std::make_pair(1.0f, ImVec2(1100, 640)), std::make_pair(1.5f, ImVec2(1650, 960))}) {
+    SinPantalla sin_pantalla(escala, tamano);
+    ui::PantallaInicio pantalla;
+    pantalla.mis_servidores = {{"Mi servidor", 7700, false, true}, {"Otro mío", 7701, false}};
+    pantalla.mis_servidores[1].nota = std::string(200, 'e');
+    pantalla.mis_servidores[1].nota_es_error = true;
+    const Guardados guardados = muchos();
+    recorrer(sin_pantalla, pantalla, guardados);
+  }
+  SinPantalla sin_pantalla;
+  ui::PantallaInicio pantalla;
+  pantalla.mis_servidores = {{"Mi servidor", 7700, false, true}};
+  const Guardados guardados{};
+  for (const float x : {150.0f, 410.0f}) {
+    for (const bool clic : {false, true, false}) {
+      CHECK(sin_pantalla.cuadro(pantalla, guardados, ImVec2(x, 350), clic).accion == ui::Accion::ninguna);
+    }
+  }
+  ui::pedir_contrasenas(pantalla.dialogo, ui::PideContrasena::arranque, true);
+  for (int i = 0; i < 3; ++i) {
+    sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  }
+  sin_pantalla.teclear("arranque largo");
+  for (int i = 0; i < 3; ++i) {
+    sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  }
+  sin_pantalla.apretar(ImGuiKey_Enter);
+  for (int i = 0; i < 3; ++i) {
+    sin_pantalla.cuadro(pantalla, guardados, ImVec2(5, 5));
+  }
+  REQUIRE(pantalla.contrasenas);
+  CHECK(pantalla.contrasenas->cual == ui::PideContrasena::arranque);
+  CHECK(std::string(ventrik::cifrado::texto_de(pantalla.contrasenas->arranque)) == "arranque largo");
+}

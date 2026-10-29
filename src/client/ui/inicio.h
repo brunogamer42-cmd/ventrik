@@ -11,6 +11,7 @@
 #include <imgui.h>
 
 #include "client/guardados.h"
+#include "client/ui/hostear.h"
 #include "client/ui/piezas.h"
 #include "common/red/red.h"
 #include "common/textos.h"
@@ -30,6 +31,10 @@ struct MiServidor {
   std::string nombre;
   std::uint16_t puerto = 7700;
   bool andando = false;
+  bool iniciando = false;
+  std::optional<cifrado::Huella::Bytes> huella;
+  std::string nota;
+  bool nota_es_error = false;
 };
 
 struct PantallaInicio {
@@ -50,6 +55,8 @@ struct PantallaInicio {
   bool abrir_avisos = false;
   Copia copia = Copia::sin_saber;
   std::vector<MiServidor> mis_servidores;
+  DialogoDeServidor dialogo;
+  std::optional<Contrasenas> contrasenas;
 };
 
 enum class Accion {

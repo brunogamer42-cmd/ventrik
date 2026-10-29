@@ -215,8 +215,10 @@ bool sigue(Sentido sentido, std::uint64_t anterior, std::uint64_t id) {
 }
 
 bool es_pedido(std::uint16_t tipo) {
-  return tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
-         tipo <= static_cast<std::uint16_t>(TipoMensaje::liberar_nombre);
+  return (tipo >= static_cast<std::uint16_t>(TipoMensaje::presentarse) &&
+          tipo <= static_cast<std::uint16_t>(TipoMensaje::cambiar_contrasena_servidor)) ||
+         tipo == static_cast<std::uint16_t>(TipoMensaje::pedir_registro) ||
+         tipo == static_cast<std::uint16_t>(TipoMensaje::sacar_admin_guardado);
 }
 
 bool son_ids_validos(const std::vector<std::uint32_t>& usuarios) {
@@ -660,9 +662,58 @@ void leer(Lector& lector, AvisoDeSeguridad& mensaje) {
   mensaje.tipo = static_cast<Seguridad>(tipo);
 }
 
-void escribir(Escritor& escritor, const CadenaDeClaves& mensaje) { cifrado::escribir_cadena(escritor, mensaje.cadena); }
+void escribir(Escritor& escritor, const CadenaDeClaves& mensaje) {
+  cifrado::escribir_cadena(escritor, mensaje.cadena, true);
+}
 
-void leer(Lector& lector, CadenaDeClaves& mensaje) { cifrado::leer_cadena(lector, mensaje.cadena); }
+void leer(Lector& lector, CadenaDeClaves& mensaje) { cifrado::leer_cadena(lector, mensaje.cadena, true); }
+
+void escribir(Escritor& escritor, const CambiarNombreServidor& mensaje) { escribir_nombre(escritor, mensaje.nombre); }
+
+void leer(Lector& lector, CambiarNombreServidor& mensaje) { leer_nombre(lector, mensaje.nombre); }
+
+void escribir(Escritor& escritor, const CambiarContrasenaServidor& mensaje) {
+  escritor.escribir_texto(mensaje.contrasena, kMaximoBytesContrasena);
+}
+
+void leer(Lector& lector, CambiarContrasenaServidor& mensaje) {
+  mensaje.contrasena = lector.leer_texto(kMaximoBytesContrasena);
+}
+
+void escribir(Escritor&, const PedirRegistro&) {}
+
+void leer(Lector&, PedirRegistro&) {}
+
+void escribir(Escritor& escritor, const SacarAdminGuardado& mensaje) { escribir_nombre(escritor, mensaje.nombre); }
+
+void leer(Lector& lector, SacarAdminGuardado& mensaje) { leer_nombre(lector, mensaje.nombre); }
+
+void escribir(Escritor& escritor, const NombreServidor& mensaje) { escribir_nombre(escritor, mensaje.nombre); }
+
+void leer(Lector& lector, NombreServidor& mensaje) { leer_nombre(lector, mensaje.nombre); }
+
+void escribir(Escritor& escritor, const RegistroDeSeguridad& mensaje) {
+  escritor.escribir_booleano(mensaje.con_contrasena);
+  escribir_lista(escritor, mensaje.admins, kMaximoAdminsEnRegistro, [&escritor](const AdminGuardado& admin) {
+    escribir_nombre(escritor, admin.nombre);
+    escritor.escribir_bytes(admin.clave);
+  });
+  escribir_lista(escritor, mensaje.entradas, kMaximoFilasDelRegistro,
+                 [&escritor](const AvisoDeSeguridad& entrada) { escribir(escritor, entrada); });
+}
+
+void leer(Lector& lector, RegistroDeSeguridad& mensaje) {
+  mensaje.con_contrasena = lector.leer_booleano();
+  leer_lista(lector, mensaje.admins, kMaximoAdminsEnRegistro, [&lector](AdminGuardado& admin) {
+    leer_nombre(lector, admin.nombre);
+    const auto clave = lector.leer_bytes(admin.clave.size());
+    if (lector.ok()) {
+      std::copy(clave.begin(), clave.end(), admin.clave.begin());
+    }
+  });
+  leer_lista(lector, mensaje.entradas, kMaximoFilasDelRegistro,
+             [&lector](AvisoDeSeguridad& entrada) { leer(lector, entrada); });
+}
 
 void escribir(Escritor& escritor, const Ping& mensaje) {
   escritor.escribir_u64(mensaje.marca);
