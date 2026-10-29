@@ -55,7 +55,7 @@ Se guardan dentro del proyecto con versión fija, en su última versión estable
 | Microsoft GSL | gsl::span y utilidades de memoria segura | MIT |
 | doctest | Pruebas automáticas | MIT |
 
-ClamAV no va en third_party/: es un programa aparte que se suma en la etapa 5 (versión oficial en la moderna, adaptación de Netfarm en la clásica).
+ClamAV no va en third_party/: es un programa aparte que se suma en la etapa 5 (versión oficial en la moderna, adaptación de Netfarm en la clásica). Su licencia es GPL versión 2 únicamente, así que nunca se enlaza: corre en su propio proceso y Ventrik le habla por línea de comandos o por socket (docs/licencias.md).
 
 ## Etapa 0: el proyecto
 

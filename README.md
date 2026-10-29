@@ -26,4 +26,4 @@ Compila las dos versiones, corre las pruebas y deja los programas en `build\mode
 
 ## Licencia
 
-GPL versión 3 ([LICENSE](LICENSE)). Cada biblioteca de `third_party/` tiene su propia licencia, compatible con la GPL v3.
+GPL versión 3 ([LICENSE](LICENSE)). Cada biblioteca de `third_party/` tiene su propia licencia, compatible con la GPL v3; ClamAV (GPL versión 2 únicamente) va como programa aparte. Detalle en [docs/licencias.md](docs/licencias.md).
