@@ -280,7 +280,7 @@ TEST_CASE("La revisión rechaza una base dañada, de otra versión, vacía, que 
   const std::wstring archivo = base_nueva(L"version");
   ejecutar(archivo, "PRAGMA user_version=2;");
   CHECK(revisar_base(archivo) == RevisionBase::otra_version);
-  ejecutar(archivo, "PRAGMA user_version=4;");
+  ejecutar(archivo, "PRAGMA user_version=99;");
   CHECK(revisar_base(archivo) == RevisionBase::otra_version);
   borrar_base(archivo);
 
