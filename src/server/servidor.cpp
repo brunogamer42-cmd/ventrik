@@ -1871,11 +1871,13 @@ void Servidor::cambiar_config_seguridad(Conexion& conexion, const protocolo::Mar
   const std::uint32_t quien = conexion.id;
   const std::uint64_t version = version_config_ + 1;
   const protocolo::AvisoDeSeguridad aviso{protocolo::Seguridad::config_cambiada, ahora_ms(), conexion.nombre, {}};
-  const auto trabajo = [this, quien, version, aviso, pedida = pedido->seguridad](Base& base) -> std::function<void()> {
+  const auto trabajo = [this, quien, version, aviso, origen = conexion.origen,
+                        pedida = pedido->seguridad](Base& base) -> std::function<void()> {
     const bool convertido = aplicar_en_la_base(base, pedida);
     const Seguridad real = como_quedo(base, pedida);
     const bool hecho = convertido && base.guardar_seguridad(real) && base.anotar(aviso);
-    return [this, quien, version, real, hecho, retencion = base.retencion(), cifra = base.historial_cifrado()] {
+    return [this, quien, version, real, hecho, origen, nombre = aviso.quien, retencion = base.retencion(),
+            cifra = base.historial_cifrado()] {
       Conexion* conexion = buscar_conectada(quien);
       if (!hecho) {
         avisar(Evento::error_base, red::Direccion{});
@@ -1890,7 +1892,9 @@ void Servidor::cambiar_config_seguridad(Conexion& conexion, const protocolo::Mar
       historial_cifrado_ = cifra;
       if (hecho) {
         aplicar_seguridad(real);
-        avisar(Evento::config_cambiada, conexion != nullptr ? conexion->origen : red::Direccion{});
+        if (avisar_) {
+          avisar_(Evento::config_cambiada, origen, nombre);
+        }
       }
       if (maximo_en_xp()) {
         avisar(Evento::maximo_en_xp, red::Direccion{});
