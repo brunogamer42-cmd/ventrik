@@ -47,6 +47,7 @@ constexpr std::size_t kTopeArgumentosDeAviso = 96;
 
 std::string argumentos_de_aviso(const Notificacion& aviso);
 std::optional<Notificacion> leer_argumentos_de_aviso(std::string_view texto);
+std::string explicar(Idioma idioma, const protocolo::AvisoDeSeguridad& aviso);
 
 class Avisos {
  public:

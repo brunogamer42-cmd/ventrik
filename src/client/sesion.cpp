@@ -9,7 +9,6 @@
 
 #include <gsl/gsl>
 
-#include "client/horas.h"
 #include "client/voz_primero.h"
 
 namespace ventrik::cliente {
@@ -76,20 +75,6 @@ std::string explicar(Idioma idioma, protocolo::MotivoNegado motivo) {
                                              Clave::negado_tipo_de_canal,  Clave::negado_nombre_libre};
   const auto indice = static_cast<std::size_t>(motivo) - 1;
   return std::string(texto(idioma, indice < kNegados.size() ? kNegados[indice] : Clave::negado_sin_permiso));
-}
-
-std::string explicar(Idioma idioma, const protocolo::AvisoDeSeguridad& aviso) {
-  const std::string cuando = fecha_y_hora_local(aviso.hora_ms);
-  switch (aviso.tipo) {
-    case protocolo::Seguridad::canal_borrado:
-      return con_datos(texto(idioma, Clave::seguridad_aviso_canal_borrado), {aviso.quien, aviso.detalle, cuando});
-    case protocolo::Seguridad::equipo_nuevo:
-      return con_datos(texto(idioma, Clave::seguridad_aviso_equipo_nuevo), {cuando});
-    case protocolo::Seguridad::nombre_liberado:
-      return con_datos(texto(idioma, Clave::seguridad_aviso_nombre_liberado), {aviso.detalle});
-    default:
-      return con_datos(texto(idioma, Clave::seguridad_aviso_otro), {cuando});
-  }
 }
 
 Sesion::Sesion(const red::Direccion& destino, const cifrado::Huella& huella, Presentacion quien,

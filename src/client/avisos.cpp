@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "client/horas.h"
 #include "common/red/red.h"
 
 namespace ventrik::cliente {
@@ -68,6 +69,20 @@ std::optional<Notificacion> leer_argumentos_de_aviso(std::string_view texto) {
   aviso.canal = static_cast<std::uint32_t>(numero);
   aviso.voz = *voz == "1";
   return aviso;
+}
+
+std::string explicar(Idioma idioma, const protocolo::AvisoDeSeguridad& aviso) {
+  const std::string cuando = fecha_y_hora_local(aviso.hora_ms);
+  switch (aviso.tipo) {
+    case protocolo::Seguridad::canal_borrado:
+      return con_datos(texto(idioma, Clave::seguridad_aviso_canal_borrado), {aviso.quien, aviso.detalle, cuando});
+    case protocolo::Seguridad::equipo_nuevo:
+      return con_datos(texto(idioma, Clave::seguridad_aviso_equipo_nuevo), {cuando});
+    case protocolo::Seguridad::nombre_liberado:
+      return con_datos(texto(idioma, Clave::seguridad_aviso_nombre_liberado), {aviso.detalle});
+    default:
+      return con_datos(texto(idioma, Clave::seguridad_aviso_otro), {cuando});
+  }
 }
 
 void Avisos::conectado(std::string servidor, std::uint32_t tu_id, std::string tu_nombre) {

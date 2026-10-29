@@ -164,9 +164,10 @@ if(VENTRIK_VERSION STREQUAL "fuzzing")
   target_sources(fuzz_base PRIVATE src/server/base.cpp)
   target_sources(fuzz_guardados PRIVATE src/client/guardados.cpp src/client/silencios.cpp)
   target_sources(fuzz_identidad PRIVATE src/client/mi_identidad.cpp)
-  target_sources(fuzz_sala PRIVATE src/client/avisos.cpp src/client/guardados.cpp src/client/sala.cpp
+  target_sources(fuzz_sala PRIVATE src/client/avisos.cpp src/client/guardados.cpp src/client/horas.cpp src/client/sala.cpp
                                    src/client/silencios.cpp)
-  target_sources(fuzz_textos PRIVATE src/client/avisos.cpp src/client/silencios.cpp src/server/contrasena.cpp)
+  target_sources(fuzz_textos PRIVATE src/client/avisos.cpp src/client/horas.cpp src/client/silencios.cpp
+                                     src/server/contrasena.cpp)
   target_sources(fuzz_respaldo PRIVATE src/server/base.cpp src/server/respaldo.cpp)
   target_link_libraries(fuzz_base PRIVATE sqlite)
   target_link_libraries(fuzz_respaldo PRIVATE sqlite)
