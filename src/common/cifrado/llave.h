@@ -14,6 +14,7 @@ namespace ventrik::cifrado {
 
 constexpr char kAplicacionDeLlave[] = "ventrik";
 constexpr std::size_t kBytesDatosDeLlave = 37;
+constexpr std::size_t kBytesDesafioDeLlave = 32;
 constexpr std::size_t kMaximoIdDeLlave = 1023;
 constexpr std::uint8_t kLlavePresente = 0x01;
 constexpr std::uint8_t kLlaveVerificada = 0x04;

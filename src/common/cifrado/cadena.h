@@ -41,4 +41,4 @@ std::optional<Cadena> leer_cadena(gsl::span<const std::uint8_t> datos);
 std::optional<CadenaSeguida> seguir_cadena(const Cadena& cadena, const Huella& guardada, const Huella& de_la_conexion,
                                            gsl::span<const Huella> atras);
 
-}  // namespace ventrik::cifrado
+}

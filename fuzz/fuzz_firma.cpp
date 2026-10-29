@@ -85,7 +85,7 @@ void llave_firmada(gsl::span<const std::uint8_t> entrada) {
   const std::uint32_t contador = (static_cast<std::uint32_t>(cabecera[1]) << 24) |
                                  (static_cast<std::uint32_t>(cabecera[2]) << 16) |
                                  (static_cast<std::uint32_t>(cabecera[3]) << 8) | cabecera[4];
-  if ((marcas & cifrado::kLlavePresente) == 0 ||
+  if (desafio.size() != cifrado::kBytesDesafioDeLlave || (marcas & cifrado::kLlavePresente) == 0 ||
       (marcas & (cifrado::kLlaveConCredencial | cifrado::kLlaveConExtensiones)) != 0) {
     exigir(resultado.resultado == ResultadoLlave::datos_invalidos);
   } else if ((contador == 0 && guardado == 0) || contador > guardado) {

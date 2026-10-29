@@ -93,7 +93,7 @@ LlaveVerificada verificar_llave(const ClavePublica& llave, std::uint32_t contado
   const std::string texto = texto_de_cliente(Ceremonia::firmar, desafio);
   const auto resumen = resumir(bytes_de(texto));
   if (!cabecera || !lector.terminado() || (cabecera->marcas & (kLlaveConCredencial | kLlaveConExtensiones)) != 0 ||
-      texto.empty() || !resumen) {
+      desafio.size() != kBytesDesafioDeLlave || texto.empty() || !resumen) {
     return verificada;
   }
   std::vector<std::uint8_t> firmado(datos.begin(), datos.end());

@@ -23,7 +23,7 @@ bool firma_valida(const Eslabon& eslabon) {
   return verificar_firma(eslabon.vieja, lo_que_se_firma(eslabon), eslabon.firma);
 }
 
-}  // namespace
+}
 
 std::optional<Eslabon> firmar_eslabon(const Clave& vieja, const ClavePublica& nueva, std::uint32_t numero) {
   Eslabon eslabon{vieja.publica(), nueva, numero, {}};
@@ -136,4 +136,4 @@ std::optional<CadenaSeguida> seguir_cadena(const Cadena& cadena, const Huella& g
                                                    vistas.end())};
 }
 
-}  // namespace ventrik::cifrado
+}

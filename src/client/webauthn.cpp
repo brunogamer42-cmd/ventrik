@@ -110,7 +110,11 @@ RespuestaDeWebAuthn<cifrado::LlaveCreada> crear_llave(HWND ventana, const std::w
   opciones.dwAttestationConveyancePreference = WEBAUTHN_ATTESTATION_CONVEYANCE_PREFERENCE_NONE;
   WEBAUTHN_CREDENTIAL_ATTESTATION* creada = nullptr;
   const HRESULT resultado = f.crear(ventana, &aplicacion, &persona, &algoritmos, &cliente, &opciones, &creada);
-  const auto soltar = gsl::finally([&] { f.soltar_creada(creada); });
+  const auto soltar = gsl::finally([&] {
+    if (creada != nullptr) {
+      f.soltar_creada(creada);
+    }
+  });
   if (FAILED(resultado)) {
     return {std::nullopt, resultado};
   }

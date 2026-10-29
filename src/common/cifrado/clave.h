@@ -50,4 +50,4 @@ std::optional<Huella> huella_de_publica(const ClavePublica& publica);
 bool verificar_firma(const ClavePublica& publica, gsl::span<const std::uint8_t> datos,
                      gsl::span<const std::uint8_t> firma);
 
-}  // namespace ventrik::cifrado
+}

@@ -12,8 +12,6 @@
 
 namespace ventrik::cifrado {
 
-// Las claves en memoria se borran apenas dejan de usarse (diseño: "Claves en la memoria").
-// Tamaño fijo desde el principio: al agrandarse, vector dejaría copias sin borrar.
 class Secreto {
  public:
   Secreto() = default;
@@ -56,4 +54,4 @@ inline std::string_view texto_de(const Secreto& secreto) {
   return std::string_view(reinterpret_cast<const char*>(secreto.bytes().data()), secreto.size());
 }
 
-}  // namespace ventrik::cifrado
+}

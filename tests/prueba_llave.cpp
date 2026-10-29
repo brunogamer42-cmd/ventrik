@@ -175,6 +175,10 @@ TEST_CASE("Una llave que firmó un texto de cliente con otro desafío se rechaza
   const Bytes otro_desafio(32, 0x5E);
   CHECK(verificar(llave, 0, datos, llave.firmar(datos, otro_desafio)).resultado == ResultadoLlave::firma_invalida);
   CHECK(verificar(llave, 0, datos, llave.firmar(datos), otro_desafio).resultado == ResultadoLlave::firma_invalida);
+  for (const std::size_t largo : {0, 31, 33}) {
+    const Bytes corto(largo, 0x5D);
+    CHECK(verificar(llave, 0, datos, llave.firmar(datos, corto), corto).resultado == ResultadoLlave::datos_invalidos);
+  }
   CHECK(verificar(llave, 0, datos, llave.firmar(datos, kDesafio, Ceremonia::crear)).resultado ==
         ResultadoLlave::firma_invalida);
 }
