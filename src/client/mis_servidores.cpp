@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cwchar>
+#include <iterator>
 
 #include "common/archivos.h"
 #include "common/cifrado/boveda.h"
@@ -231,6 +232,26 @@ bool pide_arranque(const std::wstring& carpeta) {
   return leer_archivo(carpeta + cifrado::kArchivoBoveda, cifrado::kMaximoArchivoBoveda, leido) ==
              LecturaArchivo::leido &&
          cifrado::pide_contrasena_de_arranque(leido.bytes());
+}
+
+DecisionAlSalir decidir_al_salir(const std::vector<MiServidorEnDisco>& andando, int respuesta) {
+  DecisionAlSalir decision{{}, andando.empty() || respuesta != IDCANCEL};
+  if (respuesta == IDYES) {
+    std::transform(andando.begin(), andando.end(), std::back_inserter(decision.detener),
+                   [](const MiServidorEnDisco& mio) { return mio.carpeta; });
+  }
+  return decision;
+}
+
+bool salir_con_mis_servidores(const std::wstring& raiz,
+                              const std::function<int(const std::vector<MiServidorEnDisco>&)>& preguntar) {
+  std::vector<MiServidorEnDisco> andando = leer_mis_servidores(raiz);
+  andando.erase(std::remove_if(andando.begin(), andando.end(),
+                               [](const MiServidorEnDisco& mio) { return !esta_andando(mio.carpeta); }),
+                andando.end());
+  const DecisionAlSalir decision = decidir_al_salir(andando, andando.empty() ? IDNO : preguntar(andando));
+  std::for_each(decision.detener.begin(), decision.detener.end(), detener_servidor);
+  return decision.salir;
 }
 
 }

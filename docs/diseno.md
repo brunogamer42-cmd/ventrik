@@ -232,7 +232,7 @@ Diseño del dueño del 2026-10-26. Capturas: docs/pantallas/Ajustes-*.png, una p
 - **Secciones en desarrollo:** llevan "PRONTO" en el menú. Adentro solo tienen el título, "EN DESARROLLO" y "Llega en la etapa N", sin controles de mentira (decisión del dueño, 2026-10-27). Son Apariencia (10), Red (6), Descargas (5), Prestar (13), Amigos (14), Copias (14) y Acerca de (11). Seguridad dejó de serlo en la etapa 4: tiene la copia de la identidad, la contraseña maestra, el bloqueo automático y las llaves de seguridad (estas últimas, solo en la versión moderna).
 - **Lo que hay desde el paso 3.5:**
   - **General:**
-    - **la bandeja:** "Al cerrar la ventana" viene en "Seguir en la bandeja", como en la captura. El ícono junto al reloj aparece cuando la ventana se esconde y se va cuando vuelve. "Salir", del menú del ícono, cierra Ventrik de verdad;
+    - **la bandeja:** "Al cerrar la ventana" viene en "Seguir en la bandeja", como en la captura. El ícono junto al reloj aparece cuando la ventana se esconde y se va cuando vuelve. "Salir", del menú del ícono, cierra Ventrik de verdad (con un servidor propio andando, antes pregunta si detenerlo: ver "Hostear");
     - **"Entrar solo al último servidor"** viene tildada: al abrir sin `--entrar`, entra al primero de la lista;
     - **"Al entrar a un servidor"**, con "Volver al último canal de voz", entra a ese canal si existe;
     - **el idioma** es el de Windows o uno elegido, y cambia al momento;
@@ -357,7 +357,7 @@ Después de iniciar, **Invitar gente** muestra el estado del servidor y las invi
 - **"Probar desde internet" funciona antes de iniciar:** abre el puerto un momento.
 - **Con el servidor ya creado,** "Configuración del servidor" muestra los mismos pasos como pestañas, sin Siguiente, y cada cambio se guarda solo. El nombre, la contraseña, el nivel y las opciones cambian en vivo; la lista de admins (también los desconectados) y el registro de seguridad están en Seguridad.
 - **"Iniciar servidor"** crea la carpeta del servidor en `%APPDATA%\Ventrik\Servidores\<nombre>`, corre `ventrik_servidor.exe --crear` (el programa le pasa por un caño, nunca por la línea de comandos, el nombre, el nivel, la clave pública del dueño y las contraseñas), lo arranca sin ventana y entra como dueño, sin código de dueño. Queda en Inicio como "Mi servidor", con Iniciar y entrar, Detener y Configurar.
-- **El servidor sigue andando al cerrar Ventrik,** igual que uno abierto por consola, y se detiene con **Detener**.
+- **Al salir de Ventrik con el servidor andando, pregunta:** "Tu servidor «nombre» sigue andando. ¿Lo detengo también?" (con varios, cuántos y cuáles). Sí lo detiene y sale; No sale y lo deja andando, igual que uno abierto por consola; Cancelar no sale. Sin servidores andando sale sin preguntar. Esconder la ventana en la bandeja no pregunta, y en cualquier momento se detiene con **Detener**.
 
 ## Voz
 

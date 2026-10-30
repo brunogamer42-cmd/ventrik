@@ -12,8 +12,12 @@
 
 #include <windows.h>
 
+#include <gsl/gsl>
+
 #include "client/conexion.h"
 #include "client/mis_servidores.h"
+#include "client/ui/hostear.h"
+#include "client/ui/ventana.h"
 #include "common/archivos.h"
 #include "common/cifrado/boveda.h"
 #include "common/cifrado/cadena.h"
@@ -201,6 +205,51 @@ bool negado(Cliente& cliente, TipoMensaje pedido, ventrik::protocolo::MotivoNega
 
 std::optional<ventrik::protocolo::RegistroDeSeguridad> registro_de(Cliente& cliente) {
   return cliente.esperar<ventrik::protocolo::RegistroDeSeguridad>({}, 30s);
+}
+
+std::optional<ventrik::protocolo::SalidaServidor> esperar_salida(const ventrik::cliente::ProcesoDelServidor& proceso) {
+  std::optional<ventrik::protocolo::SalidaServidor> salida;
+  esperar_que([&] { return (salida = proceso.salida()).has_value(); }, 60s);
+  return salida;
+}
+
+std::wstring crear_y_arrancar(const std::wstring& exe, const std::wstring& raiz, const std::string& nombre,
+                              std::optional<ventrik::cliente::ProcesoDelServidor>& andando) {
+  using ventrik::cliente::ProcesoDelServidor;
+  const std::wstring carpeta = ventrik::cliente::carpeta_nueva(raiz, nombre);
+  auto creado = ProcesoDelServidor::lanzar(exe, {L"--crear", L"--carpeta", carpeta},
+                                           ventrik::protocolo::armar_servidor_nuevo(servidor_nuevo(nombre)).bytes());
+  REQUIRE(creado);
+  REQUIRE(esperar_salida(*creado) == ventrik::protocolo::SalidaServidor::bien);
+  andando = ProcesoDelServidor::lanzar(
+      exe, {L"--carpeta", carpeta, L"--sin-consola", L"--local", L"--puerto", std::to_wstring(puerto_libre())},
+      ventrik::protocolo::armar_entrada({}, {}).bytes(), carpeta);
+  REQUIRE(andando);
+  REQUIRE(esperar_que([&] { return ventrik::cliente::esta_andando(carpeta); }, 60s));
+  return carpeta;
+}
+
+HWND pregunta_de(HWND ventana) {
+  DWORD proceso = 0;
+  GetWindowThreadProcessId(ventana, &proceso);
+  HWND cual = nullptr;
+  esperar_que([&] {
+    while ((cual = FindWindowExW(nullptr, cual, L"#32770", nullptr)) != nullptr) {
+      DWORD de = 0;
+      GetWindowThreadProcessId(cual, &de);
+      if (de == proceso && IsWindowVisible(cual)) {
+        return true;
+      }
+    }
+    return false;
+  }, 10s);
+  return cual;
+}
+
+std::wstring texto_de(HWND pregunta) {
+  std::array<wchar_t, 4096> texto{};
+  GetDlgItemTextW(pregunta, 0xFFFF, texto.data(), static_cast<int>(texto.size()));
+  return texto.data();
 }
 
 }
@@ -619,11 +668,6 @@ TEST_CASE("ventrik_servidor.exe crea por el caño, arranca sin consola con y sin
   }
   using ventrik::cliente::ProcesoDelServidor;
   using ventrik::protocolo::SalidaServidor;
-  const auto esperar_salida = [](const ProcesoDelServidor& proceso) {
-    std::optional<SalidaServidor> salida;
-    esperar_que([&] { return (salida = proceso.salida()).has_value(); }, 60s);
-    return salida;
-  };
   Raiz raiz;
   const std::wstring carpeta = raiz.de(L"Desde el exe");
   const Bytes basura{1, 2, 3};
@@ -685,6 +729,134 @@ TEST_CASE("ventrik_servidor.exe crea por el caño, arranca sin consola con y sin
   CHECK_FALSE(registro.empty());
   CHECK(registro.find(kArranque) == std::string::npos);
   CHECK(registro.find("Desde el exe") != std::string::npos);
+}
+
+TEST_CASE("Al salir, la respuesta decide cuáles de los servidores andando se detienen y si se sale") {
+  using ventrik::cliente::decidir_al_salir;
+  const std::vector<ventrik::cliente::MiServidorEnDisco> andando = {{L"C:\\Casa", "Casa"}, {L"C:\\Club", "Club"}};
+  const auto si = decidir_al_salir(andando, IDYES);
+  CHECK(si.detener == std::vector<std::wstring>{L"C:\\Casa", L"C:\\Club"});
+  CHECK(si.salir);
+  for (const int respuesta : {IDNO, IDCANCEL, 0}) {
+    const auto otra = decidir_al_salir(andando, respuesta);
+    CHECK(otra.detener.empty());
+    CHECK(otra.salir == (respuesta != IDCANCEL));
+  }
+  for (const int respuesta : {IDYES, IDNO, IDCANCEL, 0}) {
+    const auto sin_ninguno = decidir_al_salir({}, respuesta);
+    CHECK(sin_ninguno.detener.empty());
+    CHECK(sin_ninguno.salir);
+  }
+}
+
+TEST_CASE("La pregunta al salir nombra al servidor andando, o dice cuántos y cuáles son, y qué hace cada botón") {
+  using ventrik::cliente::MiServidorEnDisco;
+  using ventrik::ui::pregunta_al_salir;
+  const std::vector<MiServidorEnDisco> uno = {{L"a", "Casa"}};
+  const std::vector<MiServidorEnDisco> tres = {{L"a", "Casa"}, {L"b", "Club"}, {L"c", "Amigos"}};
+  const auto en = ventrik::elegir_idioma("en");
+  CHECK(pregunta_al_salir(en, uno) == "Your server \"Casa\" is still running. Should I stop it too?\n\n"
+                                      "Yes: stop it and quit. No: leave it running and quit. Cancel: stay in Ventrik.");
+  CHECK(pregunta_al_salir(en, tres) == "Your 3 servers are still running: Casa, Club and Amigos. Should I stop them too?\n\n"
+                                       "Yes: stop them and quit. No: leave them running and quit. Cancel: stay in Ventrik.");
+  const auto es = ventrik::elegir_idioma("es");
+  CHECK(pregunta_al_salir(es, uno) ==
+        ventrik::con_datos(ventrik::texto(es, ventrik::Clave::salir_un_servidor), {"Casa"}) + "\n\n" +
+            std::string(ventrik::texto(es, ventrik::Clave::salir_un_servidor_botones)));
+  CHECK(pregunta_al_salir(es, tres) ==
+        ventrik::con_datos(ventrik::texto(es, ventrik::Clave::salir_varios_servidores), {"Casa, Club y Amigos", "3"}) +
+            "\n\n" + std::string(ventrik::texto(es, ventrik::Clave::salir_varios_servidores_botones)));
+}
+
+TEST_CASE("Salir con un servidor propio andando pregunta: Cancelar no sale, No lo deja andando y Sí lo detiene de verdad") {
+  const std::wstring exe = ventrik::cliente::exe_del_servidor();
+  if (exe.empty()) {
+    MESSAGE("No está ventrik_servidor.exe junto a las pruebas: se saltea");
+    return;
+  }
+  using ventrik::cliente::MiServidorEnDisco;
+  using ventrik::cliente::salir_con_mis_servidores;
+  Raiz raiz;
+  REQUIRE(ventrik::escribir_archivo_completo(
+      ventrik::cliente::carpeta_nueva(raiz.ruta(), "Apagado") + ventrik::cifrado::kArchivoBoveda, Bytes{1}));
+  std::vector<std::vector<std::string>> preguntas;
+  const auto responder = [&preguntas](int respuesta) {
+    return [&preguntas, respuesta](const std::vector<MiServidorEnDisco>& andando) {
+      preguntas.emplace_back();
+      for (const MiServidorEnDisco& mio : andando) {
+        preguntas.back().push_back(mio.nombre);
+      }
+      return respuesta;
+    };
+  };
+  CHECK(salir_con_mis_servidores(raiz.ruta(), responder(IDCANCEL)));
+  CHECK(preguntas.empty());
+
+  std::optional<ventrik::cliente::ProcesoDelServidor> andando;
+  const std::wstring carpeta = crear_y_arrancar(exe, raiz.ruta(), "Casa", andando);
+  const auto parar = gsl::finally([&carpeta] { ventrik::cliente::detener_servidor(carpeta); });
+  CHECK_FALSE(salir_con_mis_servidores(raiz.ruta(), responder(IDCANCEL)));
+  CHECK(salir_con_mis_servidores(raiz.ruta(), responder(IDNO)));
+  const std::vector<std::string> solo_casa = {"Casa"};
+  CHECK(preguntas == std::vector<std::vector<std::string>>{solo_casa, solo_casa});
+  CHECK_FALSE(esperar_que([&] { return andando->salida().has_value(); }, 1s));
+  CHECK(ventrik::cliente::esta_andando(carpeta));
+  CHECK(salir_con_mis_servidores(raiz.ruta(), responder(IDYES)));
+  CHECK(preguntas.size() == 3);
+  CHECK(esperar_salida(*andando) == ventrik::protocolo::SalidaServidor::bien);
+  CHECK_FALSE(ventrik::cliente::esta_andando(carpeta));
+  CHECK(salir_con_mis_servidores(raiz.ruta(), responder(IDCANCEL)));
+  CHECK(preguntas.size() == 3);
+}
+
+TEST_CASE("Salir de Ventrik desde la bandeja con su servidor andando pregunta, y Cancelar, No y Sí hacen lo suyo") {
+  const std::wstring servidor = ventrik::cliente::exe_del_servidor();
+  const std::wstring programa = servidor.substr(0, servidor.find_last_of(L'\\') + 1) + L"ventrik.exe";
+  if (servidor.empty() || !existe(programa) || ventrik::ui::ser_el_unico() == nullptr) {
+    MESSAGE("Falta ventrik.exe o ventrik_servidor.exe junto a las pruebas, o hay otro Ventrik abierto: se saltea");
+    return;
+  }
+  using ventrik::ui::kOrdenSalir;
+  Raiz raiz;
+  const std::wstring datos = raiz.de(L"Programa");
+  std::optional<ventrik::cliente::ProcesoDelServidor> andando;
+  const std::wstring carpeta =
+      crear_y_arrancar(servidor, ventrik::cliente::carpeta_de_mis_servidores(datos, false), "Casa", andando);
+  const auto parar = gsl::finally([&carpeta] { ventrik::cliente::detener_servidor(carpeta); });
+  const auto salir = [](const Proceso& abierto) {
+    const HWND ventana = abierto.ventana(15s);
+    REQUIRE(ventana != nullptr);
+    PostMessageW(ventana, WM_COMMAND, kOrdenSalir, 0);
+    return ventana;
+  };
+  {
+    const Proceso abierto(programa, {L"--carpeta", datos});
+    const HWND ventana = salir(abierto);
+    HWND pregunta = pregunta_de(ventana);
+    REQUIRE(pregunta != nullptr);
+    CHECK(texto_de(pregunta).find(L"Casa") != std::wstring::npos);
+    PostMessageW(pregunta, WM_COMMAND, IDCANCEL, 0);
+    CHECK_FALSE(abierto.esperar_salida(1s).has_value());
+    CHECK(ventrik::cliente::esta_andando(carpeta));
+    PostMessageW(ventana, WM_COMMAND, kOrdenSalir, 0);
+    pregunta = pregunta_de(ventana);
+    REQUIRE(pregunta != nullptr);
+    PostMessageW(pregunta, WM_COMMAND, IDNO, 0);
+    CHECK(abierto.esperar_salida(10s) == DWORD{0});
+    CHECK(ventrik::cliente::esta_andando(carpeta));
+  }
+  {
+    const Proceso abierto(programa, {L"--carpeta", datos});
+    const HWND pregunta = pregunta_de(salir(abierto));
+    REQUIRE(pregunta != nullptr);
+    PostMessageW(pregunta, WM_COMMAND, IDYES, 0);
+    CHECK(abierto.esperar_salida(10s) == DWORD{0});
+    CHECK(esperar_salida(*andando) == ventrik::protocolo::SalidaServidor::bien);
+    CHECK_FALSE(ventrik::cliente::esta_andando(carpeta));
+  }
+  const Proceso abierto(programa, {L"--carpeta", datos});
+  salir(abierto);
+  CHECK(abierto.esperar_salida(10s) == DWORD{0});
 }
 
 TEST_CASE("El nombre del dueño al crear sale de Ventrik o es el genérico, nunca el usuario de Windows") {

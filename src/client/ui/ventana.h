@@ -77,6 +77,7 @@ class Ventana {
   std::uint32_t arranque_ms() const { return arranque_ms_; }
   int correr(const std::function<bool()>& atender, const std::function<void()>& dibujar);
   void al_terminar_la_sesion(std::function<void()> terminar) { al_terminar_ = std::move(terminar); }
+  void antes_de_salir(std::function<bool()> preguntar) { antes_de_salir_ = std::move(preguntar); }
   void bandeja(bool al_cerrar, bool al_minimizar, std::wstring abrir, std::wstring salir);
   void ocultar();
 
@@ -92,6 +93,7 @@ class Ventana {
   bool dibujar_cuadro(const std::function<void()>& dibujar);
   void poner_en_bandeja(bool poner);
   void menu_de_bandeja();
+  bool puede_salir();
 
   std::unique_ptr<Grafica> grafica_;
   HWND ventana_ = nullptr;
@@ -110,6 +112,8 @@ class Ventana {
   UINT ancho_nuevo_ = 0;
   UINT alto_nuevo_ = 0;
   std::function<void()> al_terminar_;
+  std::function<bool()> antes_de_salir_;
+  bool preguntando_ = false;
   bool cerrar_a_bandeja_ = false;
   bool minimizar_a_bandeja_ = false;
   std::wstring abrir_;

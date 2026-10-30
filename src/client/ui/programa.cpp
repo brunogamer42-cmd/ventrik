@@ -198,6 +198,14 @@ class Programa {
     }
   }
 
+  bool puede_salir() const {
+    return cliente::salir_con_mis_servidores(raiz_servidores_, [this](const auto& andando) {
+      return MessageBoxW(ventana_.hwnd(), a_utf16(pregunta_al_salir(pantalla_.idioma, andando)).c_str(),
+                         a_utf16(texto(pantalla_.idioma, Clave::titulo_ventana)).c_str(),
+                         MB_YESNOCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND);
+    });
+  }
+
   void registrar(const std::wstring& ruta) {
     registro_.open(ruta.c_str(), std::ios::trunc);
     if (!registro_) {
@@ -2526,6 +2534,7 @@ int abrir_programa(Idioma idioma, const std::wstring& titulo, int como_mostrar, 
     programa.registrar(registro);
   }
   ventana.al_terminar_la_sesion([&programa] { programa.cerrar(); });
+  ventana.antes_de_salir([&programa] { return programa.puede_salir(); });
   return ventana.correr([&programa] { return programa.atender(); }, [&programa] { programa.cuadro(); });
 }
 

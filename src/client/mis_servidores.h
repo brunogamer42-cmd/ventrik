@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -49,5 +50,14 @@ void borrar_carpeta_vacia(const std::wstring& carpeta);
 bool esta_andando(const std::wstring& carpeta);
 bool detener_servidor(const std::wstring& carpeta);
 bool pide_arranque(const std::wstring& carpeta);
+
+struct DecisionAlSalir {
+  std::vector<std::wstring> detener;
+  bool salir = true;
+};
+
+DecisionAlSalir decidir_al_salir(const std::vector<MiServidorEnDisco>& andando, int respuesta);
+bool salir_con_mis_servidores(const std::wstring& raiz,
+                              const std::function<int(const std::vector<MiServidorEnDisco>&)>& preguntar);
 
 }

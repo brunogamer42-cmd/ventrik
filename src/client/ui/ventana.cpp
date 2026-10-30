@@ -583,6 +583,15 @@ void Ventana::poner_en_bandeja(bool poner) {
   Shell_NotifyIconW(poner ? NIM_ADD : NIM_DELETE, &icono);
 }
 
+bool Ventana::puede_salir() {
+  if (std::exchange(preguntando_, true)) {
+    return false;
+  }
+  const bool salir = !antes_de_salir_ || antes_de_salir_();
+  preguntando_ = false;
+  return salir;
+}
+
 void Ventana::menu_de_bandeja() {
   const HMENU menu = CreatePopupMenu();
   AppendMenuW(menu, MF_STRING, kOrdenAbrir, abrir_.c_str());
@@ -734,6 +743,9 @@ LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LP
         yo->ocultar();
         return 0;
       }
+      if (yo != nullptr && !yo->puede_salir()) {
+        return 0;
+      }
       break;
     case kMensajeBandeja:
       if (yo != nullptr && LOWORD(lparam) == WM_LBUTTONUP) {
@@ -748,7 +760,9 @@ LRESULT CALLBACK Ventana::procesar(HWND ventana, UINT mensaje, WPARAM wparam, LP
         return 0;
       }
       if (wparam == kOrdenSalir) {
-        DestroyWindow(ventana);
+        if (yo == nullptr || yo->puede_salir()) {
+          DestroyWindow(ventana);
+        }
         return 0;
       }
       break;

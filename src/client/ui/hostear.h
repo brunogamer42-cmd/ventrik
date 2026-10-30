@@ -12,6 +12,10 @@
 #include "common/niveles.h"
 #include "common/textos.h"
 
+namespace ventrik::cliente {
+struct MiServidorEnDisco;
+}
+
 namespace ventrik::ui {
 enum class Paso : std::uint8_t { nombre, conexion, capacidad, seguridad, chat, pantallas, revisar, invitar };
 constexpr std::size_t kPasos = 8;
@@ -102,5 +106,6 @@ void borrar_contrasenas(DialogoDeServidor& dialogo);
 void pedir_contrasenas(DialogoDeServidor& dialogo, PideContrasena cual, bool con_arranque, bool andando = false);
 std::optional<Contrasenas> dibujar_dialogo(Idioma idioma, DialogoDeServidor& dialogo);
 PedidoHostear dibujar_hostear(PantallaHostear& pantalla);
+std::string pregunta_al_salir(Idioma idioma, const std::vector<cliente::MiServidorEnDisco>& andando);
 
 }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
 #include <string>
 #include <utility>
 
@@ -10,6 +11,8 @@
 #include <imgui_internal.h>
 
 #include "client/mi_identidad.h"
+#include "client/mis_servidores.h"
+#include "client/ui/servidor.h"
 #include "common/texto.h"
 #include "common/utf.h"
 
@@ -968,5 +971,15 @@ std::optional<Contrasenas> dibujar_dialogo(Idioma idioma, DialogoDeServidor& dia
 }
 
 PedidoHostear dibujar_hostear(PantallaHostear& pantalla) { return Dibujo(pantalla).dibujar(); }
+
+std::string pregunta_al_salir(Idioma idioma, const std::vector<cliente::MiServidorEnDisco>& andando) {
+  std::vector<std::string> nombres;
+  std::transform(andando.begin(), andando.end(), std::back_inserter(nombres),
+                 [](const cliente::MiServidorEnDisco& mio) { return mio.nombre; });
+  const bool uno = nombres.size() == 1;
+  return con_datos(texto(idioma, uno ? Clave::salir_un_servidor : Clave::salir_varios_servidores),
+                   {lista_de_nombres(idioma, nombres), std::to_string(nombres.size())}) +
+         "\n\n" + std::string(texto(idioma, uno ? Clave::salir_un_servidor_botones : Clave::salir_varios_servidores_botones));
+}
 
 }
