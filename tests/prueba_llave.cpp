@@ -339,6 +339,18 @@ TEST_CASE("El permiso de una llave RS256 vale solo para esa llave y con la firma
   CHECK_FALSE(cifrado::verificar_permiso(identidad->publica(), {Algoritmo::es256, llave.publica().clave}, 3, 3, *firma));
 }
 
+TEST_CASE("Un permiso firmado con el formato v1 ya no vale") {
+  const auto identidad = prueba::identidad_nueva_de_prueba();
+  const LlaveDeMentira llave;
+  Bytes v1 = bytes_de("ventrik permiso de llave v1");
+  v1.insert(v1.end(), identidad->publica().begin(), identidad->publica().end());
+  sumar(v1, llave.publica().clave);
+  sumar(v1, {3, 0, 0, 0});
+  const auto firma = identidad->firmar(v1);
+  REQUIRE(firma);
+  CHECK_FALSE(cifrado::verificar_permiso(identidad->publica(), llave.publica(), 3, 3, *firma));
+}
+
 TEST_CASE("El lector COSE de la llave acepta solo una clave P-256 justa") {
   const LlaveDeMentira llave;
   const Bytes buena = llave.cose();
@@ -459,6 +471,9 @@ TEST_CASE("Una firma RS256 de otra llave, alterada, de otro largo o cruzada con 
   CHECK(verificar(rsa, 0, datos, con_cero).resultado == ResultadoLlave::firma_invalida);
   CHECK(verificar(rsa, 0, datos, Bytes(firma.begin() + 1, firma.end())).resultado == ResultadoLlave::firma_invalida);
   CHECK(verificar(rsa, 0, datos, {}).resultado == ResultadoLlave::firma_invalida);
+  CHECK(verificar(rsa, 0, datos, Bytes(cifrado::kBytesModuloRsa, 0xFF)).resultado == ResultadoLlave::firma_invalida);
+  CHECK(verificar(rsa, 0, datos, rsa.publica().clave).resultado == ResultadoLlave::firma_invalida);
+  CHECK(verificar(rsa, 0, datos, Bytes(cifrado::kBytesModuloRsa, 0)).resultado == ResultadoLlave::firma_invalida);
   Bytes otros_datos = datos;
   otros_datos[36] ^= 0x01;
   CHECK(verificar(rsa, 0, otros_datos, firma).resultado == ResultadoLlave::firma_invalida);

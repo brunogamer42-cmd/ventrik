@@ -1294,10 +1294,10 @@ class Programa {
     const bool repetida = creada && std::any_of(llaves_nuevas_.begin(), llaves_nuevas_.end(), [&](const auto& llave) {
                             return llave.publica == creada->publica;
                           });
-    const auto permiso = creada && !repetida && identidad_
-                             ? identidad_->firmar(cifrado::lo_que_firma_el_permiso(identidad_->publica(),
-                                                                                    creada->publica, hecho.generacion))
-                             : std::nullopt;
+    const auto firmado = creada && !repetida && identidad_
+                             ? cifrado::lo_que_firma_el_permiso(identidad_->publica(), creada->publica, hecho.generacion)
+                             : std::vector<std::uint8_t>();
+    const auto permiso = !firmado.empty() ? identidad_->firmar(firmado) : std::nullopt;
     if (permiso) {
       llaves_nuevas_.push_back({creada->publica, creada->id, *permiso});
     } else {

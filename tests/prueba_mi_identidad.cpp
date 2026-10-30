@@ -388,6 +388,16 @@ TEST_CASE("El archivo de llaves se guarda con DPAPI, vuelve igual y uno dañado 
   CHECK(cargadas.llaves->llaves[3].publica == p256);
   CHECK_FALSE(cargadas.viejas);
 
+  ventrik::cliente::MisLlaves mas_grande{UINT32_MAX, identidad->publica(), {}};
+  mas_grande.llaves.assign(ventrik::cliente::kMaximoLlaves,
+                           {rsa, std::vector<std::uint8_t>(1023, 5), std::vector<std::uint8_t>(72, 6)});
+  REQUIRE(ventrik::cliente::guardar_mis_llaves(carpeta.ruta(), mas_grande));
+  CHECK(leer_todo(carpeta.archivo(L"llaves.dat")).size() < ventrik::cliente::kMaximoArchivoIdentidad);
+  const auto grandes = ventrik::cliente::cargar_mis_llaves(carpeta.ruta());
+  REQUIRE(grandes.llaves);
+  CHECK(grandes.llaves->llaves.size() == ventrik::cliente::kMaximoLlaves);
+  REQUIRE(ventrik::cliente::guardar_mis_llaves(carpeta.ruta(), mias));
+
   for (const auto& mala : {std::function<void(ventrik::cliente::MisLlaves&)>(
                                [](auto& llaves) { llaves.llaves[1].publica.clave.pop_back(); }),
                            std::function<void(ventrik::cliente::MisLlaves&)>(

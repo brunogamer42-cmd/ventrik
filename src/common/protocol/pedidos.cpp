@@ -315,14 +315,20 @@ void escribir_sin_firma(Escritor& escritor, const Presentarse& mensaje) {
 }
 
 std::vector<std::uint8_t> con_etiqueta(std::string_view etiqueta, const Presentarse& mensaje, std::uint16_t protocolo,
-                                       gsl::span<const std::uint8_t> huella, gsl::span<const std::uint8_t> valor) {
-  Escritor escritor;
+                                       gsl::span<const std::uint8_t> huella, gsl::span<const std::uint8_t> valor,
+                                       const cifrado::LlavePublica* llave = nullptr) {
+  std::vector<std::uint8_t> espacio;
+  espacio.reserve(etiqueta.size() + sizeof(protocolo) + huella.size() + valor.size() + kMaximoCuerpoPresentacion);
+  Escritor escritor(std::move(espacio));
   escritor.escribir_bytes(
       gsl::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(etiqueta.data()), etiqueta.size()));
   escritor.escribir_u16(protocolo);
   escritor.escribir_bytes(huella);
   escritor.escribir_bytes(valor);
   escribir_sin_firma(escritor, mensaje);
+  if (llave != nullptr) {
+    cifrado::escribir_llave(escritor, *llave);
+  }
   return escritor.ok() ? std::move(escritor).soltar() : std::vector<std::uint8_t>();
 }
 
@@ -335,15 +341,10 @@ std::vector<std::uint8_t> lo_que_se_firma(const Presentarse& mensaje, std::uint1
 std::optional<std::array<std::uint8_t, kBytesDesafioDeLlave>> desafio_de_llave(
     const Presentarse& mensaje, std::uint16_t protocolo, gsl::span<const std::uint8_t> huella,
     gsl::span<const std::uint8_t> valor_de_llave) {
-  auto firmado = mensaje.llave ? con_etiqueta("ventrik entrar con llave v2", mensaje, protocolo, huella, valor_de_llave)
+  auto firmado = mensaje.llave ? con_etiqueta("ventrik entrar con llave v2", mensaje, protocolo, huella, valor_de_llave,
+                                              &mensaje.llave->llave)
                                : std::vector<std::uint8_t>();
-  Escritor llave;
-  if (mensaje.llave) {
-    cifrado::escribir_llave(llave, mensaje.llave->llave);
-  }
-  const bool armado = !firmado.empty() && llave.ok();
-  firmado.insert(firmado.end(), llave.datos().begin(), llave.datos().end());
-  const auto desafio = armado ? cifrado::resumir(firmado) : std::nullopt;
+  const auto desafio = !firmado.empty() ? cifrado::resumir(firmado) : std::nullopt;
   mbedtls_platform_zeroize(firmado.data(), firmado.size());
   return desafio;
 }

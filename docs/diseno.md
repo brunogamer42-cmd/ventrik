@@ -844,6 +844,7 @@ La llave no guarda tu identidad: firma cada entrada. La identidad queda solo en 
 - **Generación:** son los minutos desde el 1 de enero de 2026, tomados al agregar llaves o al importar la copia de recuperación (la mayor entre la de la copia más 1 y la que ya había). El servidor rechaza las llaves de una generación menor a la que vio y no acepta una más de 2 días adelante de su reloj. Así, importar la copia en cualquier PC anula las llaves viejas en cada servidor, y lo último que se hace gana siempre. Exige que el reloj del servidor esté bien, igual que el TOTP.
 - **Más tiempo para presentarse:** poner un PIN tarda, así que con llave el servidor da 180 segundos en vez de 10, con un tope de 32 esperando a la vez, 8 de IP que nunca entraron bien y una por IP.
 - **Límites:** no hay llaves en XP ni en Windows anteriores a 10 (1903). Si una llave no ofrece ni ES256 ni RS256, el programa lo dice y pide probar con otra.
+- **En la base del servidor** la llave se guarda tal cual y el algoritmo sale del largo (65 bytes ES256, 256 bytes RS256). Un algoritmo nuevo con claves del mismo largo que uno de estos obliga a sumar la columna del algoritmo (base versión 8).
 
 ### Bóveda e historial cifrado del servidor
 
