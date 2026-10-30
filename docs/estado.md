@@ -1,7 +1,7 @@
 # Ventrik — Estado del trabajo
 
 Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerrar cada paso.
-Última actualización: 2026-10-29, con la etapa 4 completa en código y revisada. Falta la prueba a mano final del dueño.
+Última actualización: 2026-10-30, con la etapa 4 cerrada y subida a GitHub (hasta a5157ad). Sigue la etapa 5.
 
 ## Dónde estamos
 
@@ -940,7 +940,7 @@ Para retomar sin perder contexto (se carga desde CLAUDE.md). Actualizar al cerra
     - tiene que aparecer "Listo: tu identidad quedó en tu llave…", y la fila de la contraseña maestra y "Exportar copia" quedan apagadas;
     - cerrar Ventrik, abrirlo y entrar al servidor de prueba: Windows pide tocar la llave y se entra como siempre. El servidor de prueba tiene que estar actualizado;
     - en la HP, Ajustes → Seguridad muestra la fila apagada con "Necesita Windows 10 (1903) o posterior".
-- **Etapa 4: completa en código y revisada (2026-10-29).** Los pasos 4.1 a 4.11 están hechos y juntados en `main`, con `check.ps1` en TODO OK y el fuzzing de 10 minutos sin fallas. Falta solo la prueba a mano final del dueño (4.12); después, el push.
+- **Etapa 4: cerrada (prueba a mano del dueño 2026-10-29 y 30, subida a GitHub hasta a5157ad).** Los pasos 4.1 a 4.11 están hechos, con `check.ps1` en TODO OK y el fuzzing de 10 minutos sin fallas. En la prueba a mano anduvieron: identidad exportada, borrada e importada; admins y avisos; Hostear con segundo paso; cambio de huella; mudanza a la HP; y la llave con el PIN de Windows Hello contra el servidor de prueba. Lo que salió de esa prueba se arregló antes de subir: los textos de "huella" y de las dos contraseñas, la demora de la voz de la HP, el aviso de la hora en el código equivocado, RS256 para Windows Hello en Windows 10, el protocolo 9 con aviso de versión vieja y la pregunta al salir con un servidor andando (entradas de abajo).
   - **Revisión de toda la etapa** (un subagente que no escribió el código, sobre 483d6e6..7d8b98c, mirando cómo encajan las piezas hechas en paralelo): nada grave, 3 medias y 10 bajas. Todo arreglado en d3d3ee5, con una prueba que falla sin cada arreglo y una segunda revisión de los arreglos:
     - **equipo.dat que no abre** mandaba 32 ceros, y un ladrón con la identidad podía copiar ese "equipo" y recibir el QR. Ahora se aparta como `equipo-viejo-N.dat` y se crea otro (un error pasajero no lo aparta); sin secreto de equipo no se presenta (`sin_equipo`). El servidor trata siempre como nuevo un equipo con todos los bytes iguales.
     - **Modo "todos":** la sesión sin segundo paso veía personas y canales. Ahora su `Presentado` lleva solo General (contador 0) y a ella misma, y `difundir` la saltea (`Conexion::ve_la_sala`). Al activar le llegan `CanalCreado` y `UsuarioEntro` de todo; si vuelve a quedar restringida, `UsuarioSalio` y `CanalBorrado`. Lo leído de antes se guarda y se aplica cuando llega la sala.
