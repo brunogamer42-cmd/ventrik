@@ -223,6 +223,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
     exigir(llaves->size() <= ventrik::servidor::kMaximoUsuariosGuardados);
     for (const auto& suyas : *llaves) {
       exigir(suyas.llaves.size() <= ventrik::servidor::kMaximoLlavesPorUsuario);
+      for (const auto& llave : suyas.llaves) {
+        exigir(ventrik::cifrado::armar_llave(llave.llave.algoritmo, llave.llave.clave).has_value());
+      }
       base->guardar_llaves(suyas);
     }
   }
@@ -243,7 +246,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   base->guardar_aviso(nuevo.clave, std::nullopt, {ventrik::protocolo::Seguridad::canal_borrado, 1, "Ana", "Juegos"});
   avisos_validos(base->avisos_para(nuevo.clave, {}).lista, ventrik::servidor::kMaximoAvisosPorUsuario);
   base->guardar_segundo_paso({nuevo.clave, std::vector<std::uint8_t>(ventrik::servidor::kBytesSegundoPasoSellado, 3), 9, 1, 1});
-  base->guardar_llaves({nuevo.clave, 3, {{nuevo.clave, 7, true}}});
+  base->guardar_llaves(
+      {nuevo.clave,
+       3,
+       {{{ventrik::cifrado::AlgoritmoDeLlave::es256, std::vector<std::uint8_t>(nuevo.clave.begin(), nuevo.clave.end())},
+         7,
+         true},
+        {{ventrik::cifrado::AlgoritmoDeLlave::rs256, std::vector<std::uint8_t>(256, 0x81)}, 0, false}}});
+  base->llaves();
   base->guardar_texto("nombre", "Taberna");
   base->texto_guardado("nombre");
   base->quitar_dueno();

@@ -11,11 +11,14 @@
 #include "client/mi_identidad.h"
 #include "common/archivos.h"
 #include "common/cifrado/clave.h"
+#include "common/cifrado/dpapi.h"
 #include "common/cifrado/identidad.h"
 #include <doctest/doctest.h>
 
+using Algoritmo = ventrik::cifrado::AlgoritmoDeLlave;
 using ventrik::cifrado::AperturaSobre;
 using ventrik::cifrado::Clave;
+using ventrik::cifrado::LlavePublica;
 using ventrik::cliente::EstadoIdentidad;
 
 namespace {
@@ -362,9 +365,11 @@ TEST_CASE("El archivo de llaves se guarda con DPAPI, vuelve igual y uno dañado 
   REQUIRE(llave);
   CHECK_FALSE(ventrik::cliente::cargar_mis_llaves(carpeta.ruta()).llaves);
   CHECK_FALSE(ventrik::cliente::cargar_mis_llaves(carpeta.ruta()).danadas);
+  const LlavePublica p256{Algoritmo::es256, std::vector<std::uint8_t>(llave->publica().begin(), llave->publica().end())};
+  const LlavePublica rsa{Algoritmo::rs256, std::vector<std::uint8_t>(256, 0xA5)};
   ventrik::cliente::MisLlaves mias{7, identidad->publica(), {}};
   for (std::size_t i = 0; i < ventrik::cliente::kMaximoLlaves; ++i) {
-    mias.llaves.push_back({llave->publica(), std::vector<std::uint8_t>(i == 0 ? 1023 : i + 1, 5),
+    mias.llaves.push_back({i % 2 == 0 ? rsa : p256, std::vector<std::uint8_t>(i == 0 ? 1023 : i + 1, 5),
                            std::vector<std::uint8_t>(i == 0 ? 72 : 1, 6)});
   }
   REQUIRE(ventrik::cliente::guardar_mis_llaves(carpeta.ruta(), mias));
@@ -379,9 +384,15 @@ TEST_CASE("El archivo de llaves se guarda con DPAPI, vuelve igual y uno dañado 
   REQUIRE(cargadas.llaves->llaves.size() == ventrik::cliente::kMaximoLlaves);
   CHECK(cargadas.llaves->llaves[0].id.size() == 1023);
   CHECK(cargadas.llaves->llaves[0].permiso.size() == 72);
-  CHECK(cargadas.llaves->llaves[3].publica == llave->publica());
+  CHECK(cargadas.llaves->llaves[0].publica == rsa);
+  CHECK(cargadas.llaves->llaves[3].publica == p256);
+  CHECK_FALSE(cargadas.viejas);
 
   for (const auto& mala : {std::function<void(ventrik::cliente::MisLlaves&)>(
+                               [](auto& llaves) { llaves.llaves[1].publica.clave.pop_back(); }),
+                           std::function<void(ventrik::cliente::MisLlaves&)>(
+                               [](auto& llaves) { llaves.llaves[0].publica.algoritmo = Algoritmo::es256; }),
+                           std::function<void(ventrik::cliente::MisLlaves&)>(
                                [](auto& llaves) { llaves.llaves.push_back(llaves.llaves.back()); }),
                            std::function<void(ventrik::cliente::MisLlaves&)>(
                                [](auto& llaves) { llaves.llaves[1].id.assign(1024, 1); }),
@@ -405,9 +416,15 @@ TEST_CASE("El archivo de llaves se guarda con DPAPI, vuelve igual y uno dañado 
   auto con_cantidad_de_mas = entero;
   con_cantidad_de_mas[4 + 65] = static_cast<std::uint8_t>(ventrik::cliente::kMaximoLlaves + 1);
   CHECK_FALSE(ventrik::cliente::leer_contenido_de_llaves(con_cantidad_de_mas));
-  auto llave_fuera = entero;
-  llave_fuera[4 + 65 + 1 + 10] ^= 0x01;
-  CHECK_FALSE(ventrik::cliente::leer_contenido_de_llaves(llave_fuera));
+  constexpr std::size_t kPrimeraLlave = 4 + 65 + 1;
+  for (const auto& [lugar, valor] : {std::make_pair(kPrimeraLlave, 3), std::make_pair(kPrimeraLlave, 1),
+                                     std::make_pair(kPrimeraLlave + 1, 0x41), std::make_pair(kPrimeraLlave + 3, 0x25),
+                                     std::make_pair(kPrimeraLlave + 3 + 255, 0xA4)}) {
+    auto llave_fuera = entero;
+    llave_fuera[lugar] = static_cast<std::uint8_t>(valor);
+    CAPTURE(lugar);
+    CHECK_FALSE(ventrik::cliente::leer_contenido_de_llaves(llave_fuera));
+  }
 
   auto danado = archivo;
   danado[danado.size() / 2] ^= 0x01;
@@ -415,6 +432,56 @@ TEST_CASE("El archivo de llaves se guarda con DPAPI, vuelve igual y uno dañado 
   const auto con_dano = ventrik::cliente::cargar_mis_llaves(carpeta.ruta());
   CHECK_FALSE(con_dano.llaves);
   CHECK(con_dano.danadas);
+  CHECK_FALSE(con_dano.viejas);
+}
+
+TEST_CASE("Un llaves.dat de la versión 1: sin llaves se lee igual; con llaves se rechaza y avisa que son viejas") {
+  const Carpeta carpeta;
+  const auto identidad = Clave::crear_nueva();
+  const auto llave = Clave::crear_nueva();
+  REQUIRE(identidad);
+  REQUIRE(llave);
+  REQUIRE(ventrik::crear_carpetas(carpeta.ruta()));
+  const auto version_1 = [&](bool con_llave) {
+    std::vector<std::uint8_t> contenido = {0x09, 0, 0, 0};
+    contenido.insert(contenido.end(), identidad->publica().begin(), identidad->publica().end());
+    contenido.push_back(con_llave ? 1 : 0);
+    if (con_llave) {
+      contenido.insert(contenido.end(), llave->publica().begin(), llave->publica().end());
+      contenido.insert(contenido.end(), {3, 0, 1, 2, 3, 2, 7, 7});
+    }
+    const auto protegido = ventrik::cifrado::proteger_con_windows(contenido, "ventrik llaves v1");
+    REQUIRE(protegido);
+    std::vector<std::uint8_t> archivo = {'V', 'K', 'L', 'L', 1};
+    archivo.insert(archivo.end(), protegido->begin(), protegido->end());
+    REQUIRE(ventrik::escribir_archivo_completo(carpeta.archivo(L"llaves.dat"), archivo));
+    return ventrik::cliente::cargar_mis_llaves(carpeta.ruta());
+  };
+  const auto sin_llaves = version_1(false);
+  REQUIRE(sin_llaves.llaves);
+  CHECK_FALSE(sin_llaves.danadas);
+  CHECK_FALSE(sin_llaves.viejas);
+  CHECK(sin_llaves.llaves->generacion == 9);
+  CHECK(sin_llaves.llaves->identidad == identidad->publica());
+  CHECK(sin_llaves.llaves->llaves.empty());
+  const auto con_llaves = version_1(true);
+  CHECK_FALSE(con_llaves.llaves);
+  CHECK(con_llaves.danadas);
+  CHECK(con_llaves.viejas);
+
+  REQUIRE(ventrik::cliente::guardar_mis_llaves(carpeta.ruta(), *sin_llaves.llaves));
+  const auto archivo = leer_todo(carpeta.archivo(L"llaves.dat"));
+  REQUIRE(archivo.size() > 5);
+  CHECK(archivo[4] == 2);
+  auto otra_version = archivo;
+  for (const std::uint8_t version : {std::uint8_t{0}, std::uint8_t{3}}) {
+    otra_version[4] = version;
+    REQUIRE(ventrik::escribir_archivo_completo(carpeta.archivo(L"llaves.dat"), otra_version));
+    const auto cargadas = ventrik::cliente::cargar_mis_llaves(carpeta.ruta());
+    CHECK(cargadas.danadas);
+    CHECK_FALSE(cargadas.viejas);
+  }
+  CHECK(ventrik::cliente::leer_archivo_de_llaves(archivo).llaves);
 }
 
 TEST_CASE("Borrar la identidad de la PC la borra junto con sus copias apartadas y no se crea otra sola") {

@@ -165,13 +165,20 @@ class Consulta {
 
   std::int64_t columna_entero(int columna) { return sqlite3_column_int64(consulta_, columna); }
 
-  bool columna_bytes(int columna, gsl::span<std::uint8_t> destino) {
+  gsl::span<const std::uint8_t> columna_blob(int columna) {
     const void* datos = sqlite3_column_blob(consulta_, columna);
     const int largo = sqlite3_column_bytes(consulta_, columna);
-    if (datos == nullptr || largo < 0 || static_cast<std::size_t>(largo) != destino.size()) {
+    if (datos == nullptr || largo <= 0) {
+      return {};
+    }
+    return gsl::span<const std::uint8_t>(static_cast<const std::uint8_t*>(datos), static_cast<std::size_t>(largo));
+  }
+
+  bool columna_bytes(int columna, gsl::span<std::uint8_t> destino) {
+    const auto bytes = columna_blob(columna);
+    if (bytes.empty() || bytes.size() != destino.size()) {
       return false;
     }
-    const gsl::span<const std::uint8_t> bytes(static_cast<const std::uint8_t*>(datos), destino.size());
     std::copy(bytes.begin(), bytes.end(), destino.begin());
     return true;
   }
@@ -977,11 +984,14 @@ std::optional<std::vector<LlavesDeUsuario>> Base::llaves() {
   int paso_llaves = SQLITE_ROW;
   while (paso == SQLITE_DONE && (paso_llaves = filas.paso()) == SQLITE_ROW) {
     ClaveDeUsuario clave{};
-    LlaveGuardada llave{{}, static_cast<std::uint32_t>(filas.columna_entero(2)), filas.columna_entero(3) == 1};
     const auto suyas = filas.columna_bytes(0, clave) ? por_clave.find(clave) : por_clave.end();
-    if (suyas != por_clave.end() && filas.columna_bytes(1, llave.llave) &&
-        suyas->second.llaves.size() < kMaximoLlavesPorUsuario) {
-      suyas->second.llaves.push_back(llave);
+    const auto bytes = filas.columna_blob(1);
+    auto llave = cifrado::armar_llave(bytes.size() == cifrado::kBytesClavePublica ? cifrado::AlgoritmoDeLlave::es256
+                                                                                   : cifrado::AlgoritmoDeLlave::rs256,
+                                      bytes);
+    if (suyas != por_clave.end() && llave && suyas->second.llaves.size() < kMaximoLlavesPorUsuario) {
+      suyas->second.llaves.push_back(
+          {std::move(*llave), static_cast<std::uint32_t>(filas.columna_entero(2)), filas.columna_entero(3) == 1});
     }
   }
   if (paso != SQLITE_DONE || paso_llaves != SQLITE_DONE) {
@@ -1028,7 +1038,7 @@ bool Base::guardar_llaves(const LlavesDeUsuario& suyas) {
   bool bien = generacion.paso() == SQLITE_DONE && sqlite3_changes(base_) == 1 && viejas.paso() == SQLITE_DONE;
   for (const LlaveGuardada& llave : suyas.llaves) {
     Consulta nueva(base_, "INSERT INTO llaves(clave, llave, contador, confirmada) VALUES (?1, ?2, ?3, ?4)");
-    nueva.bytes(1, suyas.clave).bytes(2, llave.llave).entero(3, llave.contador).entero(4, llave.confirmada);
+    nueva.bytes(1, suyas.clave).bytes(2, llave.llave.clave).entero(3, llave.contador).entero(4, llave.confirmada);
     bien = bien && nueva.paso() == SQLITE_DONE;
   }
   if (!bien || !correr(Sentencia::soltar)) {

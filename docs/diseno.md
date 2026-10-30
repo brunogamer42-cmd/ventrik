@@ -833,17 +833,17 @@ Ningún cifrado frena a un programa malicioso que ya controla tu sesión mientra
 La llave no guarda tu identidad: firma cada entrada. La identidad queda solo en la copia de recuperación.
 
 - **Agregar una llave** (Ajustes → Seguridad; solo la versión moderna con Windows 10, versión 1903 o posterior; si no, la fila va apagada con la explicación):
-  1. Windows crea en la llave, o en Windows Hello, un par de claves propio: solo ES256 y sin atestación.
-  2. Tu identidad firma un **permiso** para esa llave: una etiqueta propia, la identidad, la llave y una generación.
+  1. Windows crea en la llave, o en Windows Hello, un par de claves propio, sin atestación. Ventrik pide ES256 primero y, solo en Windows anteriores a Windows 11 22H2 (build 22621), también RS256, porque ahí Windows Hello crea solo claves RSA. Las llaves USB eligen ES256 en cualquier Windows, y en Windows 11 22H2 o posterior nunca sale una clave RSA. RS256 se acepta solo con módulo de 2048 bits justos y exponente 65537.
+  2. Tu identidad firma un **permiso** para esa llave: una etiqueta propia, la identidad, el algoritmo y la llave con su largo, y una generación.
   3. Se puede sumar una llave de repuesto (hasta 4 en total) antes de borrar la identidad, porque su permiso lo firma la identidad.
   4. El programa obliga a guardar la copia de recuperación `.vkid`.
   5. Recién entonces borra la identidad de la PC, con ceros, y también las copias apartadas de la misma identidad. Queda `llaves.dat`, cifrado con DPAPI, con la identidad pública, la generación, las llaves y sus permisos. Si se cancela en cualquier punto, no cambia nada.
-- **Entrar:** el programa manda la llave pública, el permiso y la firma de la llave sobre un desafío que arma cada lado: el SHA-256 del protocolo, la huella del servidor, un valor de esa conexión TLS, la presentación sin firma y la llave pública. El servidor no lee JSON: rearma el texto que espera, exige 37 bytes justos de datos y verifica con Mbed TLS (ECDSA P-256). Mira primero el permiso y la firma, y recién después la generación, así nadie puede averiguar desde afuera si una identidad está registrada.
+- **Entrar:** el programa manda la llave pública, el permiso y la firma de la llave sobre un desafío que arma cada lado: el SHA-256 del protocolo, la huella del servidor, un valor de esa conexión TLS, la presentación sin firma y la llave pública. El servidor no lee JSON: rearma el texto que espera, exige 37 bytes justos de datos y verifica con Mbed TLS (ECDSA P-256 para ES256, RSASSA-PKCS1-v1_5 con SHA-256 para RS256). Mira primero el permiso y la firma, y recién después la generación, así nadie puede averiguar desde afuera si una identidad está registrada.
 - **Contador:** vale la regla de WebAuthn. Un 0 vale mientras lo guardado sea 0; si ya subió, un valor menor o igual es una posible llave clonada: se rechaza, se anota en el registro y se avisa al dueño y a esa identidad.
 - **Segundo paso:** una llave cuenta como segundo paso solo si pidió PIN o huella, porque con la identidad borrada de la PC una llave sin PIN sería un único factor. Una llave o una generación nueva no cuenta hasta confirmarla: con el código TOTP en esa entrada, desde un equipo de confianza o con el permiso del dueño.
 - **Generación:** son los minutos desde el 1 de enero de 2026, tomados al agregar llaves o al importar la copia de recuperación (la mayor entre la de la copia más 1 y la que ya había). El servidor rechaza las llaves de una generación menor a la que vio y no acepta una más de 2 días adelante de su reloj. Así, importar la copia en cualquier PC anula las llaves viejas en cada servidor, y lo último que se hace gana siempre. Exige que el reloj del servidor esté bien, igual que el TOTP.
 - **Más tiempo para presentarse:** poner un PIN tarda, así que con llave el servidor da 180 segundos en vez de 10, con un tope de 32 esperando a la vez, 8 de IP que nunca entraron bien y una por IP.
-- **Límites:** no hay llaves en XP ni en Windows anteriores a 10 (1903). RS256 no está soportado: Windows Hello en Windows 10 puede crear solo claves RS256, y si la llave no ofrece ES256 el programa lo dice y pide probar con otra.
+- **Límites:** no hay llaves en XP ni en Windows anteriores a 10 (1903). Si una llave no ofrece ni ES256 ni RS256, el programa lo dice y pide probar con otra.
 
 ### Bóveda e historial cifrado del servidor
 

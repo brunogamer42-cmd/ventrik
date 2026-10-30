@@ -15,6 +15,10 @@ namespace ventrik::cliente {
 
 enum class Autenticadores { ninguno, llaves, llaves_y_windows_hello };
 
+constexpr std::uint32_t kPrimerWindowsConEcc = 22621;
+
+std::vector<std::int32_t> algoritmos_de_llave(std::optional<std::uint32_t> build_de_windows);
+
 Autenticadores autenticadores_disponibles();
 
 using IdDeLlave = std::vector<std::uint8_t>;

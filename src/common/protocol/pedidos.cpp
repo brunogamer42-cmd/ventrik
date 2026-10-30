@@ -260,6 +260,26 @@ void leer_firma(Lector& lector, std::vector<std::uint8_t>& firma, std::size_t la
   firma.assign(bytes.begin(), bytes.end());
 }
 
+void escribir_firma_de_llave(Escritor& escritor, cifrado::AlgoritmoDeLlave algoritmo,
+                             const std::vector<std::uint8_t>& firma) {
+  if (!cifrado::firma_de_llave_valida(algoritmo, firma.size())) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u16(static_cast<std::uint16_t>(firma.size()));
+  escritor.escribir_bytes(firma);
+}
+
+void leer_firma_de_llave(Lector& lector, cifrado::AlgoritmoDeLlave algoritmo, std::vector<std::uint8_t>& firma) {
+  const std::size_t largo = lector.leer_u16();
+  const auto bytes = lector.leer_bytes(largo);
+  if (!cifrado::firma_de_llave_valida(algoritmo, largo)) {
+    lector.marcar_error();
+    return;
+  }
+  firma.assign(bytes.begin(), bytes.end());
+}
+
 template <std::size_t N>
 void leer_fijos(Lector& lector, std::array<std::uint8_t, N>& destino) {
   const auto bytes = lector.leer_bytes(N);
@@ -315,12 +335,14 @@ std::vector<std::uint8_t> lo_que_se_firma(const Presentarse& mensaje, std::uint1
 std::optional<std::array<std::uint8_t, kBytesDesafioDeLlave>> desafio_de_llave(
     const Presentarse& mensaje, std::uint16_t protocolo, gsl::span<const std::uint8_t> huella,
     gsl::span<const std::uint8_t> valor_de_llave) {
-  auto firmado = mensaje.llave ? con_etiqueta("ventrik entrar con llave v1", mensaje, protocolo, huella, valor_de_llave)
+  auto firmado = mensaje.llave ? con_etiqueta("ventrik entrar con llave v2", mensaje, protocolo, huella, valor_de_llave)
                                : std::vector<std::uint8_t>();
-  const bool armado = !firmado.empty();
-  if (armado) {
-    firmado.insert(firmado.end(), mensaje.llave->llave.begin(), mensaje.llave->llave.end());
+  Escritor llave;
+  if (mensaje.llave) {
+    cifrado::escribir_llave(llave, mensaje.llave->llave);
   }
+  const bool armado = !firmado.empty() && llave.ok();
+  firmado.insert(firmado.end(), llave.datos().begin(), llave.datos().end());
   const auto desafio = armado ? cifrado::resumir(firmado) : std::nullopt;
   mbedtls_platform_zeroize(firmado.data(), firmado.size());
   return desafio;
@@ -336,10 +358,10 @@ void escribir(Escritor& escritor, const Presentarse& mensaje) {
     escritor.marcar_error();
   }
   escritor.escribir_u8(0);
-  escritor.escribir_bytes(mensaje.llave->llave);
+  cifrado::escribir_llave(escritor, mensaje.llave->llave);
   escribir_firma(escritor, mensaje.llave->permiso);
   escritor.escribir_bytes(mensaje.llave->datos);
-  escribir_firma(escritor, mensaje.llave->firma);
+  escribir_firma_de_llave(escritor, mensaje.llave->llave.algoritmo, mensaje.llave->firma);
 }
 
 void leer(Lector& lector, Presentarse& mensaje) {
@@ -367,11 +389,11 @@ void leer(Lector& lector, Presentarse& mensaje) {
   if (largo_firma != 0) {
     leer_firma(lector, mensaje.firma, largo_firma);
   } else {
-    EntradaConLlave llave;
-    leer_fijos(lector, llave.llave);
+    auto publica = cifrado::leer_llave(lector);
+    EntradaConLlave llave{publica ? std::move(*publica) : cifrado::LlavePublica{}, {}, {}, {}};
     leer_firma(lector, llave.permiso, lector.leer_u8());
     leer_fijos(lector, llave.datos);
-    leer_firma(lector, llave.firma, lector.leer_u8());
+    leer_firma_de_llave(lector, llave.llave.algoritmo, llave.firma);
     mensaje.llave = std::move(llave);
   }
   if (!lector.ok() || (codigo != kSinCodigo && codigo >= kTopeCodigoSegundoPaso)) {

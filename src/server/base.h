@@ -63,7 +63,7 @@ struct SegundoPasoGuardado {
 constexpr std::size_t kMaximoLlavesPorUsuario = 8;
 
 struct LlaveGuardada {
-  ClaveDeUsuario llave{};
+  cifrado::LlavePublica llave;
   std::uint32_t contador = 0;
   bool confirmada = false;
 };

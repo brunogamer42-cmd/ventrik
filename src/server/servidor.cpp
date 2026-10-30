@@ -43,7 +43,7 @@ static_assert(protocolo::kBytesDatosDeLlave == cifrado::kBytesDatosDeLlave &&
               "La llave del protocolo y la de llave.h tienen que coincidir");
 constexpr auto kTodos = static_cast<std::uint8_t>(SegundoPaso::todos);
 
-LlaveGuardada* buscar_llave(std::vector<LlaveGuardada>& llaves, const ClaveDeUsuario& llave) {
+LlaveGuardada* buscar_llave(std::vector<LlaveGuardada>& llaves, const cifrado::LlavePublica& llave) {
   const auto encontrada =
       std::find_if(llaves.begin(), llaves.end(), [&llave](const LlaveGuardada& cual) { return cual.llave == llave; });
   return encontrada == llaves.end() ? nullptr : &*encontrada;
@@ -150,7 +150,7 @@ struct Servidor::Conexion {
   }
 
   struct LlaveUsada {
-    ClaveDeUsuario llave{};
+    cifrado::LlavePublica llave;
     std::uint32_t contador = 0;
     bool con_pin = false;
     bool confirmada = false;
@@ -812,7 +812,9 @@ std::optional<protocolo::MotivoPresentacion> Servidor::revisar_llave(Conexion& c
   const LlaveGuardada* guardada =
       conocida && presentacion.generacion == minima ? buscar_llave(yo->llaves, entrada.llave) : nullptr;
   const auto desafio = protocolo::desafio_de_llave(presentacion, conexion.protocolo, identidad_.huella().bytes(), valor);
-  if (!desafio || entrada.llave == presentacion.clave ||
+  if (!desafio ||
+      std::equal(entrada.llave.clave.begin(), entrada.llave.clave.end(), presentacion.clave.begin(),
+                 presentacion.clave.end()) ||
       !cifrado::verificar_permiso(presentacion.clave, entrada.llave, presentacion.generacion, 0, entrada.permiso)) {
     return MotivoPresentacion::firma_invalida;
   }
@@ -841,7 +843,7 @@ std::optional<protocolo::MotivoPresentacion> Servidor::revisar_llave(Conexion& c
       yo->llaves.size() >= kMaximoLlavesPorUsuario) {
     return MotivoPresentacion::lleno;
   }
-  conexion.llave =Conexion::LlaveUsada{entrada.llave, verificada.contador, verificada.segundo_paso,
+  conexion.llave = Conexion::LlaveUsada{entrada.llave, verificada.contador, verificada.segundo_paso,
                                         guardada != nullptr && guardada->confirmada};
   return std::nullopt;
 }

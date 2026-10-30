@@ -11,6 +11,7 @@
 #include <doctest/doctest.h>
 
 using namespace ventrik::protocolo;
+using ventrik::cifrado::AlgoritmoDeLlave;
 using Bytes = std::vector<std::uint8_t>;
 
 namespace {
@@ -476,12 +477,13 @@ TEST_CASE("Un datagrama lleva el tipo adelante y nada más") {
   CHECK(separar_datagrama(Bytes{17, 0})->cuerpo.empty());
 }
 
-TEST_CASE("Presentarse con llave lleva la llave, el permiso, 37 bytes de datos y la firma, en lugar de la firma") {
+TEST_CASE("Presentarse con llave lleva la llave con su algoritmo y su largo, el permiso, 37 bytes de datos y la firma, en lugar de la firma") {
   Presentarse con_llave = presentarse();
   con_llave.firma.clear();
   con_llave.generacion = 0x01020304;
   EntradaConLlave llave;
-  llave.llave.fill(6);
+  llave.llave = {AlgoritmoDeLlave::es256, Bytes(kBytesClavePublica, 6)};
+  llave.llave.clave[0] = 4;
   llave.permiso = {7, 7};
   llave.datos.fill(8);
   llave.firma = {9};
@@ -489,40 +491,83 @@ TEST_CASE("Presentarse con llave lleva la llave, el permiso, 37 bytes de datos y
   Bytes esperado = {3, 0, 'A', 'n', 'a', 0};
   esperado.insert(esperado.end(), kBytesClavePublica, 4);
   esperado.insert(esperado.end(), kBytesEquipo, 5);
-  esperado.insert(esperado.end(), {0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 4, 3, 2, 1, 0});
-  esperado.insert(esperado.end(), kBytesClavePublica, 6);
+  esperado.insert(esperado.end(), {0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 4, 3, 2, 1, 0, 1, 65, 0});
+  esperado.insert(esperado.end(), llave.llave.clave.begin(), llave.llave.clave.end());
   esperado.insert(esperado.end(), {2, 7, 7});
   esperado.insert(esperado.end(), kBytesDatosDeLlave, 8);
-  esperado.insert(esperado.end(), {1, 9});
+  esperado.insert(esperado.end(), {1, 0, 9});
   CHECK(en_bytes(con_llave) == esperado);
   ida_y_vuelta(con_llave);
   Presentarse con_las_dos = con_llave;
   con_las_dos.firma = {1};
   CHECK_FALSE(se_escribe(con_las_dos));
   for (auto& [permiso, firma] : {std::pair<Bytes, Bytes>{{}, {9}}, {{7}, {}}, {Bytes(kMaximoFirma + 1, 7), {9}},
-                                 {{7}, Bytes(kMaximoFirma + 1, 9)}}) {
+                                 {{7}, Bytes(kMaximoFirma + 1, 9)}, {{7}, Bytes(256, 9)}}) {
     Presentarse mala = con_llave;
     mala.llave->permiso = permiso;
     mala.llave->firma = firma;
     CHECK_FALSE(se_escribe(mala));
   }
   Bytes permiso_vacio = esperado;
-  permiso_vacio[permiso_vacio.size() - kBytesDatosDeLlave - 5] = 0;
+  permiso_vacio[permiso_vacio.size() - kBytesDatosDeLlave - 6] = 0;
   CHECK_FALSE(leer_mensaje<Presentarse>(permiso_vacio));
+
+  Presentarse con_rsa = con_llave;
+  con_rsa.llave->llave = {AlgoritmoDeLlave::rs256, Bytes(256, 0x81)};
+  con_rsa.llave->firma = Bytes(256, 9);
+  const Bytes rsa = en_bytes(con_rsa);
+  const std::size_t desde = esperado.size() - (3 + 65 + 3 + kBytesDatosDeLlave + 3);
+  Bytes cola_rsa = {2, 0, 1};
+  cola_rsa.insert(cola_rsa.end(), 256, 0x81);
+  cola_rsa.insert(cola_rsa.end(), {2, 7, 7});
+  cola_rsa.insert(cola_rsa.end(), kBytesDatosDeLlave, 8);
+  cola_rsa.insert(cola_rsa.end(), {0, 1});
+  cola_rsa.insert(cola_rsa.end(), 256, 9);
+  CHECK(Bytes(rsa.begin(), rsa.begin() + static_cast<std::ptrdiff_t>(desde)) ==
+        Bytes(esperado.begin(), esperado.begin() + static_cast<std::ptrdiff_t>(desde)));
+  CHECK(Bytes(rsa.begin() + static_cast<std::ptrdiff_t>(desde), rsa.end()) == cola_rsa);
+  ida_y_vuelta(con_rsa);
+  for (const auto& firma : {Bytes{9}, Bytes(255, 9), Bytes(257, 9), Bytes(kMaximoFirma, 9)}) {
+    Presentarse mala = con_rsa;
+    mala.llave->firma = firma;
+    CHECK_FALSE(se_escribe(mala));
+  }
+  for (auto& clave : {Bytes(255, 0x81), Bytes(257, 0x81), Bytes(256, 0x7F), Bytes(256, 0x80), Bytes(65, 4)}) {
+    Presentarse mala = con_rsa;
+    mala.llave->llave.clave = clave;
+    CHECK_FALSE(se_escribe(mala));
+  }
+  const auto cambiada = [&rsa, desde](std::size_t lugar, std::uint8_t valor) {
+    Bytes bytes = rsa;
+    bytes[desde + lugar] = valor;
+    return leer_mensaje<Presentarse>(bytes).has_value();
+  };
+  CHECK_FALSE(cambiada(0, 1));
+  CHECK_FALSE(cambiada(0, 3));
+  CHECK_FALSE(cambiada(0, 0));
+  CHECK_FALSE(cambiada(1, 0xFF));
+  CHECK_FALSE(cambiada(3, 0x01));
+  CHECK_FALSE(cambiada(3 + 255, 0x80));
+  CHECK_FALSE(cambiada(3 + 256 + 3 + kBytesDatosDeLlave, 0xFF));
+  Bytes firma_corta = rsa;
+  firma_corta.pop_back();
+  firma_corta[firma_corta.size() - 257] = 0xFF;
+  firma_corta[firma_corta.size() - 256] = 0;
+  CHECK_FALSE(leer_mensaje<Presentarse>(firma_corta));
 
   const std::array<std::uint8_t, 32> nada{};
   const auto desafio = desafio_de_llave(con_llave, 8, nada, nada);
   REQUIRE(desafio);
   CHECK_FALSE(desafio_de_llave(presentarse(), 8, nada, nada));
   Presentarse otra_llave = con_llave;
-  otra_llave.llave->llave.fill(7);
+  otra_llave.llave->llave.clave[1] ^= 1;
   Presentarse otra_generacion = con_llave;
   ++otra_generacion.generacion;
   std::array<std::uint8_t, 32> otro_valor{};
   otro_valor[0] = 1;
   for (const auto& otro : {desafio_de_llave(otra_llave, 8, nada, nada), desafio_de_llave(otra_generacion, 8, nada, nada),
                            desafio_de_llave(con_llave, 7, nada, nada), desafio_de_llave(con_llave, 8, otro_valor, nada),
-                           desafio_de_llave(con_llave, 8, nada, otro_valor)}) {
+                           desafio_de_llave(con_llave, 8, nada, otro_valor), desafio_de_llave(con_rsa, 8, nada, nada)}) {
     REQUIRE(otro);
     CHECK(*otro != *desafio);
   }
@@ -531,6 +576,28 @@ TEST_CASE("Presentarse con llave lleva la llave, el permiso, 37 bytes de datos y
   misma_otra_firma.llave->firma = {2, 2};
   misma_otra_firma.llave->permiso = {3};
   CHECK(desafio_de_llave(misma_otra_firma, 8, nada, nada) == desafio);
+  Presentarse llave_rota = con_llave;
+  llave_rota.llave->llave.algoritmo = AlgoritmoDeLlave::rs256;
+  CHECK_FALSE(desafio_de_llave(llave_rota, 8, nada, nada));
+}
+
+TEST_CASE("El Presentarse más grande, con una llave RS256, entra en el tope de la presentación") {
+  std::string nombre;
+  for (std::size_t i = 0; i < 32; ++i) {
+    nombre += "\xC3\xB1";
+  }
+  Presentarse grande = presentarse(std::array<std::uint8_t, 16>{});
+  grande.nombre = nombre;
+  grande.contrasena = std::string(kMaximoBytesContrasena, 'c');
+  grande.segundo_paso = kTopeCodigoSegundoPaso - 1;
+  grande.firma = Bytes(kMaximoFirma, 1);
+  CHECK(en_bytes(grande).size() == 390);
+  grande.firma.clear();
+  grande.llave = EntradaConLlave{{AlgoritmoDeLlave::rs256, Bytes(256, 0x81)}, Bytes(kMaximoFirma, 7), {}, Bytes(256, 9)};
+  const Bytes bytes = en_bytes(grande);
+  CHECK(bytes.size() == 945);
+  CHECK(bytes.size() <= kMaximoCuerpoPresentacion);
+  CHECK(leer_mensaje<Presentarse>(bytes));
 }
 
 TEST_CASE("Permitir el segundo paso y el estado del segundo paso vuelven iguales, y un estado desconocido no se lee") {

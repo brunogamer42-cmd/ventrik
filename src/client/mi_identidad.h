@@ -11,6 +11,7 @@
 #include <gsl/gsl>
 
 #include "common/cifrado/clave.h"
+#include "common/cifrado/llave.h"
 #include "common/cifrado/secreto.h"
 #include "common/cifrado/sobre.h"
 
@@ -55,7 +56,7 @@ std::optional<cifrado::Clave> leer_contenido_de_copia(gsl::span<const std::uint8
 constexpr std::size_t kMaximoLlaves = 4;
 
 struct LlaveRegistrada {
-  cifrado::ClavePublica publica{};
+  cifrado::LlavePublica publica;
   std::vector<std::uint8_t> id;
   std::vector<std::uint8_t> permiso;
 };
@@ -69,11 +70,12 @@ struct MisLlaves {
 struct LlavesCargadas {
   std::optional<MisLlaves> llaves;
   bool danadas = false;
+  bool viejas = false;
 };
 
 std::optional<std::vector<std::uint8_t>> armar_contenido_de_llaves(const MisLlaves& llaves);
 std::optional<MisLlaves> leer_contenido_de_llaves(gsl::span<const std::uint8_t> contenido);
-std::optional<MisLlaves> leer_archivo_de_llaves(gsl::span<const std::uint8_t> archivo);
+LlavesCargadas leer_archivo_de_llaves(gsl::span<const std::uint8_t> archivo);
 LlavesCargadas cargar_mis_llaves(const std::wstring& carpeta);
 bool guardar_mis_llaves(const std::wstring& carpeta, const MisLlaves& llaves);
 

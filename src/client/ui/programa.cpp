@@ -129,7 +129,7 @@ constexpr HRESULT kCanceladoPorLaPersona = _HRESULT_TYPEDEF_(0x80090036L);
 Clave explicar_webauthn(HRESULT error) {
   return error == kCanceladoPorLaPersona || error == HRESULT_FROM_WIN32(ERROR_CANCELLED) ? Clave::llave_cancelada
          : error == NTE_EXISTS                                                       ? Clave::llave_repetida
-         : error == NTE_NOT_SUPPORTED || error == NTE_BAD_DATA                       ? Clave::llave_sin_es256
+         : error == NTE_NOT_SUPPORTED || error == NTE_BAD_DATA                       ? Clave::llave_sin_algoritmo
                                                                                      : Clave::llave_error;
 }
 
@@ -1137,6 +1137,9 @@ class Programa {
     cliente::LlavesCargadas llaves = cliente::cargar_mis_llaves(carpeta_);
     if (llaves.llaves) {
       mis_llaves_ = std::make_shared<const cliente::MisLlaves>(std::move(*llaves.llaves));
+    }
+    if (llaves.viejas) {
+      avisar_identidad(Clave::llaves_viejas, true);
     }
     ajustes_.llaves_posibles = cliente::autenticadores_disponibles() != cliente::Autenticadores::ninguno;
     cliente::MiIdentidad cargada = cliente::cargar_o_crear_mi_identidad(

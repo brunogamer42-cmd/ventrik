@@ -192,8 +192,8 @@ bool tocar_llaves(protocolo::Presentarse& presentarse, const Presentacion& quien
     presentarse.llave = protocolo::EntradaConLlave{llave.publica, llave.permiso, {}, {}};
     const auto desafio = protocolo::desafio_de_llave(presentarse, version, huella, valor);
     const auto tocada = desafio ? quien.tocar_llave(llave.id, *desafio) : std::nullopt;
-    if (tocada && tocada->datos.size() == protocolo::kBytesDatosDeLlave && !tocada->firma.empty() &&
-        tocada->firma.size() <= protocolo::kMaximoFirma) {
+    if (tocada && tocada->datos.size() == protocolo::kBytesDatosDeLlave &&
+        cifrado::firma_de_llave_valida(llave.publica.algoritmo, tocada->firma.size())) {
       std::copy(tocada->datos.begin(), tocada->datos.end(), presentarse.llave->datos.begin());
       presentarse.llave->firma = tocada->firma;
       return true;

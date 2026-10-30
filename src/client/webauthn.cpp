@@ -11,8 +11,20 @@
 #endif
 
 namespace ventrik::cliente {
+
+std::vector<std::int32_t> algoritmos_de_llave(std::optional<std::uint32_t> build_de_windows) {
+  if (build_de_windows && *build_de_windows >= kPrimerWindowsConEcc) {
+    return {cifrado::kCoseEs256};
+  }
+  return {cifrado::kCoseEs256, cifrado::kCoseRs256};
+}
+
 #if defined(VENTRIK_MODERNA)
 namespace {
+
+static_assert(cifrado::kCoseEs256 == WEBAUTHN_COSE_ALGORITHM_ECDSA_P256_WITH_SHA256 &&
+                  cifrado::kCoseRs256 == WEBAUTHN_COSE_ALGORITHM_RSASSA_PKCS1_V1_5_WITH_SHA256,
+              "Los algoritmos de llave.h y los de webauthn.h tienen que coincidir");
 
 constexpr wchar_t kAplicacion[] = L"ventrik";
 constexpr DWORD kTiempoLimite = 120000;
@@ -46,6 +58,15 @@ const Funciones& funciones() {
     return f;
   }();
   return cargadas;
+}
+
+std::optional<std::uint32_t> build_de_windows() {
+  using LeerVersion = LONG(WINAPI*)(OSVERSIONINFOW*);
+  const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  const auto leer = ntdll != nullptr ? reinterpret_cast<LeerVersion>(GetProcAddress(ntdll, "RtlGetVersion")) : nullptr;
+  OSVERSIONINFOW version{};
+  version.dwOSVersionInfoSize = sizeof(version);
+  return leer != nullptr && leer(&version) == 0 ? std::optional<std::uint32_t>(version.dwBuildNumber) : std::nullopt;
 }
 
 std::vector<std::uint8_t> copia(const BYTE* datos, DWORD largo) {
@@ -94,10 +115,12 @@ RespuestaDeWebAuthn<cifrado::LlaveCreada> crear_llave(HWND ventana, const std::w
   const WEBAUTHN_USER_ENTITY_INFORMATION persona{WEBAUTHN_USER_ENTITY_INFORMATION_CURRENT_VERSION,
                                                  static_cast<DWORD>(usuario.size()), usuario.data(), nombre.c_str(),
                                                  nullptr, nombre.c_str()};
-  WEBAUTHN_COSE_CREDENTIAL_PARAMETER es256{WEBAUTHN_COSE_CREDENTIAL_PARAMETER_CURRENT_VERSION,
-                                           WEBAUTHN_CREDENTIAL_TYPE_PUBLIC_KEY,
-                                           WEBAUTHN_COSE_ALGORITHM_ECDSA_P256_WITH_SHA256};
-  const WEBAUTHN_COSE_CREDENTIAL_PARAMETERS algoritmos{1, &es256};
+  std::vector<WEBAUTHN_COSE_CREDENTIAL_PARAMETER> pedidos;
+  for (const std::int32_t algoritmo : algoritmos_de_llave(build_de_windows())) {
+    pedidos.push_back(
+        {WEBAUTHN_COSE_CREDENTIAL_PARAMETER_CURRENT_VERSION, WEBAUTHN_CREDENTIAL_TYPE_PUBLIC_KEY, algoritmo});
+  }
+  const WEBAUTHN_COSE_CREDENTIAL_PARAMETERS algoritmos{static_cast<DWORD>(pedidos.size()), pedidos.data()};
   std::string texto = cifrado::texto_de_cliente(cifrado::Ceremonia::crear, desafio);
   const WEBAUTHN_CLIENT_DATA cliente = datos_de_cliente(texto);
   auto excluidas = credenciales(excluir);

@@ -1222,18 +1222,18 @@ TEST_CASE("Una base de la versión 6 pasa a la 7 y suma las tablas de las llaves
   borrar_base(archivo);
 }
 
-TEST_CASE("Las llaves se guardan por identidad con su generación, con tope, y se van con la identidad") {
+TEST_CASE("Las llaves ES256 y RS256 se guardan por identidad con su generación, con tope, y se van con la identidad") {
   auto base = base_en_memoria();
   UsuarioGuardado ana;
   ana.clave.fill(4);
   ana.nombre = "Ana";
   ana.creado_ms = ana.visto_ms = 1000;
   LlaveGuardada una;
-  una.llave.fill(7);
+  una.llave = {ventrik::cifrado::AlgoritmoDeLlave::es256, std::vector<std::uint8_t>(65, 4)};
   una.contador = 0xFFFFFFFF;
   una.confirmada = true;
   LlaveGuardada otra;
-  otra.llave.fill(8);
+  otra.llave = {ventrik::cifrado::AlgoritmoDeLlave::rs256, std::vector<std::uint8_t>(256, 0x81)};
   CHECK_FALSE(base->guardar_llaves({ana.clave, 2, {una}}));
   REQUIRE(base->guardar_usuario(ana));
   REQUIRE(base->guardar_llaves({ana.clave, 2, {una, otra}}));
@@ -1273,15 +1273,19 @@ TEST_CASE("Una fila de llave dañada en la base no se lee, y una generación da�
   ana.nombre = "Ana";
   ana.creado_ms = ana.visto_ms = 1000;
   LlaveGuardada una;
-  una.llave.fill(7);
+  una.llave = {ventrik::cifrado::AlgoritmoDeLlave::es256, std::vector<std::uint8_t>(65, 4)};
   {
     auto base = Base::abrir(archivo, "General");
     REQUIRE(base);
     REQUIRE(base->guardar_usuario(ana));
     REQUIRE(base->guardar_llaves({ana.clave, 2, {una}}));
   }
-  for (const char* dano : {"UPDATE llaves SET contador = -1;", "UPDATE llaves SET confirmada = 2;",
-                           "UPDATE llaves SET llave = x'0102';"}) {
+  for (const char* dano :
+       {"UPDATE llaves SET contador = -1;", "UPDATE llaves SET confirmada = 2;", "UPDATE llaves SET llave = x'0102';",
+        "UPDATE llaves SET llave = x'02' || substr(llave, 2);", "UPDATE llaves SET llave = zeroblob(256);",
+        "UPDATE llaves SET llave = x'7F' || zeroblob(254) || x'01';",
+        "UPDATE llaves SET llave = x'80' || zeroblob(255);", "UPDATE llaves SET llave = x'81' || zeroblob(256);",
+        "UPDATE llaves SET llave = zeroblob(0);", "UPDATE llaves SET llave = 'texto';"}) {
     CAPTURE(dano);
     armar_base(archivo, dano);
     auto base = Base::abrir(archivo, "General");

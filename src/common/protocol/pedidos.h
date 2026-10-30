@@ -10,6 +10,7 @@
 #include <gsl/gsl>
 
 #include "common/cifrado/cadena.h"
+#include "common/cifrado/llave.h"
 #include "common/cifrado/secreto.h"
 #include "common/niveles.h"
 #include "common/protocol/bytes.h"
@@ -22,7 +23,7 @@ constexpr std::size_t kMaximoUsuariosEnLista = 1024;
 constexpr std::size_t kMaximoMensajesEnHistorial = 256;
 constexpr std::size_t kMaximoOpus = 400;
 constexpr std::size_t kMaximoDatagrama = 2048;
-constexpr std::size_t kMaximoCuerpoPresentacion = 640;
+constexpr std::size_t kMaximoCuerpoPresentacion = 1024;
 constexpr std::size_t kBytesClavePublica = 65;
 constexpr std::size_t kBytesDatosDeLlave = 37;
 constexpr std::size_t kBytesDesafioDeLlave = 32;
@@ -48,7 +49,7 @@ constexpr bool es_silencio_valido(std::uint8_t silencio) {
 }
 
 struct EntradaConLlave {
-  std::array<std::uint8_t, kBytesClavePublica> llave{};
+  cifrado::LlavePublica llave;
   std::vector<std::uint8_t> permiso;
   std::array<std::uint8_t, kBytesDatosDeLlave> datos{};
   std::vector<std::uint8_t> firma;

@@ -27,6 +27,7 @@ constexpr std::string_view kPropositoEquipo = "ventrik equipo v1";
 constexpr std::string_view kPropositoLlaves = "ventrik llaves v1";
 constexpr std::size_t kBytesGeneracion = 4;
 constexpr std::uint8_t kVersion = 1;
+constexpr std::uint8_t kVersionLlaves = 2;
 constexpr std::uint8_t kSinContrasenaMaestra = 0;
 constexpr std::uint8_t kConContrasenaMaestra = 1;
 constexpr std::size_t kMaximoDer = 1024;
@@ -36,21 +37,23 @@ gsl::span<const std::uint8_t> bytes_de(std::string_view texto) {
   return gsl::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(texto.data()), texto.size());
 }
 
-std::vector<std::uint8_t> con_marca(std::string_view marca, gsl::span<const std::uint8_t> cuerpo) {
+std::vector<std::uint8_t> con_marca(std::string_view marca, gsl::span<const std::uint8_t> cuerpo,
+                                    std::uint8_t version = kVersion) {
   protocolo::Escritor escritor;
   escritor.escribir_bytes(bytes_de(marca));
-  escritor.escribir_u8(kVersion);
+  escritor.escribir_u8(version);
   escritor.escribir_bytes(cuerpo);
   return std::move(escritor).soltar();
 }
 
-std::optional<gsl::span<const std::uint8_t>> sin_marca(std::string_view marca, gsl::span<const std::uint8_t> archivo) {
+std::optional<gsl::span<const std::uint8_t>> sin_marca(std::string_view marca, gsl::span<const std::uint8_t> archivo,
+                                                      std::uint8_t esperada = kVersion) {
   protocolo::Lector lector(archivo);
   const auto leida = lector.leer_bytes(marca.size());
   const bool misma = lector.ok() && std::equal(leida.begin(), leida.end(), bytes_de(marca).begin());
   const std::uint8_t version = lector.leer_u8();
   const auto cuerpo = lector.leer_bytes(lector.restante());
-  if (!lector.terminado() || !misma || version != kVersion || cuerpo.empty()) {
+  if (!lector.terminado() || !misma || version != esperada || cuerpo.empty()) {
     return std::nullopt;
   }
   return cuerpo;
@@ -233,7 +236,7 @@ std::optional<std::vector<std::uint8_t>> armar_contenido_de_llaves(const MisLlav
         llave.permiso.size() > cifrado::kMaximoFirma) {
       return std::nullopt;
     }
-    escritor.escribir_bytes(llave.publica);
+    cifrado::escribir_llave(escritor, llave.publica);
     escritor.escribir_u16(static_cast<std::uint16_t>(llave.id.size()));
     escritor.escribir_bytes(llave.id);
     escritor.escribir_u8(static_cast<std::uint8_t>(llave.permiso.size()));
@@ -250,20 +253,17 @@ std::optional<MisLlaves> leer_contenido_de_llaves(gsl::span<const std::uint8_t> 
   std::copy(identidad.begin(), identidad.end(), leidas.identidad.begin());
   const std::size_t cantidad = lector.leer_u8();
   for (std::size_t i = 0; i < cantidad && cantidad <= kMaximoLlaves && lector.ok(); ++i) {
-    LlaveRegistrada llave;
-    const auto publica = lector.leer_bytes(llave.publica.size());
-    std::copy(publica.begin(), publica.end(), llave.publica.begin());
+    auto publica = cifrado::leer_llave(lector);
     const std::size_t largo_id = lector.leer_u16();
     const auto id = lector.leer_bytes(largo_id);
     const std::size_t largo_permiso = lector.leer_u8();
     const auto permiso = lector.leer_bytes(largo_permiso);
-    if (largo_id == 0 || largo_id > cifrado::kMaximoIdDeLlave || largo_permiso == 0 ||
-        largo_permiso > cifrado::kMaximoFirma || !cifrado::huella_de_publica(llave.publica)) {
+    if (!publica || largo_id == 0 || largo_id > cifrado::kMaximoIdDeLlave || largo_permiso == 0 ||
+        largo_permiso > cifrado::kMaximoFirma) {
       return std::nullopt;
     }
-    llave.id.assign(id.begin(), id.end());
-    llave.permiso.assign(permiso.begin(), permiso.end());
-    leidas.llaves.push_back(std::move(llave));
+    leidas.llaves.push_back({std::move(*publica), std::vector<std::uint8_t>(id.begin(), id.end()),
+                             std::vector<std::uint8_t>(permiso.begin(), permiso.end())});
   }
   if (!lector.terminado() || cantidad > kMaximoLlaves || !cifrado::huella_de_publica(leidas.identidad)) {
     return std::nullopt;
@@ -271,10 +271,18 @@ std::optional<MisLlaves> leer_contenido_de_llaves(gsl::span<const std::uint8_t> 
   return leidas;
 }
 
-std::optional<MisLlaves> leer_archivo_de_llaves(gsl::span<const std::uint8_t> archivo) {
-  const auto cuerpo = sin_marca(kMarcaLlaves, archivo);
+LlavesCargadas leer_archivo_de_llaves(gsl::span<const std::uint8_t> archivo) {
+  const auto nuevo = sin_marca(kMarcaLlaves, archivo, kVersionLlaves);
+  const auto viejo = nuevo ? std::nullopt : sin_marca(kMarcaLlaves, archivo);
+  const auto cuerpo = nuevo ? nuevo : viejo;
   const auto abierto = cuerpo ? cifrado::abrir_con_windows(*cuerpo, kPropositoLlaves) : std::nullopt;
-  return abierto ? leer_contenido_de_llaves(abierto->bytes()) : std::nullopt;
+  auto llaves = abierto ? leer_contenido_de_llaves(abierto->bytes()) : std::nullopt;
+  const bool viejas = viejo && abierto && (!llaves || !llaves->llaves.empty());
+  if (viejas) {
+    llaves.reset();
+  }
+  const bool danadas = !llaves;
+  return {std::move(llaves), danadas, viejas};
 }
 
 LlavesCargadas cargar_mis_llaves(const std::wstring& carpeta) {
@@ -285,16 +293,15 @@ LlavesCargadas cargar_mis_llaves(const std::wstring& carpeta) {
   if (lectura == LecturaArchivo::no_existe) {
     return {};
   }
-  auto llaves = lectura == LecturaArchivo::leido ? leer_archivo_de_llaves(contenido.bytes()) : std::nullopt;
-  const bool danadas = !llaves;
-  return {std::move(llaves), danadas};
+  return lectura == LecturaArchivo::leido ? leer_archivo_de_llaves(contenido.bytes())
+                                          : LlavesCargadas{std::nullopt, true};
 }
 
 bool guardar_mis_llaves(const std::wstring& carpeta, const MisLlaves& llaves) {
   const auto contenido = armar_contenido_de_llaves(llaves);
   const auto protegido = contenido ? cifrado::proteger_con_windows(*contenido, kPropositoLlaves) : std::nullopt;
   return protegido && crear_carpetas(carpeta) &&
-         escribir_archivo_completo(carpeta + L"\\llaves.dat", con_marca(kMarcaLlaves, *protegido));
+         escribir_archivo_completo(carpeta + L"\\llaves.dat", con_marca(kMarcaLlaves, *protegido, kVersionLlaves));
 }
 
 std::optional<cifrado::LlaveDeSobre> nueva_maestra(std::string_view contrasena, std::optional<cifrado::Argon2> fijos) {

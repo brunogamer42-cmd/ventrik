@@ -6,22 +6,35 @@
 #include <utility>
 
 #include <mbedtls/base64.h>
-
-#include "common/protocol/bytes.h"
+#include <mbedtls/rsa.h>
 
 namespace ventrik::cifrado {
 namespace {
 
 using protocolo::Lector;
 
-constexpr char kEtiquetaPermiso[] = "ventrik permiso de llave v1";
+constexpr char kEtiquetaPermiso[] = "ventrik permiso de llave v2";
 constexpr std::array<std::uint8_t, 10> kCoseAntesDeX = {0xA5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20};
 constexpr std::array<std::uint8_t, 3> kCoseAntesDeY = {0x22, 0x58, 0x20};
+constexpr std::array<std::uint8_t, 11> kCoseAntesDeN = {0xA4, 0x01, 0x03, 0x03, 0x39, 0x01,
+                                                        0x00, 0x20, 0x59, 0x01, 0x00};
+constexpr std::array<std::uint8_t, 2> kCoseAntesDeE = {0x21, 0x43};
+constexpr std::array<std::uint8_t, 3> kExponenteRsa = {0x01, 0x00, 0x01};
 constexpr std::size_t kBytesCoordenada = 32;
 constexpr std::size_t kBytesAaguid = 16;
 
 gsl::span<const std::uint8_t> bytes_de(std::string_view texto) {
   return gsl::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(texto.data()), texto.size());
+}
+
+bool forma_valida(AlgoritmoDeLlave algoritmo, gsl::span<const std::uint8_t> clave) {
+  switch (algoritmo) {
+    case AlgoritmoDeLlave::es256:
+      return clave.size() == kBytesClavePublica && clave.front() == 0x04;
+    case AlgoritmoDeLlave::rs256:
+      return clave.size() == kBytesModuloRsa && (clave.front() & 0x80) != 0 && (clave.back() & 0x01) != 0;
+  }
+  return false;
 }
 
 bool leer_igual(Lector& lector, gsl::span<const std::uint8_t> esperado) {
@@ -54,7 +67,14 @@ std::optional<Cabecera> leer_cabecera(Lector& lector) {
   return cabecera;
 }
 
-std::optional<ClavePublica> leer_cose(Lector& lector) {
+std::optional<LlavePublica> leer_cose(Lector& lector) {
+  Lector rsa = lector;
+  if (leer_igual(rsa, kCoseAntesDeN)) {
+    const auto modulo = rsa.leer_bytes(kBytesModuloRsa);
+    const bool exponente = leer_igual(rsa, kCoseAntesDeE) && leer_igual(rsa, kExponenteRsa);
+    lector = rsa;
+    return exponente ? armar_llave(AlgoritmoDeLlave::rs256, modulo) : std::nullopt;
+  }
   const bool forma_x = leer_igual(lector, kCoseAntesDeX);
   const auto x = lector.leer_bytes(kBytesCoordenada);
   const bool forma_y = leer_igual(lector, kCoseAntesDeY);
@@ -64,9 +84,70 @@ std::optional<ClavePublica> leer_cose(Lector& lector) {
   }
   ClavePublica publica{0x04};
   std::copy(y.begin(), y.end(), std::copy(x.begin(), x.end(), publica.begin() + 1));
-  return huella_de_publica(publica) ? std::optional<ClavePublica>(publica) : std::nullopt;
+  return huella_de_publica(publica) ? armar_llave(AlgoritmoDeLlave::es256, publica) : std::nullopt;
 }
 
+bool verificar_rsa(gsl::span<const std::uint8_t> modulo, gsl::span<const std::uint8_t> datos,
+                   gsl::span<const std::uint8_t> firma) {
+  const auto resumen = resumir(datos);
+  mbedtls_rsa_context rsa;
+  mbedtls_rsa_init(&rsa);
+  const auto liberar = gsl::finally([&rsa] { mbedtls_rsa_free(&rsa); });
+  return resumen && firma.size() == kBytesModuloRsa &&
+         mbedtls_rsa_import_raw(&rsa, modulo.data(), modulo.size(), nullptr, 0, nullptr, 0, nullptr, 0,
+                                kExponenteRsa.data(), kExponenteRsa.size()) == 0 &&
+         mbedtls_rsa_complete(&rsa) == 0 && mbedtls_rsa_check_pubkey(&rsa) == 0 &&
+         mbedtls_rsa_get_len(&rsa) == kBytesModuloRsa &&
+         mbedtls_rsa_rsassa_pkcs1_v15_verify(&rsa, MBEDTLS_MD_SHA256, static_cast<unsigned int>(resumen->size()),
+                                             resumen->data(), firma.data()) == 0;
+}
+
+bool verificar_con_llave(const LlavePublica& llave, gsl::span<const std::uint8_t> datos,
+                         gsl::span<const std::uint8_t> firma) {
+  if (!forma_valida(llave.algoritmo, llave.clave) || !firma_de_llave_valida(llave.algoritmo, firma.size())) {
+    return false;
+  }
+  if (llave.algoritmo == AlgoritmoDeLlave::rs256) {
+    return verificar_rsa(llave.clave, datos, firma);
+  }
+  ClavePublica publica{};
+  std::copy(llave.clave.begin(), llave.clave.end(), publica.begin());
+  return verificar_firma(publica, datos, firma);
+}
+
+}
+
+std::optional<LlavePublica> armar_llave(AlgoritmoDeLlave algoritmo, gsl::span<const std::uint8_t> clave) {
+  if (!forma_valida(algoritmo, clave)) {
+    return std::nullopt;
+  }
+  return LlavePublica{algoritmo, std::vector<std::uint8_t>(clave.begin(), clave.end())};
+}
+
+bool firma_de_llave_valida(AlgoritmoDeLlave algoritmo, std::size_t largo) {
+  return algoritmo == AlgoritmoDeLlave::rs256   ? largo == kBytesModuloRsa
+         : algoritmo == AlgoritmoDeLlave::es256 ? largo >= 1 && largo <= kMaximoFirma
+                                                : false;
+}
+
+void escribir_llave(protocolo::Escritor& escritor, const LlavePublica& llave) {
+  if (!forma_valida(llave.algoritmo, llave.clave)) {
+    escritor.marcar_error();
+    return;
+  }
+  escritor.escribir_u8(static_cast<std::uint8_t>(llave.algoritmo));
+  escritor.escribir_u16(static_cast<std::uint16_t>(llave.clave.size()));
+  escritor.escribir_bytes(llave.clave);
+}
+
+std::optional<LlavePublica> leer_llave(protocolo::Lector& lector) {
+  const auto algoritmo = static_cast<AlgoritmoDeLlave>(lector.leer_u8());
+  const auto clave = lector.leer_bytes(lector.leer_u16());
+  auto llave = lector.ok() ? armar_llave(algoritmo, clave) : std::nullopt;
+  if (!llave) {
+    lector.marcar_error();
+  }
+  return llave;
 }
 
 std::uint32_t generacion_de_la_hora(std::uint64_t ms_desde_1970) {
@@ -95,7 +176,7 @@ std::string texto_de_cliente(Ceremonia ceremonia, gsl::span<const std::uint8_t> 
          R"(","challenge":")" + base64 + R"(","origin":")" + kAplicacionDeLlave + R"("})";
 }
 
-LlaveVerificada verificar_llave(const ClavePublica& llave, std::uint32_t contador_guardado,
+LlaveVerificada verificar_llave(const LlavePublica& llave, std::uint32_t contador_guardado,
                                 gsl::span<const std::uint8_t> desafio, gsl::span<const std::uint8_t> datos,
                                 gsl::span<const std::uint8_t> firma) {
   LlaveVerificada verificada;
@@ -109,7 +190,7 @@ LlaveVerificada verificar_llave(const ClavePublica& llave, std::uint32_t contado
   }
   std::vector<std::uint8_t> firmado(datos.begin(), datos.end());
   firmado.insert(firmado.end(), resumen->begin(), resumen->end());
-  if (!verificar_firma(llave, firmado, firma)) {
+  if (!verificar_con_llave(llave, firmado, firma)) {
     verificada.resultado = ResultadoLlave::firma_invalida;
     return verificada;
   }
@@ -120,26 +201,26 @@ LlaveVerificada verificar_llave(const ClavePublica& llave, std::uint32_t contado
   return {ResultadoLlave::valida, (cabecera->marcas & kLlaveVerificada) != 0, cabecera->contador};
 }
 
-std::vector<std::uint8_t> lo_que_firma_el_permiso(const ClavePublica& identidad, const ClavePublica& llave,
+std::vector<std::uint8_t> lo_que_firma_el_permiso(const ClavePublica& identidad, const LlavePublica& llave,
                                                   std::uint32_t generacion) {
   protocolo::Escritor escritor;
   escritor.escribir_bytes(bytes_de(kEtiquetaPermiso));
   escritor.escribir_bytes(identidad);
-  escritor.escribir_bytes(llave);
+  escribir_llave(escritor, llave);
   escritor.escribir_u32(generacion);
-  return std::move(escritor).soltar();
+  return escritor.ok() ? std::move(escritor).soltar() : std::vector<std::uint8_t>();
 }
 
-bool verificar_permiso(const ClavePublica& identidad, const ClavePublica& llave, std::uint32_t generacion,
+bool verificar_permiso(const ClavePublica& identidad, const LlavePublica& llave, std::uint32_t generacion,
                        std::uint32_t generacion_minima, gsl::span<const std::uint8_t> firma) {
-  return generacion >= generacion_minima &&
-         verificar_firma(identidad, lo_que_firma_el_permiso(identidad, llave, generacion), firma);
+  const auto firmado = lo_que_firma_el_permiso(identidad, llave, generacion);
+  return generacion >= generacion_minima && !firmado.empty() && verificar_firma(identidad, firmado, firma);
 }
 
-std::optional<ClavePublica> leer_clave_cose(gsl::span<const std::uint8_t> cose) {
+std::optional<LlavePublica> leer_clave_cose(gsl::span<const std::uint8_t> cose) {
   Lector lector(cose);
-  const auto publica = leer_cose(lector);
-  return lector.terminado() ? publica : std::nullopt;
+  auto publica = leer_cose(lector);
+  return lector.terminado() ? std::move(publica) : std::nullopt;
 }
 
 std::optional<LlaveCreada> leer_llave_creada(gsl::span<const std::uint8_t> datos) {
@@ -148,12 +229,12 @@ std::optional<LlaveCreada> leer_llave_creada(gsl::span<const std::uint8_t> datos
   lector.leer_bytes(kBytesAaguid);
   const std::size_t largo = leer_grande(lector, 2);
   const auto id = lector.leer_bytes(largo);
-  const auto publica = leer_cose(lector);
+  auto publica = leer_cose(lector);
   if (!cabecera || (cabecera->marcas & kLlaveConCredencial) == 0 || largo == 0 || largo > kMaximoIdDeLlave ||
       !publica || ((cabecera->marcas & kLlaveConExtensiones) == 0 && !lector.terminado())) {
     return std::nullopt;
   }
-  return LlaveCreada{std::vector<std::uint8_t>(id.begin(), id.end()), *publica};
+  return LlaveCreada{std::vector<std::uint8_t>(id.begin(), id.end()), std::move(*publica)};
 }
 
 }

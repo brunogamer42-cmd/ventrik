@@ -55,6 +55,9 @@ void contenido_de_llaves(gsl::span<const std::uint8_t> datos) {
   }
   exigir(llaves->llaves.size() <= ventrik::cliente::kMaximoLlaves);
   exigir(ventrik::cifrado::huella_de_publica(llaves->identidad).has_value());
+  for (const auto& llave : llaves->llaves) {
+    exigir(ventrik::cifrado::armar_llave(llave.publica.algoritmo, llave.publica.clave).has_value());
+  }
   const auto otra_vez = ventrik::cliente::armar_contenido_de_llaves(*llaves);
   exigir(otra_vez && std::equal(otra_vez->begin(), otra_vez->end(), datos.begin(), datos.end()));
 }
@@ -130,9 +133,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* datos, std::size_t lar
   clave_del_servidor(entrada);
   contenido_de_copia(entrada);
   contenido_de_llaves(entrada);
-  if (const auto llaves = ventrik::cliente::leer_archivo_de_llaves(entrada)) {
-    exigir(llaves->llaves.size() <= ventrik::cliente::kMaximoLlaves);
-  }
+  const auto cargadas = ventrik::cliente::leer_archivo_de_llaves(entrada);
+  exigir(cargadas.danadas == !cargadas.llaves.has_value() && (!cargadas.viejas || cargadas.danadas));
+  exigir(!cargadas.llaves || cargadas.llaves->llaves.size() <= ventrik::cliente::kMaximoLlaves);
   sobre(entrada);
   publica_y_firma(entrada);
   boveda(entrada);

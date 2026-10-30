@@ -196,9 +196,12 @@ void revisar_marco(const Marco& marco, std::optional<Hola>& ultima_hola) {
                                                 lo_que_se_firma(*presentarse, ventrik::kProtocoloMaximo, nada, nada),
                                                 presentarse->firma));
       exigir(presentarse->llave.has_value() == presentarse->firma.empty());
+      exigir(marco.cuerpo.size() <= kMaximoCuerpoPresentacion);
       if (const auto& llave = presentarse->llave) {
         const auto desafio = desafio_de_llave(*presentarse, ventrik::kProtocoloMaximo, nada, nada);
         exigir(desafio.has_value());
+        exigir(ventrik::cifrado::armar_llave(llave->llave.algoritmo, llave->llave.clave).has_value() &&
+               ventrik::cifrado::firma_de_llave_valida(llave->llave.algoritmo, llave->firma.size()));
         exigir(!ventrik::cifrado::verificar_permiso(presentarse->clave, llave->llave, presentarse->generacion, 0,
                                                     llave->permiso));
         exigir(ventrik::cifrado::verificar_llave(llave->llave, 0, *desafio, llave->datos, llave->firma).resultado !=
