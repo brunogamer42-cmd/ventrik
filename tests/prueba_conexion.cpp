@@ -15,6 +15,7 @@
 #include <mbedtls/x509_crt.h>
 
 #include "client/conexion.h"
+#include "client/sesion.h"
 #include "common/cifrado/identidad.h"
 #include "common/cifrado/inicio.h"
 #include "common/cifrado/tls.h"
@@ -26,6 +27,7 @@
 
 using namespace std::chrono_literals;
 using ventrik::cifrado::ConfigTls;
+using ventrik::Idioma;
 using ventrik::cifrado::IdentidadServidor;
 using ventrik::cliente::EstadoConexion;
 using ventrik::servidor::Evento;
@@ -442,6 +444,42 @@ TEST_CASE("Un servidor demasiado viejo se avisa como tal") {
   opciones.hola.protocolo_maximo = ventrik::kProtocoloMaximo + 1;
   CHECK(entrar(servidor.direccion(), servidor.huella(), opciones).estado ==
         EstadoConexion::servidor_viejo);
+}
+
+TEST_CASE("El protocolo 8 contra el 9, en los dos sentidos, avisa la versión vieja con qué hacer y no corta") {
+  static_assert(ventrik::kProtocoloMinimo == 9 && ventrik::kProtocoloMaximo == 9, "Esta prueba es del protocolo 9");
+  const auto explicado = [](Idioma idioma, const ventrik::cliente::ResultadoConexion& resultado) {
+    ventrik::cliente::IntentoDeConexion intento;
+    intento.estado = resultado.estado;
+    intento.version_pedida = resultado.version_pedida;
+    return ventrik::cliente::explicar(idioma, intento);
+  };
+  ventrik::servidor::Opciones de_antes;
+  de_antes.protocolo.protocolo_minimo = 8;
+  de_antes.protocolo.protocolo_maximo = 8;
+  ServidorDePrueba viejo(de_antes);
+  const auto contra_el_viejo = entrar(viejo.direccion(), viejo.huella());
+  CHECK(contra_el_viejo.estado == EstadoConexion::servidor_viejo);
+  CHECK(esperar_que([&] { return viejo.cuantos(Evento::rechazo_saludo) == 1; }));
+
+  ServidorDePrueba nuevo;
+  ventrik::cliente::OpcionesConexion programa_de_antes;
+  programa_de_antes.hola = {8, 8, {0, 5, 3}, 0};
+  const auto desde_el_viejo = entrar(nuevo.direccion(), nuevo.huella(), programa_de_antes);
+  CHECK(desde_el_viejo.estado == EstadoConexion::programa_viejo);
+  CHECK(desde_el_viejo.version_pedida == ventrik::VersionPrograma{0, 5, 4});
+
+  for (const char* codigo : {"es", "en"}) {
+    const Idioma idioma = ventrik::elegir_idioma(codigo);
+    const std::string cortada(ventrik::texto(idioma, ventrik::Clave::conectar_cortada));
+    CHECK(explicado(idioma, contra_el_viejo) == std::string(ventrik::texto(idioma, ventrik::Clave::conectar_servidor_viejo)));
+    CHECK(explicado(idioma, desde_el_viejo) ==
+          ventrik::con_datos(ventrik::texto(idioma, ventrik::Clave::conectar_programa_viejo), {"0.5.4"}));
+    CHECK(explicado(idioma, contra_el_viejo) != cortada);
+    CHECK(explicado(idioma, desde_el_viejo) != cortada);
+  }
+  CHECK(explicado(ventrik::elegir_idioma("es"), contra_el_viejo).find("Detener") != std::string::npos);
+  CHECK(explicado(ventrik::elegir_idioma("es"), desde_el_viejo).find("0.5.4") != std::string::npos);
 }
 
 TEST_CASE("Varios programas se conectan a la vez") {
